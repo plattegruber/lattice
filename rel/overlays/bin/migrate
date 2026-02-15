@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+
+# No-op for now — no database migrations.
+# This file exists so fly.toml's release_command doesn't fail.
+echo "No migrations to run."

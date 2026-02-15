@@ -16,6 +16,8 @@ fi
 
 log "Remote environment detected — installing tooling..."
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 # --- GitHub CLI (gh) ---
 if ! command -v gh &>/dev/null; then
   log "Installing GitHub CLI..."
@@ -33,40 +35,40 @@ else
 fi
 
 # --- Erlang/OTP + Elixir via asdf ---
+ASDF_VERSION="0.16.7"
+
 install_asdf_and_languages() {
   if ! command -v asdf &>/dev/null; then
-    log "Installing asdf version manager..."
-    git clone https://github.com/asdf-vm/asdf.git "$HOME/.asdf" --branch v0.16.0 2>/dev/null || true
-    # shellcheck disable=SC1091
-    . "$HOME/.asdf/asdf.sh"
+    log "Installing asdf version manager v${ASDF_VERSION}..."
+    curl -fsSL "https://github.com/asdf-vm/asdf/releases/download/v${ASDF_VERSION}/asdf-v${ASDF_VERSION}-linux-amd64.tar.gz" \
+      -o /tmp/asdf.tar.gz
+    mkdir -p "$HOME/.asdf/bin"
+    tar -xzf /tmp/asdf.tar.gz -C "$HOME/.asdf/bin"
+    rm -f /tmp/asdf.tar.gz
     export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"
+    log "asdf $(asdf version) installed"
   fi
 
   if ! asdf plugin list 2>/dev/null | grep -q erlang; then
     log "Adding asdf erlang plugin..."
-    asdf plugin add erlang https://github.com/asdf-vm/asdf-erlang.git
+    asdf plugin add erlang
   fi
 
   if ! asdf plugin list 2>/dev/null | grep -q elixir; then
     log "Adding asdf elixir plugin..."
-    asdf plugin add elixir https://github.com/asdf-vm/asdf-elixir.git
+    asdf plugin add elixir
   fi
 
   # Install versions from .tool-versions if present, otherwise use defaults
-  local PROJECT_DIR
-  PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-
   if [ -f "$PROJECT_DIR/.tool-versions" ]; then
     log "Installing languages from .tool-versions..."
     cd "$PROJECT_DIR"
     asdf install
   else
-    # Defaults — update these as needed
     local ERLANG_VERSION="27.2.4"
     local ELIXIR_VERSION="1.18.3-otp-27"
 
-    log "Installing Erlang/OTP $ERLANG_VERSION (this takes a few minutes)..."
-    # Minimal Erlang build — skip docs, GUI, and optional deps
+    log "Installing Erlang/OTP $ERLANG_VERSION..."
     export KERL_CONFIGURE_OPTIONS="--without-javac --without-wx --without-odbc --without-debugger --without-observer --without-et"
     asdf install erlang "$ERLANG_VERSION" || {
       log "WARNING: Erlang build failed — you may need build dependencies"
@@ -90,7 +92,7 @@ if ! command -v elixir &>/dev/null; then
   if command -v apt-get &>/dev/null; then
     log "Installing Erlang/Elixir build dependencies..."
     (sudo apt-get update -qq && sudo apt-get install -y -qq \
-      build-essential autoconf libncurses-dev libssl-dev libwxgtk-webview3.2-dev \
+      build-essential autoconf libncurses-dev libssl-dev \
       unzip curl 2>&1) | tail -1
   fi
   install_asdf_and_languages
@@ -112,17 +114,19 @@ fi
 # --- Hex + Rebar (Elixir package managers) ---
 if command -v mix &>/dev/null; then
   log "Installing Hex and Rebar..."
-  mix local.hex --force --if-missing 2>/dev/null
-  mix local.rebar --force --if-missing 2>/dev/null
+  mix local.hex --force --if-missing 2>/dev/null || \
+    mix archive.install github hexpm/hex branch latest --force 2>/dev/null || \
+    log "WARNING: Could not install Hex"
+  mix local.rebar --force --if-missing 2>/dev/null || \
+    log "WARNING: Could not install Rebar (may not be needed)"
   log "Hex and Rebar ready"
 fi
 
 # --- Project dependencies ---
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ -f "$PROJECT_DIR/mix.exs" ]; then
   log "Fetching project dependencies..."
   cd "$PROJECT_DIR"
-  mix deps.get 2>&1 | tail -3
+  mix deps.get 2>&1 | tail -5
   log "Dependencies fetched"
 fi
 

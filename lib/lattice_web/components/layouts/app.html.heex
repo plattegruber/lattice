@@ -1,0 +1,18 @@
+<header class="px-4 sm:px-6 lg:px-8">
+  <div class="flex items-center justify-between border-b border-gray-800 py-3 text-sm">
+    <div class="flex items-center gap-4">
+      <a href="/" class="text-lg font-semibold text-emerald-400 hover:text-emerald-300">
+        Lattice
+      </a>
+    </div>
+    <div class="flex items-center gap-4 font-semibold leading-6 text-gray-400">
+      <span class="rounded-full bg-gray-800 px-2 py-1 text-xs text-gray-300">v0.1.0</span>
+    </div>
+  </div>
+</header>
+<main class="px-4 py-10 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-7xl">
+    <.flash_group flash={@flash} />
+    {@inner_content}
+  </div>
+</main>

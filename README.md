@@ -29,13 +29,19 @@ Sprite Sprite Sprite  (GenServers — one per agent)
 - Every action is classified, gated, and audit-logged
 - GitHub issues serve as the human-in-the-loop approval substrate
 
+## Prerequisites
+
+- Erlang/OTP 27+
+- Elixir 1.18+
+
+We recommend [asdf](https://asdf-vm.com/) to manage versions. The `.tool-versions` file pins exact versions.
+
 ## Getting Started
 
 ```bash
-# Prerequisites: Erlang/OTP 27+, Elixir 1.18+
-mix setup
-mix phx.server
-# Visit http://localhost:4000
+mix setup              # Install deps + build assets
+mix phx.server         # Start dev server at http://localhost:4000
+iex -S mix phx.server  # Start with IEx shell attached
 ```
 
 ## Development
@@ -43,15 +49,27 @@ mix phx.server
 ```bash
 mix test                          # Run tests
 mix format --check-formatted      # Check formatting
-mix credo --strict                # Static analysis
 mix compile --warnings-as-errors  # Strict compilation
 ```
 
-See [CLAUDE.md](CLAUDE.md) for detailed conventions and [PHILOSOPHY.md](PHILOSOPHY.md) for design principles.
+## API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check — returns `{"status": "ok"}` |
 
 ## Deployment
 
-Deployed on [Fly.io](https://fly.io). See issue tracker for deployment setup status.
+Deployed on [Fly.io](https://fly.io). Pushes to `main` trigger CI, then auto-deploy.
+
+```bash
+fly deploy          # Manual deploy
+fly logs            # Tail production logs
+```
+
+Set the `FLY_API_TOKEN` secret in GitHub Actions for automated deploys.
+
+See [CLAUDE.md](CLAUDE.md) for detailed conventions and [PHILOSOPHY.md](PHILOSOPHY.md) for design principles.
 
 ## License
 

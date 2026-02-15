@@ -1,0 +1,15 @@
+# Ignore everything not needed in Docker build
+.git
+.github
+.claude
+.elixir_ls
+.vscode
+_build
+deps
+cover
+doc
+test
+.env
+.env.*
+*.md
+!README.md
