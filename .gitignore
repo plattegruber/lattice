@@ -1,0 +1,43 @@
+# Elixir/Mix
+/_build/
+/deps/
+/.fetch
+erl_crash.dump
+*.ez
+
+# Phoenix
+/priv/static/assets/
+
+# Database
+*.db
+*.db-journal
+/priv/*.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+\#*\#
+
+# Test
+/cover/
+
+# Dialyzer
+/priv/plts/
+
+# Fly.io
+.fly/
+
+# Node (Phoenix asset pipeline)
+/assets/node_modules/
