@@ -1,8 +1,8 @@
 defmodule LatticeWeb.PageControllerTest do
   use LatticeWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / redirects to /sprites", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert redirected_to(conn) == "/sprites"
   end
 end

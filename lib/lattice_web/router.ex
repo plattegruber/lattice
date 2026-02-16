@@ -25,6 +25,13 @@ defmodule LatticeWeb.Router do
     get "/", PageController, :home
   end
 
+  # Sprite placeholder route (detail view — future issue)
+  scope "/", LatticeWeb do
+    pipe_through :browser
+
+    live "/sprites/:id", SpritePlaceholderLive
+  end
+
   # Unauthenticated API routes
   scope "/", LatticeWeb do
     pipe_through :api
@@ -45,7 +52,7 @@ defmodule LatticeWeb.Router do
     scope "/", LatticeWeb do
       pipe_through :browser
 
-      # Future LiveView routes go here
+      live "/sprites", FleetLive
     end
   end
 
