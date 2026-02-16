@@ -177,6 +177,16 @@ config :lattice, :resources,
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 ```
 
+## Branch Protection
+
+The `main` branch should have these protection rules configured in GitHub (Settings > Branches > Branch protection rules):
+
+- **Require status checks to pass before merging** — select both `Build and test` and `Prod compile check` jobs
+- **Require branches to be up to date before merging** — ensures PRs are tested against the latest main
+- **Require pull request reviews before merging** (optional) — at least 1 approval recommended
+
+These rules must be set manually in the GitHub UI. They cannot be applied via CI.
+
 ## Issue Tracker
 
 Active issues are in [github.com/plattegruber/lattice/issues](https://github.com/plattegruber/lattice/issues).
