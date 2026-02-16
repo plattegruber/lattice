@@ -197,4 +197,117 @@ defmodule Lattice.Sprites.StateTest do
       assert length(states) == 5
     end
   end
+
+  # ── Max Retries ─────────────────────────────────────────────────────
+
+  describe "max_retries" do
+    test "defaults to 10" do
+      {:ok, state} = State.new("sprite-001")
+      assert state.max_retries == 10
+    end
+
+    test "accepts custom max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 5)
+      assert state.max_retries == 5
+    end
+  end
+
+  # ── Record Observation ──────────────────────────────────────────────
+
+  describe "record_observation/1" do
+    test "sets last_observed_at timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      assert state.last_observed_at == nil
+
+      state = State.record_observation(state)
+      assert %DateTime{} = state.last_observed_at
+    end
+
+    test "updates updated_at timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.record_observation(state)
+      assert DateTime.compare(state.updated_at, state.started_at) in [:gt, :eq]
+    end
+  end
+
+  # ── Compute Health ─────────────────────────────────────────────────
+
+  describe "compute_health/1" do
+    test "returns :ok when observed matches desired and no failures" do
+      {:ok, state} = State.new("sprite-001")
+      assert State.compute_health(state) == :ok
+    end
+
+    test "returns :converging when observed differs from desired with no failures" do
+      {:ok, state} = State.new("sprite-001", desired_state: :ready)
+      assert State.compute_health(state) == :converging
+    end
+
+    test "returns :degraded when there are failures below max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 10)
+      state = State.record_failure(state)
+      assert State.compute_health(state) == :degraded
+    end
+
+    test "returns :error when failure_count reaches max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 3)
+
+      state =
+        Enum.reduce(1..3, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert State.compute_health(state) == :error
+    end
+
+    test "returns :error when failure_count exceeds max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 2)
+
+      state =
+        Enum.reduce(1..5, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert State.compute_health(state) == :error
+    end
+
+    test "degraded takes priority over converging" do
+      # Has failures AND observed != desired
+      {:ok, state} = State.new("sprite-001", desired_state: :ready, max_retries: 10)
+      state = State.record_failure(state)
+      assert State.compute_health(state) == :degraded
+    end
+  end
+
+  # ── Backoff with Jitter ─────────────────────────────────────────────
+
+  describe "backoff_with_jitter/1" do
+    test "returns a value near the backoff_ms" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 1_000, max_backoff_ms: 60_000)
+      state = State.record_failure(state)
+
+      # Run multiple times to verify jitter varies
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      # All results should be within +/- 25% of 1000
+      assert Enum.all?(results, fn r -> r >= 750 and r <= 1250 end)
+    end
+
+    test "returns non-negative values for small backoffs" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 1, max_backoff_ms: 100)
+      state = State.record_failure(state)
+
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      assert Enum.all?(results, fn r -> r >= 0 end)
+    end
+
+    test "jitter is bounded by max_backoff through backoff_ms" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 100, max_backoff_ms: 200)
+
+      state =
+        Enum.reduce(1..20, state, fn _, acc -> State.record_failure(acc) end)
+
+      # backoff_ms is capped at 200, jitter should be around that
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      assert Enum.all?(results, fn r -> r >= 150 and r <= 250 end)
+    end
+  end
 end

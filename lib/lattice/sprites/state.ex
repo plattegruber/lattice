@@ -25,15 +25,19 @@ defmodule Lattice.Sprites.State do
 
   @type lifecycle :: :hibernating | :waking | :ready | :busy | :error
 
+  @type health :: :ok | :converging | :degraded | :error
+
   @type t :: %__MODULE__{
           sprite_id: String.t(),
           observed_state: lifecycle(),
           desired_state: lifecycle(),
-          health: :healthy | :degraded | :unhealthy | :unknown,
+          health: :healthy | :degraded | :unhealthy | :unknown | health(),
           backoff_ms: non_neg_integer(),
           max_backoff_ms: non_neg_integer(),
           base_backoff_ms: non_neg_integer(),
           failure_count: non_neg_integer(),
+          max_retries: non_neg_integer(),
+          last_observed_at: DateTime.t() | nil,
           log_cursor: String.t() | nil,
           started_at: DateTime.t(),
           updated_at: DateTime.t()
@@ -45,13 +49,15 @@ defmodule Lattice.Sprites.State do
     :log_cursor,
     :started_at,
     :updated_at,
+    :last_observed_at,
     observed_state: :hibernating,
     desired_state: :hibernating,
     health: :unknown,
     backoff_ms: 1_000,
     max_backoff_ms: 60_000,
     base_backoff_ms: 1_000,
-    failure_count: 0
+    failure_count: 0,
+    max_retries: 10
   ]
 
   @valid_lifecycle_states [:hibernating, :waking, :ready, :busy, :error]
@@ -65,6 +71,7 @@ defmodule Lattice.Sprites.State do
   - `:observed_state` -- initial observed state (default: `:hibernating`)
   - `:base_backoff_ms` -- base backoff interval in ms (default: 1000)
   - `:max_backoff_ms` -- maximum backoff interval in ms (default: 60000)
+  - `:max_retries` -- maximum consecutive failures before health is `:error` (default: 10)
 
   ## Examples
 
@@ -81,6 +88,7 @@ defmodule Lattice.Sprites.State do
     observed = Keyword.get(opts, :observed_state, :hibernating)
     base_backoff = Keyword.get(opts, :base_backoff_ms, 1_000)
     max_backoff = Keyword.get(opts, :max_backoff_ms, 60_000)
+    max_retries = Keyword.get(opts, :max_retries, 10)
 
     with :ok <- validate_lifecycle(desired),
          :ok <- validate_lifecycle(observed) do
@@ -94,6 +102,7 @@ defmodule Lattice.Sprites.State do
          base_backoff_ms: base_backoff,
          backoff_ms: base_backoff,
          max_backoff_ms: max_backoff,
+         max_retries: max_retries,
          started_at: now,
          updated_at: now
        }}
@@ -199,6 +208,78 @@ defmodule Lattice.Sprites.State do
   @spec needs_reconciliation?(t()) :: boolean()
   def needs_reconciliation?(%__MODULE__{observed_state: same, desired_state: same}), do: false
   def needs_reconciliation?(%__MODULE__{}), do: true
+
+  @doc """
+  Update the last observed timestamp after a successful API observation.
+
+  ## Examples
+
+      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
+      iex> state = Lattice.Sprites.State.record_observation(state)
+      iex> state.last_observed_at != nil
+      true
+
+  """
+  @spec record_observation(t()) :: t()
+  def record_observation(%__MODULE__{} = state) do
+    %{state | last_observed_at: DateTime.utc_now(), updated_at: DateTime.utc_now()}
+  end
+
+  @doc """
+  Compute health summary based on current state.
+
+  Returns:
+  - `:ok` -- observed matches desired, no failures
+  - `:converging` -- action taken, waiting for effect (observed != desired, no failures)
+  - `:degraded` -- retrying after failure (failure_count > 0 but under max_retries)
+  - `:error` -- max retries exceeded or persistent failure
+
+  ## Examples
+
+      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
+      iex> Lattice.Sprites.State.compute_health(state)
+      :ok
+
+  """
+  @spec compute_health(t()) :: health()
+  def compute_health(%__MODULE__{failure_count: count, max_retries: max})
+      when count >= max do
+    :error
+  end
+
+  def compute_health(%__MODULE__{failure_count: count}) when count > 0 do
+    :degraded
+  end
+
+  def compute_health(%__MODULE__{observed_state: same, desired_state: same}) do
+    :ok
+  end
+
+  def compute_health(%__MODULE__{}) do
+    :converging
+  end
+
+  @doc """
+  Compute the backoff delay with jitter for the next retry.
+
+  Uses exponential backoff with random jitter of +/- 25% to prevent
+  thundering-herd effects when multiple Sprites retry simultaneously.
+
+  ## Examples
+
+      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001", base_backoff_ms: 1000)
+      iex> state = Lattice.Sprites.State.record_failure(state)
+      iex> delay = Lattice.Sprites.State.backoff_with_jitter(state)
+      iex> delay >= 750 and delay <= 1250
+      true
+
+  """
+  @spec backoff_with_jitter(t()) :: non_neg_integer()
+  def backoff_with_jitter(%__MODULE__{backoff_ms: backoff}) do
+    jitter_range = max(div(backoff, 4), 1)
+    jitter = :rand.uniform(jitter_range * 2 + 1) - jitter_range - 1
+    max(backoff + jitter, 0)
+  end
 
   @doc "Returns the list of valid lifecycle states."
   @spec valid_lifecycle_states() :: [lifecycle()]
