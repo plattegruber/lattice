@@ -20,3 +20,12 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Use Mox mocks for capability modules in tests.
+# Mox modules are defined in test/test_helper.exs.
+# Individual tests can also use stubs directly by configuring per-test.
+config :lattice, :capabilities,
+  sprites: Lattice.Capabilities.MockSprites,
+  github: Lattice.Capabilities.MockGitHub,
+  fly: Lattice.Capabilities.MockFly,
+  secret_store: Lattice.Capabilities.MockSecretStore

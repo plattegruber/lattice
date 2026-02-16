@@ -10,6 +10,13 @@ import Config
 config :lattice,
   generators: [timestamp_type: :utc_datetime]
 
+# Capability module implementations — swap per environment
+config :lattice, :capabilities,
+  sprites: Lattice.Capabilities.Sprites.Stub,
+  github: Lattice.Capabilities.GitHub.Stub,
+  fly: Lattice.Capabilities.Fly.Stub,
+  secret_store: Lattice.Capabilities.SecretStore.Env
+
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
   url: [host: "localhost"],
