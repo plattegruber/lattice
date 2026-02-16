@@ -230,6 +230,10 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
   describe "run_audit/1" do
     test "triggers reconciliation on all sprites" do
+      # Stub get_sprite since reconciliation now fetches real API state
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-audit-001", status: :hibernating}} end)
+
       configs = [%{id: "fleet-audit-001", desired_state: :hibernating}]
 
       %{fm: fm} = start_fleet_manager(configs)
@@ -274,6 +278,10 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "broadcasts fleet summary on run_audit" do
+      # Stub get_sprite since reconciliation now fetches real API state
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-bc-003", status: :hibernating}} end)
+
       configs = [%{id: "fleet-bc-003", desired_state: :hibernating}]
 
       %{fm: fm} = start_fleet_manager(configs)
