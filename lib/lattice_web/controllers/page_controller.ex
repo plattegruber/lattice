@@ -2,6 +2,6 @@ defmodule LatticeWeb.PageController do
   use LatticeWeb, :controller
 
   def home(conn, _params) do
-    render(conn, :home)
+    redirect(conn, to: ~p"/sprites")
   end
 end
