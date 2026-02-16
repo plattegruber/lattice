@@ -99,6 +99,14 @@ defmodule Lattice.Capabilities.GitHub.Stub do
   end
 
   @impl true
+  def get_issue(number) do
+    case Enum.find(@stub_issues, &(&1.number == number)) do
+      nil -> {:error, :not_found}
+      issue -> {:ok, issue}
+    end
+  end
+
+  @impl true
   def list_issues(opts) do
     issues =
       case Keyword.get(opts, :labels) do

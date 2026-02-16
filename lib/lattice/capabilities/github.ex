@@ -49,6 +49,9 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "List issues, optionally filtered by labels or other criteria."
   @callback list_issues(list_opts()) :: {:ok, [issue()]} | {:error, term()}
 
+  @doc "Get a single issue by number."
+  @callback get_issue(issue_number()) :: {:ok, issue()} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -66,6 +69,9 @@ defmodule Lattice.Capabilities.GitHub do
 
   @doc "List issues, optionally filtered by labels or other criteria."
   def list_issues(opts \\ []), do: impl().list_issues(opts)
+
+  @doc "Get a single issue by number."
+  def get_issue(number), do: impl().get_issue(number)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end

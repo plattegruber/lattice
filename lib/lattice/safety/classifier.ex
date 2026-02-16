@@ -48,6 +48,7 @@ defmodule Lattice.Safety.Classifier do
     {:sprites, :exec} => :controlled,
     # GitHub
     {:github, :list_issues} => :safe,
+    {:github, :get_issue} => :safe,
     {:github, :create_issue} => :controlled,
     {:github, :update_issue} => :controlled,
     {:github, :add_label} => :controlled,
