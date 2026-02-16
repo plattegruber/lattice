@@ -35,7 +35,8 @@ defmodule Lattice.Events.TelemetryHandler do
     [:lattice, :sprite, :health_update],
     [:lattice, :sprite, :approval_needed],
     [:lattice, :capability, :call],
-    [:lattice, :fleet, :summary]
+    [:lattice, :fleet, :summary],
+    [:lattice, :safety, :audit]
   ]
 
   @doc """
@@ -171,6 +172,31 @@ defmodule Lattice.Events.TelemetryHandler do
       "Fleet summary: #{total} sprites",
       total: total,
       by_state: inspect(by_state)
+    )
+  end
+
+  def handle_event(
+        [:lattice, :safety, :audit],
+        _measurements,
+        %{entry: entry},
+        _config
+      ) do
+    log_level =
+      case entry.result do
+        :ok -> :info
+        :denied -> :warning
+        {:error, _} -> :warning
+      end
+
+    Logger.log(
+      log_level,
+      "Audit: #{entry.capability}.#{entry.operation} [#{entry.classification}] -> #{inspect(entry.result)}",
+      capability: entry.capability,
+      operation: entry.operation,
+      classification: entry.classification,
+      result: inspect(entry.result),
+      actor: entry.actor,
+      args: inspect(entry.args)
     )
   end
 end

@@ -40,7 +40,8 @@ defmodule Lattice.Events.TelemetryHandlerTest do
       assert [:lattice, :sprite, :approval_needed] in events
       assert [:lattice, :capability, :call] in events
       assert [:lattice, :fleet, :summary] in events
-      assert length(events) == 6
+      assert [:lattice, :safety, :audit] in events
+      assert length(events) == 7
     end
   end
 
