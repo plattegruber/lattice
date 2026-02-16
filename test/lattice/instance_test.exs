@@ -133,7 +133,7 @@ defmodule Lattice.InstanceTest do
       Application.put_env(:lattice, :resources, original_resources)
     end
 
-    test "raises in prod when bindings are missing" do
+    test "warns in prod when bindings are missing but does not crash" do
       original_instance = Application.get_env(:lattice, :instance)
       original_resources = Application.get_env(:lattice, :resources)
 
@@ -146,9 +146,7 @@ defmodule Lattice.InstanceTest do
         sprites_api_base: nil
       )
 
-      assert_raise RuntimeError, ~r/Missing required resource bindings for production/, fn ->
-        Instance.validate!()
-      end
+      assert Instance.validate!() == :ok
 
       Application.put_env(:lattice, :instance, original_instance)
       Application.put_env(:lattice, :resources, original_resources)

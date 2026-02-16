@@ -151,18 +151,10 @@ defmodule Lattice.Instance do
       {_, []} ->
         :ok
 
-      {:prod, missing_keys} ->
-        raise """
-        Missing required resource bindings for production: #{inspect(missing_keys)}.
-
-        Set the following environment variables:
-        #{Enum.map_join(missing_keys, "\n", &"  - #{env_var_for(&1)}")}
-        """
-
       {env, missing_keys} ->
         Logger.warning(
           "Missing resource bindings in #{env}: #{inspect(missing_keys)}. " <>
-            "This is acceptable for development but would fail in production."
+            "Capabilities that require these bindings will fail at call time."
         )
 
         :ok
@@ -240,11 +232,6 @@ defmodule Lattice.Instance do
       is_nil(value) or value == ""
     end)
   end
-
-  defp env_var_for(:github_repo), do: "GITHUB_REPO"
-  defp env_var_for(:fly_org), do: "FLY_ORG"
-  defp env_var_for(:fly_app), do: "FLY_APP"
-  defp env_var_for(:sprites_api_base), do: "SPRITES_API_BASE"
 
   defp sanitize_value(_key, nil), do: nil
   defp sanitize_value(_key, ""), do: ""
