@@ -53,6 +53,7 @@ defmodule LatticeWeb.Router do
       pipe_through :browser
 
       live "/sprites", FleetLive
+      live "/incidents", IncidentsLive
     end
   end
 

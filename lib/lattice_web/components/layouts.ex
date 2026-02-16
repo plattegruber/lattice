@@ -54,9 +54,9 @@ defmodule LatticeWeb.Layouts do
             </span>
           </li>
           <li>
-            <span class="opacity-50 cursor-not-allowed">
+            <.link navigate={~p"/incidents"} class="font-medium">
               <.icon name="hero-exclamation-triangle" class="size-4" /> Incidents
-            </span>
+            </.link>
           </li>
           <li>
             <.theme_toggle />
