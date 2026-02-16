@@ -1,0 +1,39 @@
+defmodule Lattice.Application do
+  # See https://hexdocs.pm/elixir/Application.html
+  # for more information on OTP Applications
+  @moduledoc false
+
+  use Application
+
+  alias Lattice.Events.TelemetryHandler
+
+  @impl true
+  def start(_type, _args) do
+    # Attach Lattice domain telemetry handlers before starting the supervision tree.
+    # This ensures events emitted during startup are captured.
+    TelemetryHandler.attach()
+
+    children = [
+      LatticeWeb.Telemetry,
+      {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
+      {Phoenix.PubSub, name: Lattice.PubSub},
+      # Start a worker by calling: Lattice.Worker.start_link(arg)
+      # {Lattice.Worker, arg},
+      # Start to serve requests, typically the last entry
+      LatticeWeb.Endpoint
+    ]
+
+    # See https://hexdocs.pm/elixir/Supervisor.html
+    # for other strategies and supported options
+    opts = [strategy: :one_for_one, name: Lattice.Supervisor]
+    Supervisor.start_link(children, opts)
+  end
+
+  # Tell Phoenix to update the endpoint configuration
+  # whenever the application is updated.
+  @impl true
+  def config_change(changed, _new, removed) do
+    LatticeWeb.Endpoint.config_change(changed, removed)
+    :ok
+  end
+end
