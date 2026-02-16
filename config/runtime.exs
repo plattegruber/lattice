@@ -34,6 +34,21 @@ config :lattice, :resources,
   fly_app: System.get_env("FLY_APP"),
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 
+# Sprites capability: use live API client when token is configured, otherwise stub
+if System.get_env("SPRITES_API_TOKEN") do
+  config :lattice, :capabilities,
+    sprites: Lattice.Capabilities.Sprites.Live,
+    github:
+      Application.get_env(:lattice, :capabilities)[:github] ||
+        Lattice.Capabilities.GitHub.Stub,
+    fly:
+      Application.get_env(:lattice, :capabilities)[:fly] ||
+        Lattice.Capabilities.Fly.Stub,
+    secret_store:
+      Application.get_env(:lattice, :capabilities)[:secret_store] ||
+        Lattice.Capabilities.SecretStore.Env
+end
+
 # Auth provider: use Clerk when secret key is configured, otherwise stub
 if System.get_env("CLERK_SECRET_KEY") do
   config :lattice, :auth, provider: Lattice.Auth.Clerk
