@@ -94,14 +94,14 @@ defmodule LatticeWeb.FleetLiveTest do
     end
   end
 
-  # ── Sprite Detail Placeholder ──────────────────────────────────────
+  # ── Sprite Detail Navigation ──────────────────────────────────────
 
-  describe "sprite detail placeholder" do
-    test "renders placeholder for sprite detail page", %{conn: conn} do
+  describe "sprite detail navigation" do
+    test "sprite detail route renders for unknown sprite", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/sprites/test-sprite-001")
 
       assert html =~ "test-sprite-001"
-      assert html =~ "Under construction"
+      assert html =~ "Sprite not found"
       assert html =~ "Back to Fleet"
     end
   end
