@@ -59,6 +59,10 @@ defmodule Lattice.Events do
   @spec approvals_topic() :: String.t()
   def approvals_topic, do: "sprites:approvals"
 
+  @doc "Returns the PubSub topic for safety audit events."
+  @spec audit_topic() :: String.t()
+  def audit_topic, do: "safety:audit"
+
   # ── Subscribe ──────────────────────────────────────────────────────
 
   @doc "Subscribe the calling process to events for a specific Sprite."
@@ -77,6 +81,12 @@ defmodule Lattice.Events do
   @spec subscribe_approvals() :: :ok | {:error, term()}
   def subscribe_approvals do
     Phoenix.PubSub.subscribe(pubsub(), approvals_topic())
+  end
+
+  @doc "Subscribe the calling process to safety audit events."
+  @spec subscribe_audit() :: :ok | {:error, term()}
+  def subscribe_audit do
+    Phoenix.PubSub.subscribe(pubsub(), audit_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────

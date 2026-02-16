@@ -17,6 +17,12 @@ config :lattice, :capabilities,
   fly: Lattice.Capabilities.Fly.Stub,
   secret_store: Lattice.Capabilities.SecretStore.Env
 
+# Safety guardrails — action gating and approval requirements
+config :lattice, :guardrails,
+  allow_controlled: true,
+  allow_dangerous: false,
+  require_approval_for_controlled: true
+
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
   url: [host: "localhost"],
@@ -70,7 +76,9 @@ config :logger, :default_formatter,
     :operation,
     :result,
     :total,
-    :by_state
+    :by_state,
+    :actor,
+    :args
   ]
 
 # Use Jason for JSON parsing in Phoenix
