@@ -29,6 +29,39 @@ Full computer access is the magic of Sprites. Safety is non-negotiable.
 - Every action, approved or not, is **audit-logged**
 - Capabilities are **behaviour modules** — bounded interfaces, not open shell access
 
+### Safety & Guardrails (concrete spec)
+
+The classify-gate-audit pipeline is the enforcement mechanism for "Safe Boundaries" above. Here is how it works in practice.
+
+**Classifications:**
+
+| Level | Meaning | Examples |
+|-------|---------|---------|
+| `SAFE` | Read-only, no side effects | List sprites, fetch logs, get status |
+| `CONTROLLED` | Mutates a single resource | Wake/sleep sprite, create GitHub issue |
+| `DANGEROUS` | Infrastructure-level impact | Deploy app, destroy resources |
+
+**Gating rules:**
+
+| Classification | Config required | Approval required |
+|----------------|----------------|-------------------|
+| `SAFE` | none | none |
+| `CONTROLLED` | `allow_controlled: true` | if `require_approval_for_controlled: true` |
+| `DANGEROUS` | `allow_dangerous: true` | always |
+
+**Approval:** A human adds the `approved` label to the GitHub issue created by `WorkProposal.propose/3`. `check_approval/1` polls for that label. Only after the label is present can the action proceed.
+
+**Audit:** Every action (allowed or denied, successful or failed) emits a `[:lattice, :safety, :audit]` Telemetry event and broadcasts an `AuditEntry` on the `"safety:audit"` PubSub topic. Arguments are sanitized to redact secrets.
+
+**Config flags** (in `config/config.exs`):
+
+```elixir
+config :lattice, :guardrails,
+  allow_controlled: true,
+  allow_dangerous: false,
+  require_approval_for_controlled: true
+```
+
 ### 4. Processes, Not Services
 
 OTP is the runtime. Each Sprite is a GenServer. The Fleet Manager is a DynamicSupervisor. State lives in processes, supervised by the BEAM.

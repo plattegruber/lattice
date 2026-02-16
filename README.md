@@ -49,10 +49,32 @@ mix compile --warnings-as-errors  # Strict compilation
 
 See [CLAUDE.md](CLAUDE.md) for detailed conventions and [PHILOSOPHY.md](PHILOSOPHY.md) for design principles.
 
+## API
+
+Lattice exposes an authenticated JSON API under `/api`. All endpoints require a bearer token via the `Authorization: Bearer <token>` header.
+
+**Response envelope:**
+
+- Success: `{ "data": { ... }, "timestamp": "..." }`
+- Error: `{ "error": "message", "code": "ERROR_CODE" }`
+
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/fleet` | Fleet summary (sprite counts by state) |
+| `POST` | `/api/fleet/audit` | Trigger fleet-wide reconciliation audit |
+| `GET` | `/api/sprites` | List all sprites with current state |
+| `GET` | `/api/sprites/:id` | Single sprite detail |
+| `PUT` | `/api/sprites/:id/desired` | Update desired state (`ready` / `hibernating`) |
+| `POST` | `/api/sprites/:id/reconcile` | Trigger reconciliation for one sprite |
+
+An unauthenticated `GET /health` endpoint is also available.
+
 ## Deployment
 
 Deployed on [Fly.io](https://fly.io). See issue tracker for deployment setup status.
 
 ## License
 
-Private.
+All rights reserved.
