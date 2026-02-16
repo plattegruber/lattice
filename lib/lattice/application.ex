@@ -5,8 +5,14 @@ defmodule Lattice.Application do
 
   use Application
 
+  alias Lattice.Events.TelemetryHandler
+
   @impl true
   def start(_type, _args) do
+    # Attach Lattice domain telemetry handlers before starting the supervision tree.
+    # This ensures events emitted during startup are captured.
+    TelemetryHandler.attach()
+
     children = [
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},

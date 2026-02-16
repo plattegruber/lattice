@@ -56,7 +56,14 @@ defmodule LatticeWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # Lattice Domain Metrics
+      summary("lattice.capability.call.duration_ms",
+        tags: [:capability, :operation],
+        unit: :millisecond
+      ),
+      sum("lattice.fleet.summary.total")
     ]
   end
 
