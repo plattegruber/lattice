@@ -25,6 +25,10 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:github, :list_issues)
     end
 
+    test "classifies github:get_issue as safe" do
+      assert {:ok, %Action{classification: :safe}} = Classifier.classify(:github, :get_issue)
+    end
+
     test "classifies fly:logs as safe" do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:fly, :logs)
     end
@@ -124,6 +128,7 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:sprites, :get_sprite} in safe_actions
       assert {:sprites, :fetch_logs} in safe_actions
       assert {:github, :list_issues} in safe_actions
+      assert {:github, :get_issue} in safe_actions
       assert {:fly, :logs} in safe_actions
       assert {:fly, :machine_status} in safe_actions
       assert {:secret_store, :get_secret} in safe_actions
@@ -168,9 +173,9 @@ defmodule Lattice.Safety.ClassifierTest do
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
       assert length(sprites_ops) == 6
 
-      # GitHub: 6 operations
+      # GitHub: 7 operations
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)
-      assert length(github_ops) == 6
+      assert length(github_ops) == 7
 
       # Fly: 3 operations
       fly_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :fly end)
