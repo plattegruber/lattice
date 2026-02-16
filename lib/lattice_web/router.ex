@@ -40,10 +40,16 @@ defmodule LatticeWeb.Router do
   end
 
   # Authenticated API routes -- protected by bearer token
-  scope "/api", LatticeWeb do
+  scope "/api", LatticeWeb.Api do
     pipe_through :authenticated_api
 
-    # Future API endpoints go here
+    get "/fleet", FleetController, :index
+    post "/fleet/audit", FleetController, :audit
+
+    get "/sprites", SpriteController, :index
+    get "/sprites/:id", SpriteController, :show
+    put "/sprites/:id/desired", SpriteController, :update_desired
+    post "/sprites/:id/reconcile", SpriteController, :reconcile
   end
 
   # Authenticated LiveView routes
