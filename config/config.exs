@@ -17,6 +17,9 @@ config :lattice, :capabilities,
   fly: Lattice.Capabilities.Fly.Stub,
   secret_store: Lattice.Capabilities.SecretStore.Env
 
+# Fleet configuration — sprites to discover and manage at boot
+config :lattice, :fleet, sprites: []
+
 # Auth provider — stub for dev, Clerk for production
 config :lattice, :auth, provider: Lattice.Auth.Stub
 
@@ -87,7 +90,8 @@ config :logger, :default_formatter,
     :github_repo,
     :fly_org,
     :fly_app,
-    :sprites_api_base
+    :sprites_api_base,
+    :sprite_ids
   ]
 
 # Use Jason for JSON parsing in Phoenix

@@ -60,6 +60,14 @@ config :lattice, LatticeWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :lattice, dev_routes: true
 
+# Dev fleet — synthetic sprites for dashboard development
+config :lattice, :fleet,
+  sprites: [
+    %{id: "sprite-dev-001", desired_state: :hibernating},
+    %{id: "sprite-dev-002", desired_state: :hibernating},
+    %{id: "sprite-dev-003", desired_state: :hibernating}
+  ]
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
