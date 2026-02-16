@@ -32,5 +32,16 @@
   </head>
   <body>
     {@inner_content}
+    <footer class="px-4 py-3 text-xs text-center opacity-60 border-t border-base-300">
+      <span>
+        {Lattice.Instance.name()} | {Lattice.Instance.environment()}
+        <%= if repo = Lattice.Instance.resource(:github_repo) do %>
+          | {repo}
+        <% end %>
+        <%= if fly_app = Lattice.Instance.resource(:fly_app) do %>
+          | fly:{fly_app}
+        <% end %>
+      </span>
+    </footer>
   </body>
 </html>
