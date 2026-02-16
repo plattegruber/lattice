@@ -78,7 +78,13 @@ config :logger, :default_formatter,
     :total,
     :by_state,
     :actor,
-    :args
+    :args,
+    :instance_name,
+    :environment,
+    :github_repo,
+    :fly_org,
+    :fly_app,
+    :sprites_api_base
   ]
 
 # Use Jason for JSON parsing in Phoenix

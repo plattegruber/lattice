@@ -6,12 +6,18 @@ defmodule Lattice.Application do
   use Application
 
   alias Lattice.Events.TelemetryHandler
+  alias Lattice.Instance
 
   @impl true
   def start(_type, _args) do
     # Attach Lattice domain telemetry handlers before starting the supervision tree.
     # This ensures events emitted during startup are captured.
     TelemetryHandler.attach()
+
+    # Validate resource bindings and log instance identity at boot.
+    # In prod, missing bindings cause a crash (fail fast).
+    Instance.validate!()
+    Instance.log_boot_info()
 
     children = [
       LatticeWeb.Telemetry,
