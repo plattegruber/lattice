@@ -188,9 +188,15 @@ defmodule Lattice.Events.TelemetryHandler do
         {:error, _} -> :warning
       end
 
+    operator_info =
+      case entry.operator do
+        %{id: id, name: name} -> "#{name} (#{id})"
+        _ -> "none"
+      end
+
     Logger.log(
       log_level,
-      "Audit: #{entry.capability}.#{entry.operation} [#{entry.classification}] -> #{inspect(entry.result)}",
+      "Audit: #{entry.capability}.#{entry.operation} [#{entry.classification}] -> #{inspect(entry.result)} by #{operator_info}",
       capability: entry.capability,
       operation: entry.operation,
       classification: entry.classification,

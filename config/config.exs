@@ -17,6 +17,9 @@ config :lattice, :capabilities,
   fly: Lattice.Capabilities.Fly.Stub,
   secret_store: Lattice.Capabilities.SecretStore.Env
 
+# Auth provider — stub for dev, Clerk for production
+config :lattice, :auth, provider: Lattice.Auth.Stub
+
 # Safety guardrails — action gating and approval requirements
 config :lattice, :guardrails,
   allow_controlled: true,
