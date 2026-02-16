@@ -57,11 +57,10 @@ Multi-agent PR review with confidence scoring.
 claude plugin install pr-review-toolkit@claude-plugin-directory
 ```
 
-### GitHub MCP Server
+### GitHub MCP Server (optional, not preconfigured)
 
-Structured access to repos, PRs, issues, Actions, and code search. Richer than the `gh` CLI for some workflows.
+Structured access to repos, PRs, issues, Actions, and code search. Richer than the `gh` CLI for some workflows. Not included in `.mcp.json` by default — add manually if needed:
 
-Add to `.mcp.json`:
 ```json
 {
   "mcpServers": {
