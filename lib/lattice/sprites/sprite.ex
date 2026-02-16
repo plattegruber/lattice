@@ -57,15 +57,27 @@ defmodule Lattice.Sprites.Sprite do
   - `:reconcile_interval_ms` -- reconciliation loop interval (default: 5000)
   - `:base_backoff_ms` -- base backoff for retries (default: 1000)
   - `:max_backoff_ms` -- max backoff cap (default: 60000)
-  - `:name` -- GenServer name registration (optional)
+  - `:name` -- GenServer name registration (optional; when omitted and the
+    `Lattice.Sprites.Registry` is running, the process registers itself via
+    the Registry under `sprite_id`)
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     sprite_id = Keyword.fetch!(opts, :sprite_id)
-    name = Keyword.get(opts, :name)
+    name = Keyword.get_lazy(opts, :name, fn -> via_registry(sprite_id) end)
 
     gen_opts = if name, do: [name: name], else: []
     GenServer.start_link(__MODULE__, {sprite_id, opts}, gen_opts)
+  end
+
+  @doc """
+  Returns the `{:via, Registry, ...}` tuple for a given sprite ID.
+
+  Useful for addressing a Sprite process by its ID when the Registry is running.
+  """
+  @spec via(String.t()) :: {:via, Registry, {Lattice.Sprites.Registry, String.t()}}
+  def via(sprite_id) when is_binary(sprite_id) do
+    {:via, Registry, {Lattice.Sprites.Registry, sprite_id}}
   end
 
   @doc """
@@ -306,6 +318,20 @@ defmodule Lattice.Sprites.Sprite do
 
   defp reconcile_delay(%State{failure_count: 0}, interval), do: interval
   defp reconcile_delay(%State{backoff_ms: backoff}, _interval), do: backoff
+
+  # ── Registry ────────────────────────────────────────────────────────
+
+  defp via_registry(sprite_id) do
+    if registry_running?() do
+      via(sprite_id)
+    else
+      nil
+    end
+  end
+
+  defp registry_running? do
+    Process.whereis(Lattice.Sprites.Registry) != nil
+  end
 
   # ── Capability Access ───────────────────────────────────────────────
 

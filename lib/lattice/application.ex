@@ -23,8 +23,10 @@ defmodule Lattice.Application do
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lattice.PubSub},
-      # Start a worker by calling: Lattice.Worker.start_link(arg)
-      # {Lattice.Worker, arg},
+      # Sprite process infrastructure
+      {Registry, keys: :unique, name: Lattice.Sprites.Registry},
+      {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
+      Lattice.Sprites.FleetManager,
       # Start to serve requests, typically the last entry
       LatticeWeb.Endpoint
     ]
