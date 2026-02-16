@@ -34,6 +34,11 @@ config :lattice, :resources,
   fly_app: System.get_env("FLY_APP"),
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 
+# Auth provider: use Clerk when secret key is configured, otherwise stub
+if System.get_env("CLERK_SECRET_KEY") do
+  config :lattice, :auth, provider: Lattice.Auth.Clerk
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

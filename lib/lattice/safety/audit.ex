@@ -37,11 +37,16 @@ defmodule Lattice.Safety.Audit do
   - `actor` -- who initiated (`:system`, `:human`, `:scheduled`)
   - `opts` -- optional keyword list:
     - `:args` -- list of arguments (will be sanitized)
+    - `:operator` -- the authenticated `%Operator{}` who triggered the action
     - `:timestamp` -- override timestamp
 
   ## Examples
 
       Lattice.Safety.Audit.log(:sprites, :wake, :controlled, :ok, :human, args: ["sprite-001"])
+
+      operator = %Lattice.Auth.Operator{id: "user_123", name: "Ada", role: :operator}
+      Lattice.Safety.Audit.log(:sprites, :wake, :controlled, :ok, :human,
+        args: ["sprite-001"], operator: operator)
 
   """
   @spec log(

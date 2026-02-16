@@ -14,8 +14,11 @@ defmodule Lattice.Safety.AuditEntry do
   - `classification` -- safety classification (`:safe`, `:controlled`, `:dangerous`)
   - `result` -- outcome of the invocation (`:ok`, `{:error, reason}`, or `:denied`)
   - `actor` -- who or what initiated the action (`:system`, `:human`, `:scheduled`)
+  - `operator` -- the authenticated operator who triggered the action (nil for system actors)
   - `timestamp` -- when the invocation occurred
   """
+
+  alias Lattice.Auth.Operator
 
   @type actor :: :system | :human | :scheduled
 
@@ -26,21 +29,37 @@ defmodule Lattice.Safety.AuditEntry do
           classification: atom(),
           result: :ok | {:error, term()} | :denied,
           actor: actor(),
+          operator: Operator.t() | nil,
           timestamp: DateTime.t()
         }
 
   @enforce_keys [:capability, :operation, :classification, :result, :actor, :timestamp]
-  defstruct [:capability, :operation, :classification, :result, :actor, :timestamp, args: []]
+  defstruct [
+    :capability,
+    :operation,
+    :classification,
+    :result,
+    :actor,
+    :timestamp,
+    args: [],
+    operator: nil
+  ]
 
   @valid_actors [:system, :human, :scheduled]
 
   @doc """
   Creates a new AuditEntry.
 
+  ## Options
+
+  - `:args` -- list of arguments (will be sanitized by the caller)
+  - `:timestamp` -- override the timestamp
+  - `:operator` -- the authenticated operator who triggered the action
+
   ## Examples
 
       iex> Lattice.Safety.AuditEntry.new(:sprites, :wake, :controlled, :ok, :human)
-      {:ok, %Lattice.Safety.AuditEntry{capability: :sprites, operation: :wake, classification: :controlled, result: :ok, actor: :human, ...}}
+      {:ok, %Lattice.Safety.AuditEntry{capability: :sprites, operation: :wake, classification: :controlled, result: :ok, actor: :human, operator: nil, args: [], timestamp: _}}
 
   """
   @spec new(atom(), atom(), atom(), :ok | {:error, term()} | :denied, actor(), keyword()) ::
@@ -57,6 +76,7 @@ defmodule Lattice.Safety.AuditEntry do
        classification: classification,
        result: result,
        actor: actor,
+       operator: Keyword.get(opts, :operator),
        timestamp: Keyword.get(opts, :timestamp, DateTime.utc_now())
      }}
   end

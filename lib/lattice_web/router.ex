@@ -14,16 +14,39 @@ defmodule LatticeWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :authenticated_api do
+    plug :accepts, ["json"]
+    plug LatticeWeb.Plugs.Auth
+  end
+
   scope "/", LatticeWeb do
     pipe_through :browser
 
     get "/", PageController, :home
   end
 
+  # Unauthenticated API routes
   scope "/", LatticeWeb do
     pipe_through :api
 
     get "/health", HealthController, :index
+  end
+
+  # Authenticated API routes -- protected by bearer token
+  scope "/api", LatticeWeb do
+    pipe_through :authenticated_api
+
+    # Future API endpoints go here
+  end
+
+  # Authenticated LiveView routes
+  live_session :authenticated,
+    on_mount: [{LatticeWeb.Hooks.AuthHook, :default}] do
+    scope "/", LatticeWeb do
+      pipe_through :browser
+
+      # Future LiveView routes go here
+    end
   end
 
   # Enable LiveDashboard in development

@@ -29,3 +29,6 @@ config :lattice, :capabilities,
   github: Lattice.Capabilities.MockGitHub,
   fly: Lattice.Capabilities.MockFly,
   secret_store: Lattice.Capabilities.MockSecretStore
+
+# Use stub auth provider in tests (returns a hardcoded dev operator)
+config :lattice, :auth, provider: Lattice.Auth.Stub
