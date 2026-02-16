@@ -51,6 +51,13 @@ capabilities =
     capabilities
   end
 
+capabilities =
+  if System.get_env("FLY_APP") do
+    Keyword.put(capabilities, :fly, Lattice.Capabilities.Fly.Live)
+  else
+    capabilities
+  end
+
 config :lattice, :capabilities, capabilities
 
 # Auth provider: use Clerk when secret key is configured, otherwise stub
