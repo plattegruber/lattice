@@ -115,6 +115,10 @@ if command -v mix &>/dev/null; then
   mix local.hex --force --if-missing 2>/dev/null
   mix local.rebar --force --if-missing 2>/dev/null
   log "Hex and Rebar ready"
+
+  log "Installing Phoenix generator..."
+  mix archive.install hex phx_new --force --if-missing 2>/dev/null
+  log "Phoenix generator ready"
 fi
 
 # --- Project dependencies ---
