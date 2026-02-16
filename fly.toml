@@ -31,3 +31,35 @@ kill_signal = 'SIGTERM'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 1024
+
+# ── Scheduled Machines ────────────────────────────────────────────────────
+#
+# Fly Scheduled Machines run one-off tasks on a cron schedule. The audit
+# task boots a minimal Lattice instance, reconciles every sprite, logs the
+# results, and exits.
+#
+# Create the scheduled machine (once):
+#
+#   fly machines run . \
+#     --schedule "0 */6 * * *" \
+#     --region ord \
+#     --vm-memory 512 \
+#     --restart on-fail \
+#     --name lattice-audit \
+#     --env PHX_SERVER=false \
+#     --env SECRET_KEY_BASE="$(fly secrets list --json | jq -r '.[] | select(.Name=="SECRET_KEY_BASE") | .Digest')" \
+#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+#
+# Or run an ad-hoc audit immediately:
+#
+#   fly machines run . \
+#     --region ord \
+#     --vm-memory 512 \
+#     --restart no \
+#     --rm \
+#     --env PHX_SERVER=false \
+#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+#
+# The scheduled machine inherits the app's secrets (SECRET_KEY_BASE, etc.)
+# but runs with PHX_SERVER=false so the Phoenix HTTP server is not started.
+# ──────────────────────────────────────────────────────────────────────────
