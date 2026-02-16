@@ -49,9 +49,9 @@ defmodule LatticeWeb.Layouts do
             </.link>
           </li>
           <li>
-            <span class="opacity-50 cursor-not-allowed">
+            <.link navigate={~p"/approvals"} class="font-medium">
               <.icon name="hero-shield-check" class="size-4" /> Approvals
-            </span>
+            </.link>
           </li>
           <li>
             <.link navigate={~p"/incidents"} class="font-medium">
