@@ -50,6 +50,9 @@ defmodule Lattice.Capabilities.Sprites.Live do
       {:ok, %{"data" => sprites}} when is_list(sprites) ->
         {:ok, Enum.map(sprites, &parse_sprite/1)}
 
+      {:ok, %{"sprites" => sprites}} when is_list(sprites) ->
+        {:ok, Enum.map(sprites, &parse_sprite/1)}
+
       {:error, reason} ->
         {:error, reason}
     end
