@@ -306,6 +306,76 @@ defmodule LatticeWeb.Api.SpriteController do
     end
   end
 
+  operation(:update_tags,
+    summary: "Update sprite tags",
+    description:
+      "Merges the provided tags into the sprite's existing tags. Tags are Lattice-local metadata.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    request_body:
+      {"Update tags request", "application/json", LatticeWeb.Schemas.UpdateTagsRequest},
+    responses: [
+      ok: {"Updated tags", "application/json", LatticeWeb.Schemas.UpdateTagsResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
+  @doc """
+  PUT /api/sprites/:id/tags — update tags for a sprite.
+
+  Body: `{ "tags": { "env": "prod", "purpose": "ci" } }`
+
+  Merges the provided tags with existing tags and persists to the store.
+  """
+  def update_tags(conn, %{"id" => id, "tags" => tags}) when is_map(tags) do
+    case validate_tags(tags) do
+      :ok ->
+        with {:ok, state} <- get_sprite_state(id),
+             merged = Map.merge(state.tags || %{}, tags),
+             {:ok, pid} <- FleetManager.get_sprite_pid(id),
+             :ok <- Sprite.set_tags(pid, merged) do
+          Lattice.Store.put(:sprite_metadata, id, %{
+            tags: merged,
+            desired_state: state.desired_state
+          })
+
+          conn
+          |> put_status(200)
+          |> json(%{data: %{id: id, tags: merged}, timestamp: DateTime.utc_now()})
+        else
+          {:error, :not_found} ->
+            conn
+            |> put_status(404)
+            |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+
+          {:error, reason} ->
+            conn
+            |> put_status(500)
+            |> json(%{error: "Failed to update tags: #{inspect(reason)}", code: "UPDATE_FAILED"})
+        end
+
+      {:error, reason} ->
+        conn
+        |> put_status(422)
+        |> json(%{error: reason, code: "INVALID_TAGS"})
+    end
+  end
+
+  def update_tags(conn, %{"id" => _id}) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "Missing required field: tags", code: "MISSING_FIELD"})
+  end
+
   # ── Private ──────────────────────────────────────────────────────────
 
   defp create_upstream_sprite(name) do
@@ -365,7 +435,37 @@ defmodule LatticeWeb.Api.SpriteController do
       failure_count: state.failure_count,
       last_observed_at: state.last_observed_at,
       started_at: state.started_at,
-      updated_at: state.updated_at
+      updated_at: state.updated_at,
+      tags: state.tags || %{}
     }
+  end
+
+  @max_tag_key_length 64
+  @max_tag_value_length 256
+  @max_tags_count 50
+
+  defp validate_tags(tags) when map_size(tags) > @max_tags_count do
+    {:error, "Too many tags (max #{@max_tags_count})"}
+  end
+
+  defp validate_tags(tags) do
+    Enum.reduce_while(tags, :ok, fn {key, value}, :ok ->
+      cond do
+        not is_binary(key) ->
+          {:halt, {:error, "Tag keys must be strings"}}
+
+        not is_binary(value) ->
+          {:halt, {:error, "Tag values must be strings"}}
+
+        byte_size(key) > @max_tag_key_length ->
+          {:halt, {:error, "Tag key too long (max #{@max_tag_key_length} bytes)"}}
+
+        byte_size(value) > @max_tag_value_length ->
+          {:halt, {:error, "Tag value too long (max #{@max_tag_value_length} bytes)"}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
   end
 end

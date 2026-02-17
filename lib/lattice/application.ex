@@ -23,6 +23,8 @@ defmodule Lattice.Application do
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lattice.PubSub},
+      # Metadata persistence (key-value store for tags, purpose, labels)
+      Lattice.Store.ETS,
       # Intent persistence
       Lattice.Intents.Store.ETS,
       # Sprite process infrastructure

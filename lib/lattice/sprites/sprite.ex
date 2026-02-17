@@ -109,6 +109,17 @@ defmodule Lattice.Sprites.Sprite do
   end
 
   @doc """
+  Set the tags map for a Sprite, replacing the current tags.
+
+  Tags are Lattice-local metadata (not part of the Sprites API).
+  Returns `:ok` on success.
+  """
+  @spec set_tags(GenServer.server(), map()) :: :ok
+  def set_tags(server, tags) when is_map(tags) do
+    GenServer.call(server, {:set_tags, tags})
+  end
+
+  @doc """
   Trigger an immediate reconciliation cycle.
 
   Useful for testing or when an operator wants to force a reconciliation
@@ -156,7 +167,8 @@ defmodule Lattice.Sprites.Sprite do
       observed_state: Keyword.get(opts, :observed_state, :hibernating),
       base_backoff_ms: Keyword.get(opts, :base_backoff_ms, 1_000),
       max_backoff_ms: Keyword.get(opts, :max_backoff_ms, 60_000),
-      max_retries: Keyword.get(opts, :max_retries, 10)
+      max_retries: Keyword.get(opts, :max_retries, 10),
+      tags: Keyword.get(opts, :tags, %{})
     ]
 
     reconcile_interval = Keyword.get(opts, :reconcile_interval_ms, @default_reconcile_interval_ms)
@@ -184,6 +196,11 @@ defmodule Lattice.Sprites.Sprite do
       {:error, _reason} = error ->
         {:reply, error, {state, interval}}
     end
+  end
+
+  def handle_call({:set_tags, tags}, _from, {state, interval}) do
+    new_state = State.set_tags(state, tags)
+    {:reply, :ok, {new_state, interval}}
   end
 
   def handle_call({:emit_observation, opts}, _from, {state, interval}) do

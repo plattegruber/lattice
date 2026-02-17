@@ -41,6 +41,7 @@ defmodule Lattice.Sprites.State do
           max_retries: non_neg_integer(),
           last_observed_at: DateTime.t() | nil,
           log_cursor: String.t() | nil,
+          tags: map(),
           started_at: DateTime.t(),
           updated_at: DateTime.t()
         }
@@ -61,7 +62,8 @@ defmodule Lattice.Sprites.State do
     base_backoff_ms: 1_000,
     failure_count: 0,
     not_found_count: 0,
-    max_retries: 10
+    max_retries: 10,
+    tags: %{}
   ]
 
   @valid_lifecycle_states [:hibernating, :waking, :ready, :busy, :error]
@@ -94,6 +96,7 @@ defmodule Lattice.Sprites.State do
     base_backoff = Keyword.get(opts, :base_backoff_ms, 1_000)
     max_backoff = Keyword.get(opts, :max_backoff_ms, 60_000)
     max_retries = Keyword.get(opts, :max_retries, 10)
+    tags = Keyword.get(opts, :tags, %{})
 
     with :ok <- validate_lifecycle(desired),
          :ok <- validate_lifecycle(observed) do
@@ -109,6 +112,7 @@ defmodule Lattice.Sprites.State do
          backoff_ms: base_backoff,
          max_backoff_ms: max_backoff,
          max_retries: max_retries,
+         tags: tags,
          started_at: now,
          updated_at: now
        }}
@@ -199,6 +203,22 @@ defmodule Lattice.Sprites.State do
   @spec reset_backoff(t()) :: t()
   def reset_backoff(%__MODULE__{} = state) do
     %{state | failure_count: 0, backoff_ms: state.base_backoff_ms, updated_at: DateTime.utc_now()}
+  end
+
+  @doc """
+  Set the tags map, replacing the current tags entirely.
+
+  ## Examples
+
+      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
+      iex> state = Lattice.Sprites.State.set_tags(state, %{"env" => "prod"})
+      iex> state.tags
+      %{"env" => "prod"}
+
+  """
+  @spec set_tags(t(), map()) :: t()
+  def set_tags(%__MODULE__{} = state, tags) when is_map(tags) do
+    %{state | tags: tags, updated_at: DateTime.utc_now()}
   end
 
   @doc """
