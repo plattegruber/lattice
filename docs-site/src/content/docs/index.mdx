@@ -1,0 +1,81 @@
+---
+title: Getting Started
+description: What Lattice is and how to get up and running.
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Lattice is an **Elixir/Phoenix control plane for managing AI coding agents ("Sprites")**. It provides a real-time operations dashboard, safety guardrails, and human-in-the-loop approval workflows -- the way a NOC engineer manages a fleet of servers.
+
+## What Lattice Does
+
+<CardGrid>
+  <Card title="Fleet Operations" icon="rocket">
+    Real-time LiveView dashboard for monitoring and managing your entire fleet of
+    Sprites. See what every agent is doing at a glance.
+  </Card>
+  <Card title="Safety First" icon="approve-check-circle">
+    Every action is classified (safe / controlled / dangerous), gated, and
+    audit-logged. Dangerous actions require human approval via GitHub issues.
+  </Card>
+  <Card title="Intent Pipeline" icon="list-format">
+    Structured unit of work that flows through classification and governance
+    before execution. Nothing happens without an Intent.
+  </Card>
+  <Card title="Event-Driven" icon="star">
+    Telemetry + PubSub powers real-time observability. LiveView subscribes and
+    renders projections. No polling, ever.
+  </Card>
+</CardGrid>
+
+## Prerequisites
+
+- **Erlang/OTP 27+**
+- **Elixir 1.18+**
+- **Node.js** (for Phoenix asset pipeline)
+
+## Quickstart
+
+```bash
+# Clone the repository
+git clone https://github.com/plattegruber/lattice.git
+cd lattice
+
+# Install dependencies and set up the project
+mix setup
+
+# Start the development server
+mix phx.server
+```
+
+Visit [http://localhost:4000](http://localhost:4000) to see the Lattice dashboard.
+
+For an interactive shell:
+
+```bash
+iex -S mix phx.server
+```
+
+## Environment Variables
+
+Lattice uses environment variables to configure external integrations. None are required for local development with stubs:
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `SPRITES_API_BASE` | Sprites API base URL | For live sprites |
+| `SPRITES_API_TOKEN` | Sprites API auth token | For live sprites |
+| `GITHUB_REPO` | GitHub repo (e.g., `owner/repo`) | For GitHub HITL |
+| `FLY_APP` | Fly.io application name | For Fly capability |
+| `FLY_ORG` | Fly.io organization | For Fly capability |
+| `SECRET_KEY_BASE` | Phoenix secret key | Production only |
+| `CLERK_SECRET_KEY` | Clerk auth provider key | For Clerk auth |
+| `LATTICE_INSTANCE_NAME` | Instance identifier | Optional |
+
+When credentials are not present, Lattice automatically falls back to stub implementations for each capability.
+
+## Next Steps
+
+- Learn about [Sprites](/lattice/concepts/sprites/) -- the process model for AI agents
+- Understand [Intents](/lattice/concepts/intents/) -- the unit of work in Lattice
+- Explore the [Dashboard](/lattice/guides/dashboard/) -- the operator interface
+- Review the [Architecture](/lattice/architecture/) -- how the system fits together
