@@ -37,6 +37,19 @@ defmodule Lattice.Capabilities.Sprites.Stub do
   ]
 
   @impl true
+  def create_sprite(name, _opts \\ []) do
+    {:ok,
+     %{
+       id: name,
+       name: name,
+       status: "running",
+       task: nil,
+       repo: nil,
+       started_at: DateTime.to_iso8601(DateTime.utc_now())
+     }}
+  end
+
+  @impl true
   def list_sprites do
     {:ok, @stub_sprites}
   end

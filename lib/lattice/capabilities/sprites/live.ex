@@ -29,6 +29,19 @@ defmodule Lattice.Capabilities.Sprites.Live do
   # ── Callbacks ──────────────────────────────────────────────────────────
 
   @impl true
+  def create_sprite(name, _opts \\ []) do
+    body = %{"name" => name}
+
+    case post("/#{@api_version}/sprites", body) do
+      {:ok, sprite} when is_map(sprite) ->
+        {:ok, parse_sprite(sprite)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
   def list_sprites do
     case get("/#{@api_version}/sprites") do
       {:ok, sprites} when is_list(sprites) ->
@@ -80,9 +93,10 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   @impl true
   def exec(id, command) do
-    body = %{cmd: command}
+    query = URI.encode_query([{"cmd", command}])
+    path = "/#{@api_version}/sprites/#{URI.encode(id)}/exec?#{query}"
 
-    case post("/#{@api_version}/sprites/#{URI.encode(id)}/exec", body) do
+    case post(path, nil) do
       {:ok, result} when is_map(result) ->
         {:ok, parse_exec_result(id, command, result)}
 
