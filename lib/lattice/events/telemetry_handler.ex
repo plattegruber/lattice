@@ -16,6 +16,10 @@ defmodule Lattice.Events.TelemetryHandler do
   - `[:lattice, :sprite, :approval_needed]` — Actions requiring approval
   - `[:lattice, :capability, :call]` — Capability module API calls
   - `[:lattice, :fleet, :summary]` — Fleet-level aggregate metrics
+  - `[:lattice, :observation, :emitted]` — Sprite observation emitted
+  - `[:lattice, :intent, :created]` — Intent created in the store
+  - `[:lattice, :intent, :transitioned]` — Intent state transition
+  - `[:lattice, :intent, :artifact_added]` — Artifact added to an intent
 
   ## Attaching
 
@@ -36,7 +40,11 @@ defmodule Lattice.Events.TelemetryHandler do
     [:lattice, :sprite, :approval_needed],
     [:lattice, :capability, :call],
     [:lattice, :fleet, :summary],
-    [:lattice, :safety, :audit]
+    [:lattice, :safety, :audit],
+    [:lattice, :observation, :emitted],
+    [:lattice, :intent, :created],
+    [:lattice, :intent, :transitioned],
+    [:lattice, :intent, :artifact_added]
   ]
 
   @doc """
@@ -203,6 +211,72 @@ defmodule Lattice.Events.TelemetryHandler do
       result: inspect(entry.result),
       actor: entry.actor,
       args: inspect(entry.args)
+    )
+  end
+
+  def handle_event(
+        [:lattice, :observation, :emitted],
+        _measurements,
+        %{sprite_id: sprite_id, observation: observation},
+        _config
+      ) do
+    log_level =
+      case observation.severity do
+        :info -> :info
+        :low -> :info
+        :medium -> :warning
+        :high -> :warning
+        :critical -> :error
+      end
+
+    Logger.log(
+      log_level,
+      "Observation emitted: #{observation.type} (#{observation.severity})",
+      sprite_id: sprite_id,
+      observation_id: observation.id,
+      type: observation.type,
+      severity: observation.severity
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :created],
+        _measurements,
+        %{intent: intent},
+        _config
+      ) do
+    Logger.info(
+      "Intent created: #{intent.id} (#{intent.kind})",
+      intent_id: intent.id,
+      kind: intent.kind,
+      source: inspect(intent.source)
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :transitioned],
+        _measurements,
+        %{intent: intent, from: from, to: to},
+        _config
+      ) do
+    Logger.info(
+      "Intent transitioned: #{intent.id} #{from} -> #{to}",
+      intent_id: intent.id,
+      from: from,
+      to: to
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :artifact_added],
+        _measurements,
+        %{intent: intent, artifact: artifact},
+        _config
+      ) do
+    Logger.info(
+      "Artifact added to intent: #{intent.id}",
+      intent_id: intent.id,
+      artifact_type: Map.get(artifact, :type, :unknown)
     )
   end
 end
