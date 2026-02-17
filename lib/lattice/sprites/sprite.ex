@@ -212,17 +212,35 @@ defmodule Lattice.Sprites.Sprite do
 
   @impl true
   def handle_cast(:reconcile_now, {state, interval}) do
-    {new_state, _outcome} = do_reconcile(state)
-    schedule_reconcile(interval)
-    {:noreply, {new_state, interval}}
+    case do_reconcile(state) do
+      {:stop, reason, new_state} ->
+        {:stop, reason, {new_state, interval}}
+
+      {new_state, :not_found} ->
+        schedule_reconcile(5_000)
+        {:noreply, {new_state, interval}}
+
+      {new_state, _outcome} ->
+        schedule_reconcile(interval)
+        {:noreply, {new_state, interval}}
+    end
   end
 
   @impl true
   def handle_info(:reconcile, {state, interval}) do
-    {new_state, _outcome} = do_reconcile(state)
-    next_interval = reconcile_delay(new_state, interval)
-    schedule_reconcile(next_interval)
-    {:noreply, {new_state, interval}}
+    case do_reconcile(state) do
+      {:stop, reason, new_state} ->
+        {:stop, reason, {new_state, interval}}
+
+      {new_state, :not_found} ->
+        schedule_reconcile(5_000)
+        {:noreply, {new_state, interval}}
+
+      {new_state, _outcome} ->
+        next_interval = reconcile_delay(new_state, interval)
+        schedule_reconcile(next_interval)
+        {:noreply, {new_state, interval}}
+    end
   end
 
   # ── Reconciliation Logic ────────────────────────────────────────────
@@ -298,6 +316,7 @@ defmodule Lattice.Sprites.Sprite do
     else
       duration = System.monotonic_time(:millisecond) - start_time
       new_state = State.reset_backoff(state)
+      new_state = %{new_state | not_found_count: 0}
       emit_reconciliation_result(new_state, :no_change, duration)
       new_state = update_and_emit_health(new_state, duration)
       {new_state, :no_change}
@@ -312,6 +331,7 @@ defmodule Lattice.Sprites.Sprite do
 
         {:ok, new_state} = State.transition(state, new_observed)
         new_state = State.reset_backoff(new_state)
+        new_state = %{new_state | not_found_count: 0}
         new_state = State.record_observation(new_state)
 
         emit_state_change(state.sprite_id, old_observed, new_observed, "reconciliation")
@@ -347,27 +367,40 @@ defmodule Lattice.Sprites.Sprite do
   end
 
   # Handle the case where the sprite was not found in the API (removed externally).
-  defp handle_not_found(%State{} = state, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    old_observed = state.observed_state
-    new_state = State.record_failure(state)
+  # Uses a two-strike approach: first not-found retries quickly, second consecutive
+  # not-found confirms deletion and stops the GenServer gracefully.
+  defp handle_not_found(%State{} = state, _start_time) do
+    new_count = state.not_found_count + 1
 
-    Logger.warning("Sprite #{state.sprite_id} not found in API (removed externally?)",
-      sprite_id: state.sprite_id
-    )
+    if new_count >= 2 do
+      # Second consecutive not-found — sprite is truly gone
+      Logger.warning(
+        "Sprite #{state.sprite_id} confirmed deleted externally (#{new_count} consecutive not-found)"
+      )
 
-    new_state = maybe_transition_to_error(new_state, old_observed)
+      :telemetry.execute(
+        [:lattice, :sprite, :externally_deleted],
+        %{count: 1},
+        %{sprite_id: state.sprite_id, last_state: state.observed_state}
+      )
 
-    emit_reconciliation_result(
-      new_state,
-      :failure,
-      duration,
-      "sprite not found in API"
-    )
+      Phoenix.PubSub.broadcast(
+        Lattice.PubSub,
+        Events.fleet_topic(),
+        {:sprite_externally_deleted, state.sprite_id}
+      )
 
-    new_state = update_and_emit_health(new_state, duration)
+      {:stop, :normal, state}
+    else
+      # First not-found — could be transient, retry quickly
+      Logger.warning(
+        "Sprite #{state.sprite_id} not found in API (attempt #{new_count}/2), retrying...",
+        sprite_id: state.sprite_id
+      )
 
-    {new_state, :failure}
+      new_state = %{state | not_found_count: new_count}
+      {new_state, :not_found}
+    end
   end
 
   # Handle API fetch failure (timeout, network error, etc.) as a transient failure.
@@ -375,6 +408,7 @@ defmodule Lattice.Sprites.Sprite do
     duration = System.monotonic_time(:millisecond) - start_time
     old_observed = state.observed_state
     new_state = State.record_failure(state)
+    new_state = %{new_state | not_found_count: 0}
 
     Logger.warning("Sprite reconciliation failure",
       sprite_id: state.sprite_id,
