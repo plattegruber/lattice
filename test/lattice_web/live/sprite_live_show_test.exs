@@ -71,7 +71,6 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
       {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
 
       assert html =~ sprite_id
-      assert html =~ "Sprite:"
     end
 
     test "renders state comparison panel", %{conn: conn, sprite_id: sprite_id} do

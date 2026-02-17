@@ -39,7 +39,7 @@ defmodule LatticeWeb.FleetLiveTest do
     test "renders the sprites table header", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/sprites")
 
-      assert html =~ "Sprite ID"
+      assert html =~ "Sprite"
       assert html =~ "State"
       assert html =~ "Health"
       assert html =~ "Last Update"

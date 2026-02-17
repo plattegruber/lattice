@@ -15,6 +15,7 @@ defmodule LatticeWeb.FleetLive do
   alias Lattice.Events
   alias Lattice.Events.StateChange
   alias Lattice.Sprites.FleetManager
+  alias Lattice.Sprites.State
 
   @refresh_interval_ms 30_000
 
@@ -104,7 +105,11 @@ defmodule LatticeWeb.FleetLive do
           rows={@sprites}
           row_id={fn {id, _state} -> "sprite-#{id}" end}
         >
-          <:col :let={{id, _state}} label="Sprite ID">{id}</:col>
+          <:col :let={{id, state}} label="Sprite">
+            <.link navigate={~p"/sprites/#{id}"} class="link link-primary font-medium">
+              {State.display_name(state)}
+            </.link>
+          </:col>
           <:col :let={{_id, state}} label="State">
             <.state_badge state={state.observed_state} />
           </:col>
@@ -117,11 +122,6 @@ defmodule LatticeWeb.FleetLive do
           <:col :let={{_id, state}} label="Last Update">
             <.relative_time datetime={state.updated_at} />
           </:col>
-          <:action :let={{id, _state}}>
-            <.link navigate={~p"/sprites/#{id}"} class="link link-primary text-sm">
-              View
-            </.link>
-          </:action>
         </.table>
 
         <div :if={@sprites == []} class="text-center py-12 text-base-content/60">

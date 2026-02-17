@@ -50,6 +50,9 @@ defmodule Lattice.Capabilities.Sprites.Live do
       {:ok, %{"data" => sprites}} when is_list(sprites) ->
         {:ok, Enum.map(sprites, &parse_sprite/1)}
 
+      {:ok, %{"sprites" => sprites}} when is_list(sprites) ->
+        {:ok, Enum.map(sprites, &parse_sprite/1)}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -79,12 +82,9 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   @impl true
   def sleep(id) do
-    case delete("/#{@api_version}/sprites/#{URI.encode(id)}") do
+    case put("/#{@api_version}/sprites/#{URI.encode(id)}", %{status: "cold"}) do
       {:ok, sprite} when is_map(sprite) ->
         {:ok, parse_sprite(sprite)}
-
-      {:ok, :no_content} ->
-        {:ok, %{id: id, status: :hibernating}}
 
       {:error, reason} ->
         {:error, reason}
@@ -140,10 +140,6 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   defp put(path, body) do
     request(:put, path, body)
-  end
-
-  defp delete(path) do
-    request(:delete, path, nil)
   end
 
   defp request(method, path, body) do
@@ -256,7 +252,7 @@ defmodule Lattice.Capabilities.Sprites.Live do
   @doc false
   def parse_sprite(data) when is_map(data) do
     %{
-      id: data["id"] || data["name"],
+      id: data["name"] || data["id"],
       name: data["name"],
       status: parse_status(data["status"]),
       organization: data["organization"],
