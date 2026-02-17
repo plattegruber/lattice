@@ -242,6 +242,28 @@ defmodule LatticeWeb.IntentsLiveTest do
     end
   end
 
+  # ── Task Display ─────────────────────────────────────────────────────
+
+  describe "task intent display" do
+    test "shows task-specific inline details", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr_trivial_change",
+          instructions: "Add timestamp"
+        )
+
+      {:ok, _stored} = Store.create(intent)
+
+      {:ok, _view, html} = live(conn, ~p"/intents")
+
+      assert html =~ "my-sprite"
+      assert html =~ "owner/repo"
+      assert html =~ "open_pr_trivial_change"
+    end
+  end
+
   # ── Navigation ─────────────────────────────────────────────────────
 
   describe "navigation" do

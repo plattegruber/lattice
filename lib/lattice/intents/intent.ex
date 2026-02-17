@@ -141,6 +141,58 @@ defmodule Lattice.Intents.Intent do
     end
   end
 
+  @doc """
+  Create a new task intent.
+
+  Tasks are action intents with a structured payload for sprite-targeted work
+  that produces artifacts (like a PR URL). Builds the correct payload shape
+  and delegates to `new_action/2`.
+
+  ## Required Options
+
+  - `task_kind` — the kind of task (e.g., `"open_pr_trivial_change"`)
+  - `instructions` — what the sprite should do
+
+  ## Optional Options
+
+  - `base_branch` — branch to base the work on (default: `"main"`)
+  - `pr_title` — title for the PR to create
+  - `pr_body` — body for the PR to create
+  - `summary` — custom summary (defaults to "Task: <task_kind> on <repo>")
+  - `metadata` — additional metadata map
+  - `rollback_strategy` — how to roll back if needed
+  """
+  @spec new_task(source(), String.t(), String.t(), keyword()) :: {:ok, t()} | {:error, term()}
+  def new_task(source, sprite_name, repo, opts) when is_binary(sprite_name) and is_binary(repo) do
+    with :ok <- validate_required(opts, :task_kind),
+         :ok <- validate_required(opts, :instructions) do
+      task_kind = Keyword.fetch!(opts, :task_kind)
+      instructions = Keyword.fetch!(opts, :instructions)
+
+      payload =
+        %{
+          "capability" => "sprites",
+          "operation" => "run_task",
+          "sprite_name" => sprite_name,
+          "repo" => repo,
+          "base_branch" => Keyword.get(opts, :base_branch, "main"),
+          "task_kind" => task_kind,
+          "instructions" => instructions
+        }
+        |> maybe_put("pr_title", Keyword.get(opts, :pr_title))
+        |> maybe_put("pr_body", Keyword.get(opts, :pr_body))
+
+      new_action(source,
+        summary: Keyword.get(opts, :summary, "Task: #{task_kind} on #{repo}"),
+        payload: payload,
+        affected_resources: ["sprite:#{sprite_name}", "repo:#{repo}"],
+        expected_side_effects: ["run_task on #{sprite_name}"],
+        metadata: Keyword.get(opts, :metadata, %{}),
+        rollback_strategy: Keyword.get(opts, :rollback_strategy)
+      )
+    end
+  end
+
   # ── Public Helpers ───────────────────────────────────────────────────
 
   @doc "Returns the list of valid intent kinds."
@@ -150,6 +202,17 @@ defmodule Lattice.Intents.Intent do
   @doc "Returns the list of valid source types."
   @spec valid_source_types() :: [atom()]
   def valid_source_types, do: @valid_source_types
+
+  @doc """
+  Returns `true` if the intent is a task (an action with `sprites`/`run_task` payload).
+  """
+  @spec task?(t()) :: boolean()
+  def task?(%__MODULE__{kind: :action, payload: payload}) do
+    Map.get(payload, "capability") in ["sprites", :sprites] and
+      Map.get(payload, "operation") in ["run_task", :run_task]
+  end
+
+  def task?(_), do: false
 
   # ── Private ──────────────────────────────────────────────────────────
 
@@ -209,4 +272,7 @@ defmodule Lattice.Intents.Intent do
       {:error, {:missing_payload_field, key}}
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

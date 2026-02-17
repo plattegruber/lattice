@@ -308,6 +308,63 @@ defmodule LatticeWeb.IntentLive.ShowTest do
     end
   end
 
+  # ── Task Details Panel ─────────────────────────────────────────────
+
+  describe "task details panel" do
+    test "shows task details panel for task intents", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr_trivial_change",
+          instructions: "Add timestamp to README",
+          pr_title: "Add build timestamp",
+          pr_body: "Automated change"
+        )
+
+      {:ok, stored} = Store.create(intent)
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{stored.id}")
+
+      assert html =~ "Task Details"
+      assert html =~ "my-sprite"
+      assert html =~ "owner/repo"
+      assert html =~ "open_pr_trivial_change"
+      assert html =~ "Add timestamp to README"
+      assert html =~ "Add build timestamp"
+    end
+
+    test "does not show task details panel for non-task intents", %{conn: conn} do
+      intent = create_intent()
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{intent.id}")
+
+      refute html =~ "Task Details"
+    end
+
+    test "shows PR URL artifact when present", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      {:ok, stored} = Store.create(intent)
+
+      Store.add_artifact(stored.id, %{
+        type: "pr_url",
+        data: %{"url" => "https://github.com/owner/repo/pull/42"}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{stored.id}")
+
+      assert html =~ "Pull Request"
+      assert html =~ "https://github.com/owner/repo/pull/42"
+    end
+  end
+
   # ── Artifacts ──────────────────────────────────────────────────────
 
   describe "artifacts display" do
