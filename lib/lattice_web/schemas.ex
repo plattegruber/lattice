@@ -778,4 +778,120 @@ defmodule LatticeWeb.Schemas do
       }
     })
   end
+
+  # ── Tasks ───────────────────────────────────────────────────────
+
+  defmodule CreateTaskRequest do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "CreateTaskRequest",
+      description: "Request body for assigning a task to a sprite.",
+      type: :object,
+      properties: %{
+        repo: %Schema{
+          type: :string,
+          description: "Target repository in owner/repo format"
+        },
+        task_kind: %Schema{
+          type: :string,
+          description: "Kind of task to run (e.g. open_pr_trivial_change)"
+        },
+        instructions: %Schema{
+          type: :string,
+          description: "Instructions for the sprite to execute"
+        },
+        base_branch: %Schema{
+          type: :string,
+          description: "Branch to base work on (default: main)"
+        },
+        pr_title: %Schema{
+          type: :string,
+          description: "Title for the PR to create"
+        },
+        pr_body: %Schema{
+          type: :string,
+          description: "Body for the PR to create"
+        },
+        summary: %Schema{
+          type: :string,
+          description: "Custom human-readable summary (defaults to auto-generated)"
+        }
+      },
+      required: [:repo, :task_kind, :instructions],
+      example: %{
+        "repo" => "plattegruber/lattice",
+        "task_kind" => "open_pr_trivial_change",
+        "instructions" => "Add a build timestamp to README.md",
+        "base_branch" => "main",
+        "pr_title" => "Add build timestamp",
+        "pr_body" => "Automated change via Lattice"
+      }
+    })
+  end
+
+  defmodule TaskIntentData do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "TaskIntentData",
+      description: "Task intent data returned after creation.",
+      type: :object,
+      properties: %{
+        intent_id: %Schema{type: :string, description: "Intent identifier"},
+        state: %Schema{
+          type: :string,
+          description: "Current lifecycle state",
+          enum: [
+            "proposed",
+            "classified",
+            "awaiting_approval",
+            "approved",
+            "running",
+            "completed",
+            "failed",
+            "rejected",
+            "canceled"
+          ]
+        },
+        classification: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Safety classification",
+          enum: ["safe", "controlled", "dangerous"]
+        },
+        sprite_name: %Schema{type: :string, description: "Target sprite name"},
+        repo: %Schema{type: :string, description: "Target repository"}
+      },
+      required: [:intent_id, :state, :sprite_name, :repo],
+      example: %{
+        "intent_id" => "int_abc123",
+        "state" => "awaiting_approval",
+        "classification" => "controlled",
+        "sprite_name" => "my-sprite",
+        "repo" => "plattegruber/lattice"
+      }
+    })
+  end
+
+  defmodule TaskIntentResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "TaskIntentResponse",
+      description: "Response envelope after creating a task intent.",
+      type: :object,
+      properties: %{
+        data: LatticeWeb.Schemas.TaskIntentData,
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp]
+    })
+  end
 end
