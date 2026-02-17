@@ -62,6 +62,22 @@ defmodule Lattice.Intents.PipelineTest do
     intent
   end
 
+  defp new_task_intent(opts \\ []) do
+    source = Keyword.get(opts, :source, @valid_source)
+    sprite_name = Keyword.get(opts, :sprite_name, "my-sprite")
+    repo = Keyword.get(opts, :repo, "owner/repo")
+
+    {:ok, intent} =
+      Intent.new_task(source, sprite_name, repo,
+        task_kind: Keyword.get(opts, :task_kind, "open_pr_trivial_change"),
+        instructions: Keyword.get(opts, :instructions, "Add timestamp to README"),
+        pr_title: Keyword.get(opts, :pr_title),
+        pr_body: Keyword.get(opts, :pr_body)
+      )
+
+    intent
+  end
+
   defp with_guardrails(config, fun) do
     previous = Application.get_env(:lattice, :guardrails, [])
     Application.put_env(:lattice, :guardrails, config)
@@ -70,6 +86,17 @@ defmodule Lattice.Intents.PipelineTest do
       fun.()
     after
       Application.put_env(:lattice, :guardrails, previous)
+    end
+  end
+
+  defp with_task_allowlist(repos, fun) do
+    previous = Application.get_env(:lattice, :task_allowlist, [])
+    Application.put_env(:lattice, :task_allowlist, auto_approve_repos: repos)
+
+    try do
+      fun.()
+    after
+      Application.put_env(:lattice, :task_allowlist, previous)
     end
   end
 
@@ -322,6 +349,86 @@ defmodule Lattice.Intents.PipelineTest do
     end
   end
 
+  # ── Task intent gating ────────────────────────────────────────────
+
+  describe "task intent gating" do
+    test "task intent classified as controlled stops at awaiting_approval by default" do
+      with_guardrails(
+        [allow_controlled: true, require_approval_for_controlled: true],
+        fn ->
+          intent = new_task_intent(repo: "owner/non-allowlisted")
+
+          assert {:ok, result} = Pipeline.propose(intent)
+          assert result.state == :awaiting_approval
+          assert result.classification == :controlled
+        end
+      )
+    end
+
+    test "task intent targeting allowlisted repo auto-approves" do
+      with_guardrails(
+        [allow_controlled: true, require_approval_for_controlled: true],
+        fn ->
+          with_task_allowlist(["owner/allowlisted-repo"], fn ->
+            intent = new_task_intent(repo: "owner/allowlisted-repo")
+
+            assert {:ok, result} = Pipeline.propose(intent)
+            assert result.state == :approved
+            assert result.classification == :controlled
+          end)
+        end
+      )
+    end
+
+    test "task intent targeting non-allowlisted repo requires approval" do
+      with_guardrails(
+        [allow_controlled: true, require_approval_for_controlled: true],
+        fn ->
+          with_task_allowlist(["owner/other-repo"], fn ->
+            intent = new_task_intent(repo: "owner/not-in-list")
+
+            assert {:ok, result} = Pipeline.propose(intent)
+            assert result.state == :awaiting_approval
+            assert result.classification == :controlled
+          end)
+        end
+      )
+    end
+
+    test "non-task controlled intent is not affected by task allowlist" do
+      with_guardrails(
+        [allow_controlled: true, require_approval_for_controlled: true],
+        fn ->
+          with_task_allowlist(["owner/repo"], fn ->
+            # This is a regular controlled action, not a task
+            intent = new_action_intent(capability: "sprites", operation: "wake")
+
+            assert {:ok, result} = Pipeline.propose(intent)
+            assert result.state == :awaiting_approval
+            assert result.classification == :controlled
+          end)
+        end
+      )
+    end
+
+    test "allowlisted task intent transition log shows allowlisted repo reason" do
+      with_guardrails(
+        [allow_controlled: true, require_approval_for_controlled: true],
+        fn ->
+          with_task_allowlist(["owner/repo"], fn ->
+            intent = new_task_intent(repo: "owner/repo")
+
+            {:ok, result} = Pipeline.propose(intent)
+            {:ok, history} = Store.get_history(result.id)
+
+            approval_entry = Enum.find(history, &(&1.to == :approved))
+            assert approval_entry.reason == "auto-approved (allowlisted repo)"
+          end)
+        end
+      )
+    end
+  end
+
   # ── classify_intent/1 ──────────────────────────────────────────────
 
   describe "classify_intent/1" do
@@ -338,6 +445,11 @@ defmodule Lattice.Intents.PipelineTest do
     test "classifies dangerous action intents" do
       intent = new_action_intent(capability: "fly", operation: "deploy")
       assert {:ok, :dangerous} = Pipeline.classify_intent(intent)
+    end
+
+    test "classifies task intents as controlled" do
+      intent = new_task_intent()
+      assert {:ok, :controlled} = Pipeline.classify_intent(intent)
     end
 
     test "defaults unknown action intents to controlled" do

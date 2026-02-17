@@ -164,6 +164,7 @@ defmodule LatticeWeb.IntentsLive do
           </:col>
           <:col :let={intent} label="Summary">
             <span class="text-sm">{intent.summary}</span>
+            <.task_inline_details :if={Intent.task?(intent)} payload={intent.payload} />
           </:col>
           <:col :let={intent} label="State">
             <.intent_state_badge state={intent.state} />
@@ -191,6 +192,24 @@ defmodule LatticeWeb.IntentsLive do
   end
 
   # ── Functional Components ──────────────────────────────────────────
+
+  attr :payload, :map, required: true
+
+  defp task_inline_details(assigns) do
+    ~H"""
+    <div class="flex flex-wrap gap-1 mt-1">
+      <span :if={@payload["sprite_name"]} class="badge badge-xs badge-outline">
+        {@payload["sprite_name"]}
+      </span>
+      <span :if={@payload["repo"]} class="badge badge-xs badge-outline">
+        {@payload["repo"]}
+      </span>
+      <span :if={@payload["task_kind"]} class="badge badge-xs badge-ghost">
+        {@payload["task_kind"]}
+      </span>
+    </div>
+    """
+  end
 
   attr :total, :integer, required: true
   attr :by_state, :map, required: true

@@ -29,6 +29,9 @@ config :lattice, :guardrails,
   allow_dangerous: false,
   require_approval_for_controlled: true
 
+# Task allowlist — repos that auto-approve task intents
+config :lattice, :task_allowlist, auto_approve_repos: []
+
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
   url: [host: "localhost"],

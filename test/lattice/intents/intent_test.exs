@@ -233,6 +233,161 @@ defmodule Lattice.Intents.IntentTest do
     end
   end
 
+  # ── new_task/4 ──────────────────────────────────────────────────────
+
+  describe "new_task/4" do
+    test "creates a task intent with valid params" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "my-sprite", "owner/repo",
+                 task_kind: "open_pr_trivial_change",
+                 instructions: "Add timestamp to README"
+               )
+
+      assert intent.kind == :action
+      assert intent.state == :proposed
+      assert intent.source == @valid_source
+      assert intent.payload["capability"] == "sprites"
+      assert intent.payload["operation"] == "run_task"
+      assert intent.payload["sprite_name"] == "my-sprite"
+      assert intent.payload["repo"] == "owner/repo"
+      assert intent.payload["task_kind"] == "open_pr_trivial_change"
+      assert intent.payload["instructions"] == "Add timestamp to README"
+      assert intent.payload["base_branch"] == "main"
+      assert intent.affected_resources == ["sprite:my-sprite", "repo:owner/repo"]
+      assert intent.expected_side_effects == ["run_task on my-sprite"]
+    end
+
+    test "generates default summary from task_kind and repo" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "fix_bug",
+                 instructions: "Fix the thing"
+               )
+
+      assert intent.summary == "Task: fix_bug on org/repo"
+    end
+
+    test "accepts custom summary" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "fix_bug",
+                 instructions: "Fix the thing",
+                 summary: "Custom summary"
+               )
+
+      assert intent.summary == "Custom summary"
+    end
+
+    test "accepts optional pr_title and pr_body" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "open_pr",
+                 instructions: "Do work",
+                 pr_title: "Add feature",
+                 pr_body: "This adds a feature"
+               )
+
+      assert intent.payload["pr_title"] == "Add feature"
+      assert intent.payload["pr_body"] == "This adds a feature"
+    end
+
+    test "omits pr_title and pr_body when not provided" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "open_pr",
+                 instructions: "Do work"
+               )
+
+      refute Map.has_key?(intent.payload, "pr_title")
+      refute Map.has_key?(intent.payload, "pr_body")
+    end
+
+    test "accepts custom base_branch" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "fix_bug",
+                 instructions: "Fix it",
+                 base_branch: "develop"
+               )
+
+      assert intent.payload["base_branch"] == "develop"
+    end
+
+    test "accepts optional metadata and rollback_strategy" do
+      assert {:ok, intent} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo",
+                 task_kind: "fix_bug",
+                 instructions: "Fix it",
+                 metadata: %{"priority" => "high"},
+                 rollback_strategy: "close the PR"
+               )
+
+      assert intent.metadata == %{"priority" => "high"}
+      assert intent.rollback_strategy == "close the PR"
+    end
+
+    test "rejects missing task_kind" do
+      assert {:error, {:missing_field, :task_kind}} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo", instructions: "Do work")
+    end
+
+    test "rejects missing instructions" do
+      assert {:error, {:missing_field, :instructions}} =
+               Intent.new_task(@valid_source, "sprite-1", "org/repo", task_kind: "open_pr")
+    end
+  end
+
+  # ── task?/1 ──────────────────────────────────────────────────────────
+
+  describe "task?/1" do
+    test "returns true for task intents created via new_task" do
+      {:ok, intent} =
+        Intent.new_task(@valid_source, "sprite-1", "org/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      assert Intent.task?(intent) == true
+    end
+
+    test "returns false for regular action intents" do
+      {:ok, intent} =
+        Intent.new_action(@valid_source,
+          summary: "Deploy",
+          payload: %{"capability" => "fly", "operation" => "deploy"},
+          affected_resources: ["app"],
+          expected_side_effects: ["deploy"]
+        )
+
+      assert Intent.task?(intent) == false
+    end
+
+    test "returns false for inquiry intents" do
+      {:ok, intent} =
+        Intent.new_inquiry(@valid_source,
+          summary: "Need key",
+          payload: %{
+            "what_requested" => "key",
+            "why_needed" => "need",
+            "scope_of_impact" => "one",
+            "expiration" => "1h"
+          }
+        )
+
+      assert Intent.task?(intent) == false
+    end
+
+    test "returns false for maintenance intents" do
+      {:ok, intent} =
+        Intent.new_maintenance(@valid_source,
+          summary: "Update",
+          payload: %{}
+        )
+
+      assert Intent.task?(intent) == false
+    end
+  end
+
   # ── Source Validation ────────────────────────────────────────────────
 
   describe "source validation" do

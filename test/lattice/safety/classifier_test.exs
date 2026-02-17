@@ -56,6 +56,11 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:ok, %Action{classification: :controlled}} = Classifier.classify(:sprites, :exec)
     end
 
+    test "classifies sprites:run_task as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:sprites, :run_task)
+    end
+
     test "classifies github:create_issue as controlled" do
       assert {:ok, %Action{classification: :controlled}} =
                Classifier.classify(:github, :create_issue)
@@ -140,6 +145,7 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:sprites, :wake} in controlled_actions
       assert {:sprites, :sleep} in controlled_actions
       assert {:sprites, :exec} in controlled_actions
+      assert {:sprites, :run_task} in controlled_actions
       assert {:github, :create_issue} in controlled_actions
     end
 
@@ -169,9 +175,9 @@ defmodule Lattice.Safety.ClassifierTest do
     test "covers all capability operations" do
       all = Classifier.all_classifications()
 
-      # Sprites: 6 operations
+      # Sprites: 7 operations (including run_task)
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
-      assert length(sprites_ops) == 6
+      assert length(sprites_ops) == 7
 
       # GitHub: 7 operations
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)

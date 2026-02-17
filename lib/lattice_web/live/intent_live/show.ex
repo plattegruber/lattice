@@ -191,6 +191,8 @@ defmodule LatticeWeb.IntentLive.Show do
           <.classification_panel intent={@intent} />
         </div>
 
+        <.task_details_panel :if={Intent.task?(@intent)} intent={@intent} />
+
         <.payload_panel intent={@intent} />
 
         <.lifecycle_timeline intent={@intent} />
@@ -398,6 +400,91 @@ defmodule LatticeWeb.IntentLive.Show do
             Rollback Strategy
           </div>
           <p class="text-xs text-base-content/70">{@intent.rollback_strategy}</p>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :intent, Intent, required: true
+
+  defp task_details_panel(assigns) do
+    payload = assigns.intent.payload
+    artifacts = Map.get(assigns.intent.metadata, :artifacts, [])
+
+    pr_artifact =
+      Enum.find(artifacts, fn a ->
+        Map.get(a, :type) in ["pr_url", :pr_url]
+      end)
+
+    pr_url =
+      if pr_artifact,
+        do: get_in(pr_artifact, [:data, "url"]) || get_in(pr_artifact, [:data, :url])
+
+    assigns =
+      assigns
+      |> assign(:task_payload, payload)
+      |> assign(:pr_url, pr_url)
+
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-command-line" class="size-5" /> Task Details
+        </h2>
+
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+          <div :if={@task_payload["sprite_name"]}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Sprite
+            </div>
+            <div class="mt-1 text-sm font-mono">{@task_payload["sprite_name"]}</div>
+          </div>
+          <div :if={@task_payload["repo"]}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Repository
+            </div>
+            <div class="mt-1 text-sm font-mono">{@task_payload["repo"]}</div>
+          </div>
+          <div :if={@task_payload["task_kind"]}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Task Kind
+            </div>
+            <div class="mt-1">
+              <span class="badge badge-sm badge-outline">{@task_payload["task_kind"]}</span>
+            </div>
+          </div>
+          <div :if={@task_payload["base_branch"]}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Base Branch
+            </div>
+            <div class="mt-1 text-sm font-mono">{@task_payload["base_branch"]}</div>
+          </div>
+          <div :if={@task_payload["pr_title"]}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              PR Title
+            </div>
+            <div class="mt-1 text-sm">{@task_payload["pr_title"]}</div>
+          </div>
+        </div>
+
+        <div :if={@task_payload["instructions"]} class="mt-4">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Instructions
+          </div>
+          <div class="bg-base-300 rounded-lg p-3">
+            <p class="text-sm whitespace-pre-wrap">{@task_payload["instructions"]}</p>
+          </div>
+        </div>
+
+        <div :if={@pr_url} class="mt-4">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Pull Request
+          </div>
+          <a href={@pr_url} target="_blank" rel="noopener" class="link link-primary text-sm">
+            <.icon name="hero-arrow-top-right-on-square" class="size-4 inline" />
+            {@pr_url}
+          </a>
         </div>
       </div>
     </div>

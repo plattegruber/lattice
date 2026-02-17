@@ -86,6 +86,9 @@ defmodule Lattice.Intents.Pipeline do
   SAFE intents auto-advance to `:approved`. CONTROLLED and DANGEROUS
   intents transition to `:awaiting_approval` for human review.
 
+  Task intents targeting repos on the allowlist auto-approve even when
+  classified as `:controlled`.
+
   Returns `{:ok, intent}` in its final resting state.
   """
   @spec gate(String.t()) :: {:ok, Intent.t()} | {:error, term()}
@@ -97,7 +100,7 @@ defmodule Lattice.Intents.Pipeline do
           advance_to_approved(intent_id)
 
         {:deny, :approval_required} ->
-          advance_to_awaiting_approval(intent_id)
+          gate_approval_required(intent_id, intent)
 
         {:deny, :action_not_permitted} ->
           reject_not_permitted(intent_id)
@@ -222,12 +225,20 @@ defmodule Lattice.Intents.Pipeline do
 
   # ── Private ────────────────────────────────────────────────────────
 
-  defp advance_to_approved(intent_id) do
+  defp gate_approval_required(intent_id, intent) do
+    if task_on_allowlisted_repo?(intent) do
+      advance_to_approved(intent_id, "auto-approved (allowlisted repo)")
+    else
+      advance_to_awaiting_approval(intent_id)
+    end
+  end
+
+  defp advance_to_approved(intent_id, reason \\ "auto-approved (safe)") do
     with {:ok, approved} <-
            Store.update(intent_id, %{
              state: :approved,
              actor: :pipeline,
-             reason: "auto-approved (safe)"
+             reason: reason
            }) do
       emit_telemetry([:lattice, :intent, :approved], approved)
       broadcast(approved, {:intent_approved, approved})
@@ -277,6 +288,23 @@ defmodule Lattice.Intents.Pipeline do
     end
   rescue
     ArgumentError -> :unknown
+  end
+
+  defp task_on_allowlisted_repo?(%Intent{} = intent) do
+    Intent.task?(intent) and repo_allowlisted?(intent.payload)
+  end
+
+  defp repo_allowlisted?(payload) do
+    repo = Map.get(payload, "repo")
+    allowlist = task_allowlist_config()
+
+    repo != nil and repo in allowlist
+  end
+
+  defp task_allowlist_config do
+    :lattice
+    |> Application.get_env(:task_allowlist, [])
+    |> Keyword.get(:auto_approve_repos, [])
   end
 
   defp emit_telemetry(event_name, %Intent{} = intent) do
