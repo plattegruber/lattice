@@ -15,6 +15,7 @@ defmodule Lattice.Intents.Executor do
 
   ## Implementations
 
+  - `Lattice.Intents.Executor.Task` -- runs tasks on sprites via exec API (PR creation, etc.)
   - `Lattice.Intents.Executor.Sprite` -- routes to Sprite process via capabilities
   - `Lattice.Intents.Executor.ControlPlane` -- executes directly in the control plane
   """
