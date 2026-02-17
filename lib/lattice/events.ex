@@ -225,6 +225,28 @@ defmodule Lattice.Events do
     Phoenix.PubSub.broadcast(pubsub(), observations_topic(), observation)
   end
 
+  @doc """
+  Broadcast a log line for a specific intent.
+
+  Used during task execution to stream log output to the intent detail
+  LiveView in real time.
+
+  ## Parameters
+
+  - `intent_id` — the intent ID to broadcast the log line for
+  - `line` — the log line content (string)
+  - `opts` — optional metadata:
+    - `:timestamp` — defaults to `DateTime.utc_now()`
+  """
+  @spec broadcast_intent_log(String.t(), String.t(), keyword()) :: :ok
+  def broadcast_intent_log(intent_id, line, opts \\ []) when is_binary(intent_id) do
+    timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
+    message = {:intent_log_line, intent_id, line, timestamp}
+
+    Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent_id), message)
+    Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), message)
+  end
+
   # ── Telemetry ──────────────────────────────────────────────────────
 
   @doc """

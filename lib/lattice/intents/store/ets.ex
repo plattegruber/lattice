@@ -55,6 +55,11 @@ defmodule Lattice.Intents.Store.ETS do
   end
 
   @impl Lattice.Intents.Store
+  def list_by_sprite(sprite_name) when is_binary(sprite_name) do
+    GenServer.call(__MODULE__, {:list_by_sprite, sprite_name})
+  end
+
+  @impl Lattice.Intents.Store
   def update(id, changes) when is_binary(id) and is_map(changes) do
     GenServer.call(__MODULE__, {:update, id, changes})
   end
@@ -122,6 +127,20 @@ defmodule Lattice.Intents.Store.ETS do
     {:reply, {:ok, sorted}, state}
   end
 
+  def handle_call({:list_by_sprite, sprite_name}, _from, state) do
+    intents =
+      :ets.foldl(
+        fn {_id, intent}, acc ->
+          if sprite_match?(intent, sprite_name), do: [intent | acc], else: acc
+        end,
+        [],
+        state.table
+      )
+
+    sorted = Enum.sort_by(intents, & &1.updated_at, {:desc, DateTime})
+    {:reply, {:ok, sorted}, state}
+  end
+
   def handle_call({:update, id, changes}, _from, state) do
     case :ets.lookup(state.table, id) do
       [{^id, intent}] ->
@@ -169,6 +188,16 @@ defmodule Lattice.Intents.Store.ETS do
       [] ->
         {:reply, {:error, :not_found}, state}
     end
+  end
+
+  defp sprite_match?(intent, sprite_name) do
+    source_match =
+      intent.source.type == :sprite and intent.source.id == sprite_name
+
+    payload_match =
+      Map.get(intent.payload, "sprite_name") == sprite_name
+
+    source_match or payload_match
   end
 
   defp collect_if_matching(intent, predicates, acc) do

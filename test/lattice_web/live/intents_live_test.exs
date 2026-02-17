@@ -264,6 +264,67 @@ defmodule LatticeWeb.IntentsLiveTest do
     end
   end
 
+  # ── Task Kind Filter ────────────────────────────────────────────────
+
+  describe "task kind filter" do
+    test "filters by task kind", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, task1} =
+        Intent.new_task(source, "sprite-001", "owner/repo1",
+          task_kind: "open_pr",
+          instructions: "Do PR work"
+        )
+
+      {:ok, _} = Store.create(task1)
+
+      {:ok, task2} =
+        Intent.new_task(source, "sprite-001", "owner/repo2",
+          task_kind: "investigate",
+          instructions: "Investigate issue"
+        )
+
+      {:ok, _} = Store.create(task2)
+
+      {:ok, view, _html} = live(conn, ~p"/intents")
+
+      html =
+        view
+        |> element("select[name=task_kind]")
+        |> render_change(%{task_kind: "open_pr"})
+
+      assert html =~ "owner/repo1"
+      refute html =~ "owner/repo2"
+    end
+
+    test "shows task kind filter only when task intents exist", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/intents")
+
+      refute html =~ "Task Kind"
+
+      # Add a task intent
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, task} =
+        Intent.new_task(source, "sprite-001", "owner/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      {:ok, _} = Store.create(task)
+
+      # Trigger a refresh via PubSub
+      Phoenix.PubSub.broadcast(
+        Lattice.PubSub,
+        Events.intents_topic(),
+        {:intent_created, task}
+      )
+
+      html = render(view)
+      assert html =~ "Task Kind"
+    end
+  end
+
   # ── Navigation ─────────────────────────────────────────────────────
 
   describe "navigation" do

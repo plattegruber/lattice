@@ -365,6 +365,101 @@ defmodule LatticeWeb.IntentLive.ShowTest do
     end
   end
 
+  # ── Live Log Panel ────────────────────────────────────────────────
+
+  describe "live log panel" do
+    test "shows live logs panel for task intents", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      {:ok, stored} = Store.create(intent)
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{stored.id}")
+
+      assert html =~ "Live Logs"
+      assert html =~ "No log output yet"
+    end
+
+    test "does not show live logs for non-task intents", %{conn: conn} do
+      intent = create_intent()
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{intent.id}")
+
+      refute html =~ "Live Logs"
+    end
+
+    test "receives and displays log lines via PubSub", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      {:ok, stored} = Store.create(intent)
+
+      {:ok, view, _html} = live(conn, ~p"/intents/#{stored.id}")
+
+      now = DateTime.utc_now()
+
+      Phoenix.PubSub.broadcast(
+        Lattice.PubSub,
+        Events.intent_topic(stored.id),
+        {:intent_log_line, stored.id, "Cloning repository...", now}
+      )
+
+      html = render(view)
+      assert html =~ "Cloning repository..."
+    end
+
+    test "accumulates multiple log lines", %{conn: conn} do
+      source = %{type: :sprite, id: "sprite-001"}
+
+      {:ok, intent} =
+        Intent.new_task(source, "my-sprite", "owner/repo",
+          task_kind: "open_pr",
+          instructions: "Do work"
+        )
+
+      {:ok, stored} = Store.create(intent)
+
+      {:ok, view, _html} = live(conn, ~p"/intents/#{stored.id}")
+
+      now = DateTime.utc_now()
+
+      for line <- ["Line 1", "Line 2", "Line 3"] do
+        Phoenix.PubSub.broadcast(
+          Lattice.PubSub,
+          Events.intent_topic(stored.id),
+          {:intent_log_line, stored.id, line, now}
+        )
+      end
+
+      html = render(view)
+      assert html =~ "Line 1"
+      assert html =~ "Line 2"
+      assert html =~ "Line 3"
+    end
+  end
+
+  # ── Execution Duration ──────────────────────────────────────────────
+
+  describe "execution duration" do
+    test "does not show execution duration for proposed intent", %{conn: conn} do
+      intent = create_intent()
+
+      {:ok, _view, html} = live(conn, ~p"/intents/#{intent.id}")
+
+      refute html =~ "Execution Duration"
+    end
+  end
+
   # ── Artifacts ──────────────────────────────────────────────────────
 
   describe "artifacts display" do

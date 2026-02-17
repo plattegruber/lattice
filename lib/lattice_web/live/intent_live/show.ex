@@ -6,6 +6,10 @@ defmodule LatticeWeb.IntentLive.Show do
 
   - **Intent details panel** — kind, state, classification, source, payload,
     affected resources, expected side effects, rollback strategy
+  - **Task details panel** — sprite name, repo, task kind, instructions, PR URL,
+    execution duration
+  - **Live log streaming panel** — monospace scrolling container with auto-scroll,
+    spinner while running, final status on completion
   - **Lifecycle timeline** — all transitions with timestamps, actors, and reasons
   - **Artifacts section** — logs, PR URLs, deploy IDs, outputs
   - **Action buttons** — Approve, Reject, Cancel — visibility based on current
@@ -24,6 +28,7 @@ defmodule LatticeWeb.IntentLive.Show do
   alias Lattice.Intents.Store
 
   @refresh_interval_ms 30_000
+  @max_log_lines 500
 
   # ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -42,6 +47,7 @@ defmodule LatticeWeb.IntentLive.Show do
          |> assign(:page_title, "Intent #{truncate_id(intent_id)}")
          |> assign(:intent_id, intent_id)
          |> assign(:intent, intent)
+         |> assign(:log_lines, [])
          |> assign(:not_found, false)}
 
       {:error, :not_found} ->
@@ -50,6 +56,7 @@ defmodule LatticeWeb.IntentLive.Show do
          |> assign(:page_title, "Intent Not Found")
          |> assign(:intent_id, intent_id)
          |> assign(:intent, nil)
+         |> assign(:log_lines, [])
          |> assign(:not_found, true)}
     end
   end
@@ -97,6 +104,19 @@ defmodule LatticeWeb.IntentLive.Show do
 
   def handle_info({:intent_created, %Intent{id: id}}, %{assigns: %{intent_id: id}} = socket) do
     {:noreply, refresh_intent(socket)}
+  end
+
+  def handle_info(
+        {:intent_log_line, id, line, timestamp},
+        %{assigns: %{intent_id: id}} = socket
+      ) do
+    log_entry = %{line: line, timestamp: timestamp}
+
+    log_lines =
+      (socket.assigns.log_lines ++ [log_entry])
+      |> Enum.take(-@max_log_lines)
+
+    {:noreply, assign(socket, :log_lines, log_lines)}
   end
 
   def handle_info(:refresh, socket) do
@@ -192,6 +212,12 @@ defmodule LatticeWeb.IntentLive.Show do
         </div>
 
         <.task_details_panel :if={Intent.task?(@intent)} intent={@intent} />
+
+        <.live_log_panel
+          :if={Intent.task?(@intent)}
+          intent={@intent}
+          log_lines={@log_lines}
+        />
 
         <.payload_panel intent={@intent} />
 
@@ -336,6 +362,15 @@ defmodule LatticeWeb.IntentLive.Show do
             </div>
           </div>
         </div>
+
+        <div :if={execution_duration(@intent)} class="mt-4">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+            Execution Duration
+          </div>
+          <div class="mt-1 text-sm font-mono">
+            {execution_duration(@intent)}
+          </div>
+        </div>
       </div>
     </div>
     """
@@ -477,7 +512,7 @@ defmodule LatticeWeb.IntentLive.Show do
           </div>
         </div>
 
-        <div :if={@pr_url} class="mt-4">
+        <div :if={@pr_url} class="mt-4" id="task-pr-url">
           <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
             Pull Request
           </div>
@@ -485,6 +520,66 @@ defmodule LatticeWeb.IntentLive.Show do
             <.icon name="hero-arrow-top-right-on-square" class="size-4 inline" />
             {@pr_url}
           </a>
+        </div>
+
+        <div :if={execution_duration(@intent)} class="mt-4">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Execution Duration
+          </div>
+          <div class="text-sm font-mono">{execution_duration(@intent)}</div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :intent, Intent, required: true
+  attr :log_lines, :list, required: true
+
+  defp live_log_panel(assigns) do
+    is_running = assigns.intent.state == :running
+    is_terminal = assigns.intent.state in [:completed, :failed, :canceled, :rejected]
+
+    assigns =
+      assigns
+      |> assign(:is_running, is_running)
+      |> assign(:is_terminal, is_terminal)
+
+    ~H"""
+    <div class="card bg-base-200 shadow-sm" id="live-log-panel">
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-document-text" class="size-5" /> Live Logs
+          <span :if={@is_running} class="loading loading-spinner loading-xs ml-2"></span>
+          <.intent_state_badge :if={@is_terminal} state={@intent.state} />
+        </h2>
+
+        <div :if={@log_lines == [] and !@is_running} class="text-center py-6 text-base-content/50">
+          <.icon name="hero-inbox" class="size-8 mx-auto mb-2" />
+          <p class="text-sm">No log output yet.</p>
+        </div>
+
+        <div :if={@log_lines == [] and @is_running} class="text-center py-6 text-base-content/50">
+          <span class="loading loading-dots loading-md"></span>
+          <p class="text-sm mt-2">Waiting for log output...</p>
+        </div>
+
+        <div
+          :if={@log_lines != []}
+          id="log-container"
+          phx-hook="AutoScroll"
+          class="bg-base-300 rounded-lg p-3 max-h-96 overflow-y-auto font-mono text-xs"
+        >
+          <div :for={{log_entry, idx} <- Enum.with_index(@log_lines)} id={"log-#{idx}"}>
+            <span class="text-base-content/40 select-none mr-2">
+              {format_log_timestamp(log_entry.timestamp)}
+            </span>
+            <span class="whitespace-pre-wrap">{log_entry.line}</span>
+          </div>
+        </div>
+
+        <div :if={@is_terminal and @log_lines != []} class="mt-2 text-xs text-base-content/50">
+          Task {to_string(@intent.state)} - {length(@log_lines)} log lines
         </div>
       </div>
     </div>
@@ -708,6 +803,30 @@ defmodule LatticeWeb.IntentLive.Show do
 
   defp transition_id(entry) do
     :erlang.phash2({entry.from, entry.to, entry.timestamp})
+  end
+
+  defp execution_duration(%Intent{started_at: nil}), do: nil
+
+  defp execution_duration(%Intent{started_at: started_at, completed_at: nil}) do
+    diff = DateTime.diff(DateTime.utc_now(), started_at, :second)
+    format_duration_seconds(diff) <> " (running)"
+  end
+
+  defp execution_duration(%Intent{started_at: started_at, completed_at: completed_at}) do
+    diff = DateTime.diff(completed_at, started_at, :second)
+    format_duration_seconds(diff)
+  end
+
+  defp format_duration_seconds(seconds) when seconds < 60, do: "#{seconds}s"
+
+  defp format_duration_seconds(seconds) when seconds < 3600,
+    do: "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+
+  defp format_duration_seconds(seconds),
+    do: "#{div(seconds, 3600)}h #{div(rem(seconds, 3600), 60)}m"
+
+  defp format_log_timestamp(datetime) do
+    Calendar.strftime(datetime, "%H:%M:%S")
   end
 
   defp intent_state_color(:proposed), do: "badge-ghost"

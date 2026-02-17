@@ -8,11 +8,13 @@ defmodule LatticeWeb.SpriteLive.Show do
     last reconciliation timestamp
   - **Event timeline** -- last N events streamed via PubSub
   - **Health & backoff info** -- health status, failure count, backoff duration
-  - **Log lines** -- placeholder for future log streaming
+  - **Tasks section** -- active/recent tasks for this sprite with links to
+    intent detail view
+  - **Assign Task form** -- quick action to assign a task to this sprite
   - **Approval queue** -- placeholder for future HITL approval workflow
 
-  Subscribes to `sprites:<sprite_id>` PubSub topic on mount and renders
-  projections of the event stream. No polling.
+  Subscribes to `sprites:<sprite_id>` and `intents` PubSub topics on mount
+  and renders projections of the event stream. No polling.
   """
 
   use LatticeWeb, :live_view
@@ -22,6 +24,9 @@ defmodule LatticeWeb.SpriteLive.Show do
   alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
+  alias Lattice.Intents.Intent
+  alias Lattice.Intents.Pipeline
+  alias Lattice.Intents.Store, as: IntentStore
   alias Lattice.Sprites.FleetManager
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
@@ -38,6 +43,7 @@ defmodule LatticeWeb.SpriteLive.Show do
         if connected?(socket) do
           Events.subscribe_sprite(sprite_id)
           Events.subscribe_fleet()
+          Events.subscribe_intents()
           schedule_refresh()
         end
 
@@ -48,7 +54,10 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:sprite_state, sprite_state)
          |> assign(:events, [])
          |> assign(:last_reconciliation, nil)
-         |> assign(:not_found, false)}
+         |> assign(:not_found, false)
+         |> assign(:show_task_form, false)
+         |> assign(:task_form, default_task_form())
+         |> assign_sprite_tasks()}
 
       {:error, :not_found} ->
         {:ok,
@@ -58,7 +67,10 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:sprite_state, nil)
          |> assign(:events, [])
          |> assign(:last_reconciliation, nil)
-         |> assign(:not_found, true)}
+         |> assign(:not_found, true)
+         |> assign(:show_task_form, false)
+         |> assign(:task_form, default_task_form())
+         |> assign(:sprite_tasks, [])}
     end
   end
 
@@ -106,14 +118,67 @@ defmodule LatticeWeb.SpriteLive.Show do
     {:noreply, refresh_sprite_state(socket)}
   end
 
+  # Intent store events -- refresh tasks when intents change
+  def handle_info({:intent_created, _intent}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
+  def handle_info({:intent_transitioned, _intent}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
+  def handle_info({:intent_artifact_added, _intent, _artifact}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
   def handle_info(:refresh, socket) do
     schedule_refresh()
-    {:noreply, refresh_sprite_state(socket)}
+
+    {:noreply,
+     socket
+     |> refresh_sprite_state()
+     |> assign_sprite_tasks()}
   end
 
   # Catch-all for unexpected PubSub messages
   def handle_info(_event, socket) do
     {:noreply, refresh_sprite_state(socket)}
+  end
+
+  @impl true
+  def handle_event("show_task_form", _params, socket) do
+    {:noreply, assign(socket, :show_task_form, true)}
+  end
+
+  def handle_event("hide_task_form", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_task_form, false)
+     |> assign(:task_form, default_task_form())}
+  end
+
+  def handle_event("validate_task", %{"task" => params}, socket) do
+    {:noreply, assign(socket, :task_form, params)}
+  end
+
+  def handle_event("submit_task", %{"task" => params}, socket) do
+    sprite_name = socket.assigns.sprite_id
+
+    case create_and_propose_task(sprite_name, params) do
+      {:ok, result} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Task assigned. Intent: #{truncate_id(result.id)}")
+         |> assign(:show_task_form, false)
+         |> assign(:task_form, default_task_form())
+         |> assign_sprite_tasks()}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+    end
   end
 
   # ── Render ─────────────────────────────────────────────────────────
@@ -152,6 +217,13 @@ defmodule LatticeWeb.SpriteLive.Show do
             last_reconciliation={@last_reconciliation}
           />
         </div>
+
+        <.tasks_section
+          sprite_id={@sprite_id}
+          tasks={@sprite_tasks}
+          show_task_form={@show_task_form}
+          task_form={@task_form}
+        />
 
         <.event_timeline events={@events} />
 
@@ -313,6 +385,205 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
+  attr :sprite_id, :string, required: true
+  attr :tasks, :list, required: true
+  attr :show_task_form, :boolean, required: true
+  attr :task_form, :map, required: true
+
+  defp tasks_section(assigns) do
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title text-base">
+            <.icon name="hero-command-line" class="size-5" /> Tasks
+          </h2>
+          <button
+            :if={!@show_task_form}
+            phx-click="show_task_form"
+            class="btn btn-primary btn-sm"
+          >
+            <.icon name="hero-plus" class="size-4" /> Assign Task
+          </button>
+        </div>
+
+        <.assign_task_form
+          :if={@show_task_form}
+          sprite_id={@sprite_id}
+          task_form={@task_form}
+        />
+
+        <div :if={@tasks == [] and !@show_task_form} class="text-center py-6 text-base-content/50">
+          <.icon name="hero-inbox" class="size-8 mx-auto mb-2" />
+          <p class="text-sm">No tasks for this sprite yet.</p>
+        </div>
+
+        <div :if={@tasks != []} class="overflow-x-auto mt-4">
+          <table class="table table-xs table-zebra">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Kind</th>
+                <th>State</th>
+                <th>Repo</th>
+                <th>Updated</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={task <- @tasks} id={"task-#{task.id}"}>
+                <td class="font-mono text-xs">{truncate_id(task.id)}</td>
+                <td>
+                  <span class="badge badge-xs badge-outline">
+                    {Map.get(task.payload, "task_kind", "-")}
+                  </span>
+                </td>
+                <td>
+                  <.task_state_badge state={task.state} />
+                </td>
+                <td class="text-xs font-mono">
+                  {Map.get(task.payload, "repo", "-")}
+                </td>
+                <td class="text-xs">
+                  <.relative_time datetime={task.updated_at} />
+                </td>
+                <td>
+                  <.link
+                    navigate={~p"/intents/#{task.id}"}
+                    class="link link-primary text-xs"
+                  >
+                    View
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :sprite_id, :string, required: true
+  attr :task_form, :map, required: true
+
+  defp assign_task_form(assigns) do
+    ~H"""
+    <form phx-submit="submit_task" phx-change="validate_task" class="mt-4 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Sprite</span>
+          </label>
+          <input
+            type="text"
+            value={@sprite_id}
+            class="input input-bordered input-sm"
+            disabled
+          />
+        </div>
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Repository *</span>
+          </label>
+          <input
+            type="text"
+            name="task[repo]"
+            value={Map.get(@task_form, "repo", "")}
+            placeholder="owner/repo"
+            class="input input-bordered input-sm"
+            required
+          />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Task Kind *</span>
+          </label>
+          <select name="task[task_kind]" class="select select-bordered select-sm" required>
+            <option value="" disabled selected={Map.get(@task_form, "task_kind", "") == ""}>
+              Select a task kind
+            </option>
+            <option
+              value="open_pr_trivial_change"
+              selected={Map.get(@task_form, "task_kind") == "open_pr_trivial_change"}
+            >
+              Open PR (Trivial Change)
+            </option>
+            <option
+              value="open_pr"
+              selected={Map.get(@task_form, "task_kind") == "open_pr"}
+            >
+              Open PR
+            </option>
+            <option
+              value="investigate"
+              selected={Map.get(@task_form, "task_kind") == "investigate"}
+            >
+              Investigate
+            </option>
+            <option
+              value="refactor"
+              selected={Map.get(@task_form, "task_kind") == "refactor"}
+            >
+              Refactor
+            </option>
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Base Branch</span>
+          </label>
+          <input
+            type="text"
+            name="task[base_branch]"
+            value={Map.get(@task_form, "base_branch", "")}
+            placeholder="main"
+            class="input input-bordered input-sm"
+          />
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label">
+          <span class="label-text">PR Title</span>
+        </label>
+        <input
+          type="text"
+          name="task[pr_title]"
+          value={Map.get(@task_form, "pr_title", "")}
+          placeholder="Optional PR title"
+          class="input input-bordered input-sm"
+        />
+      </div>
+
+      <div class="form-control">
+        <label class="label">
+          <span class="label-text">Instructions *</span>
+        </label>
+        <textarea
+          name="task[instructions]"
+          rows="3"
+          placeholder="What should this sprite do?"
+          class="textarea textarea-bordered"
+          required
+        >{Map.get(@task_form, "instructions", "")}</textarea>
+      </div>
+
+      <div class="flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <.icon name="hero-paper-airplane" class="size-4" /> Assign Task
+        </button>
+        <button type="button" phx-click="hide_task_form" class="btn btn-ghost btn-sm">
+          Cancel
+        </button>
+      </div>
+    </form>
+    """
+  end
+
   attr :events, :list, required: true
 
   defp event_timeline(assigns) do
@@ -401,6 +672,16 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
+  attr :state, :atom, required: true
+
+  defp task_state_badge(assigns) do
+    ~H"""
+    <span class={["badge badge-xs", task_state_color(@state)]}>
+      {@state}
+    </span>
+    """
+  end
+
   attr :health, :atom, required: true
 
   defp health_badge(assigns) do
@@ -468,6 +749,17 @@ defmodule LatticeWeb.SpriteLive.Show do
     end
   end
 
+  defp assign_sprite_tasks(socket) do
+    case IntentStore.list_by_sprite(socket.assigns.sprite_id) do
+      {:ok, intents} ->
+        tasks = Enum.filter(intents, &Intent.task?/1)
+        assign(socket, :sprite_tasks, tasks)
+
+      _error ->
+        assign(socket, :sprite_tasks, [])
+    end
+  end
+
   defp prepend_event(socket, event) do
     events =
       [event | socket.assigns.events]
@@ -480,6 +772,47 @@ defmodule LatticeWeb.SpriteLive.Show do
     Process.send_after(self(), :refresh, @refresh_interval_ms)
   end
 
+  defp create_and_propose_task(sprite_name, params) do
+    repo = Map.get(params, "repo", "")
+    task_kind = Map.get(params, "task_kind", "")
+    instructions = Map.get(params, "instructions", "")
+
+    with :ok <- validate_task_field(repo, "Repository"),
+         :ok <- validate_task_field(task_kind, "Task kind"),
+         :ok <- validate_task_field(instructions, "Instructions") do
+      source = %{type: :operator, id: "dashboard"}
+
+      opts =
+        [task_kind: task_kind, instructions: instructions]
+        |> maybe_add_opt(:base_branch, Map.get(params, "base_branch"))
+        |> maybe_add_opt(:pr_title, Map.get(params, "pr_title"))
+
+      with {:ok, intent} <- Intent.new_task(source, sprite_name, repo, opts) do
+        Pipeline.propose(intent)
+      end
+    end
+  end
+
+  defp validate_task_field("", label), do: {:error, "#{label} is required."}
+  defp validate_task_field(_value, _label), do: :ok
+
+  defp default_task_form do
+    %{
+      "repo" => "",
+      "task_kind" => "",
+      "instructions" => "",
+      "base_branch" => "",
+      "pr_title" => ""
+    }
+  end
+
+  defp maybe_add_opt(opts, _key, nil), do: opts
+  defp maybe_add_opt(opts, _key, ""), do: opts
+  defp maybe_add_opt(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp truncate_id("int_" <> rest), do: "int_" <> String.slice(rest, 0, 8) <> "..."
+  defp truncate_id(id), do: String.slice(id, 0, 16) <> "..."
+
   defp has_drift?(%State{observed_state: same, desired_state: same}), do: false
   defp has_drift?(%State{}), do: true
 
@@ -490,6 +823,18 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp state_color(:busy), do: "badge-warning"
   defp state_color(:error), do: "badge-error"
   defp state_color(_), do: "badge-ghost"
+
+  # Task state colors
+  defp task_state_color(:proposed), do: "badge-ghost"
+  defp task_state_color(:classified), do: "badge-info"
+  defp task_state_color(:awaiting_approval), do: "badge-warning"
+  defp task_state_color(:approved), do: "badge-success"
+  defp task_state_color(:running), do: "badge-info"
+  defp task_state_color(:completed), do: "badge-success"
+  defp task_state_color(:failed), do: "badge-error"
+  defp task_state_color(:rejected), do: "badge-error"
+  defp task_state_color(:canceled), do: "badge-ghost"
+  defp task_state_color(_), do: "badge-ghost"
 
   # Health colors (matching FleetLive)
   defp health_color(:healthy), do: "badge-success"

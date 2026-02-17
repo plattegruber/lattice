@@ -35,6 +35,7 @@ defmodule LatticeWeb.IntentsLive do
      |> assign(:filter_kind, "all")
      |> assign(:filter_state, "all")
      |> assign(:filter_classification, "all")
+     |> assign(:filter_task_kind, "all")
      |> assign(:sort_by, "newest")
      |> assign_intents()}
   end
@@ -110,6 +111,13 @@ defmodule LatticeWeb.IntentsLive do
      |> assign_derived()}
   end
 
+  def handle_event("filter_task_kind", %{"task_kind" => task_kind}, socket) do
+    {:noreply,
+     socket
+     |> assign(:filter_task_kind, task_kind)
+     |> assign_derived()}
+  end
+
   def handle_event("sort", %{"sort_by" => sort_by}, socket) do
     {:noreply,
      socket
@@ -140,7 +148,9 @@ defmodule LatticeWeb.IntentsLive do
         filter_kind={@filter_kind}
         filter_state={@filter_state}
         filter_classification={@filter_classification}
+        filter_task_kind={@filter_task_kind}
         sort_by={@sort_by}
+        task_kinds={@task_kinds}
       />
 
       <div :if={@filtered_intents == []} class="text-center py-12 text-base-content/60">
@@ -236,7 +246,9 @@ defmodule LatticeWeb.IntentsLive do
   attr :filter_kind, :string, required: true
   attr :filter_state, :string, required: true
   attr :filter_classification, :string, required: true
+  attr :filter_task_kind, :string, required: true
   attr :sort_by, :string, required: true
+  attr :task_kinds, :list, required: true
 
   defp filters(assigns) do
     ~H"""
@@ -299,6 +311,26 @@ defmodule LatticeWeb.IntentsLive do
             selected={@filter_classification == to_string(cls)}
           >
             {format_classification(cls)}
+          </option>
+        </select>
+      </div>
+
+      <div :if={@task_kinds != []} class="form-control">
+        <label class="label">
+          <span class="label-text text-xs">Task Kind</span>
+        </label>
+        <select
+          class="select select-bordered select-sm"
+          phx-change="filter_task_kind"
+          name="task_kind"
+        >
+          <option value="all" selected={@filter_task_kind == "all"}>All task kinds</option>
+          <option
+            :for={tk <- @task_kinds}
+            value={tk}
+            selected={@filter_task_kind == tk}
+          >
+            {tk}
           </option>
         </select>
       </div>
@@ -378,6 +410,7 @@ defmodule LatticeWeb.IntentsLive do
     filter_kind = socket.assigns.filter_kind
     filter_state = socket.assigns.filter_state
     filter_classification = socket.assigns.filter_classification
+    filter_task_kind = socket.assigns.filter_task_kind
     sort_by = socket.assigns.sort_by
 
     filtered =
@@ -385,15 +418,19 @@ defmodule LatticeWeb.IntentsLive do
       |> filter_by_kind(filter_kind)
       |> filter_by_state(filter_state)
       |> filter_by_classification(filter_classification)
+      |> filter_by_task_kind(filter_task_kind)
       |> sort_intents(sort_by)
 
     by_state = Enum.frequencies_by(all_intents, & &1.state)
     by_kind = Enum.frequencies_by(all_intents, & &1.kind)
 
+    task_kinds = extract_task_kinds(all_intents)
+
     socket
     |> assign(:filtered_intents, filtered)
     |> assign(:by_state, by_state)
     |> assign(:by_kind, by_kind)
+    |> assign(:task_kinds, task_kinds)
   end
 
   defp filter_by_kind(intents, "all"), do: intents
@@ -415,6 +452,23 @@ defmodule LatticeWeb.IntentsLive do
   defp filter_by_classification(intents, cls_str) do
     cls = String.to_existing_atom(cls_str)
     Enum.filter(intents, &(&1.classification == cls))
+  end
+
+  defp filter_by_task_kind(intents, "all"), do: intents
+
+  defp filter_by_task_kind(intents, task_kind) do
+    Enum.filter(intents, fn intent ->
+      Map.get(intent.payload, "task_kind") == task_kind
+    end)
+  end
+
+  defp extract_task_kinds(intents) do
+    intents
+    |> Enum.filter(&Intent.task?/1)
+    |> Enum.map(fn intent -> Map.get(intent.payload, "task_kind") end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp sort_intents(intents, "newest") do
