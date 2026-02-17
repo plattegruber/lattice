@@ -85,6 +85,11 @@ defmodule Lattice.Capabilities.Sprites.Stub do
   end
 
   @impl true
+  def delete_sprite(_id) do
+    :ok
+  end
+
+  @impl true
   def exec(id, command) do
     case Enum.find(@stub_sprites, &(&1.id == id)) do
       nil ->

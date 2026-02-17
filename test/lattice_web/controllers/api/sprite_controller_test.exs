@@ -349,6 +349,73 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
   end
 
+  # ── DELETE /api/sprites/:id ─────────────────────────────────────────
+
+  describe "DELETE /api/sprites/:id" do
+    test "deletes a sprite and returns confirmation", %{conn: conn} do
+      start_sprites([%{id: "api-delete-001", desired_state: :hibernating}])
+
+      Lattice.Capabilities.MockSprites
+      |> expect(:delete_sprite, fn "api-delete-001" -> :ok end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> delete("/api/sprites/api-delete-001")
+
+      body = json_response(conn, 200)
+
+      assert body["data"]["id"] == "api-delete-001"
+      assert body["data"]["deleted"] == true
+      assert is_binary(body["timestamp"])
+
+      # Verify the sprite is no longer in the fleet
+      conn2 =
+        build_conn()
+        |> authenticated()
+        |> get("/api/sprites/api-delete-001")
+
+      assert json_response(conn2, 404)
+    end
+
+    test "returns 404 when upstream API returns not_found", %{conn: conn} do
+      Lattice.Capabilities.MockSprites
+      |> expect(:delete_sprite, fn "nonexistent" -> {:error, :not_found} end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> delete("/api/sprites/nonexistent")
+
+      body = json_response(conn, 404)
+
+      assert body["error"] == "Sprite not found"
+      assert body["code"] == "SPRITE_NOT_FOUND"
+    end
+
+    test "returns 500 when upstream API fails", %{conn: conn} do
+      start_sprites([%{id: "api-delete-fail", desired_state: :hibernating}])
+
+      Lattice.Capabilities.MockSprites
+      |> expect(:delete_sprite, fn "api-delete-fail" -> {:error, :timeout} end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> delete("/api/sprites/api-delete-fail")
+
+      body = json_response(conn, 500)
+
+      assert body["code"] == "DELETE_FAILED"
+    end
+
+    test "returns 401 without authentication", %{conn: conn} do
+      conn = delete(conn, "/api/sprites/some-id")
+
+      assert json_response(conn, 401)
+    end
+  end
+
   # ── POST /api/sprites/:id/reconcile ────────────────────────────────
 
   describe "POST /api/sprites/:id/reconcile" do

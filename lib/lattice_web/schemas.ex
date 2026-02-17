@@ -34,7 +34,8 @@ defmodule LatticeWeb.Schemas do
             "INVALID_STATE_TRANSITION",
             "INVALID_TRANSITION",
             "SPRITE_ALREADY_EXISTS",
-            "UPSTREAM_API_ERROR"
+            "UPSTREAM_API_ERROR",
+            "DELETE_FAILED"
           ]
         }
       },
@@ -373,6 +374,37 @@ defmodule LatticeWeb.Schemas do
       required: [:name],
       example: %{
         "name" => "my-sprite"
+      }
+    })
+  end
+
+  defmodule DeleteSpriteResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "DeleteSpriteResponse",
+      description: "Response after deleting a sprite.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :object,
+          properties: %{
+            id: %Schema{type: :string, description: "The deleted sprite's identifier"},
+            deleted: %Schema{type: :boolean, description: "Whether the sprite was deleted"}
+          },
+          required: [:id, :deleted]
+        },
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp],
+      example: %{
+        "data" => %{
+          "id" => "sprite-abc123",
+          "deleted" => true
+        },
+        "timestamp" => "2026-01-15T12:00:00Z"
       }
     })
   end

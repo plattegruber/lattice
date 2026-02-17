@@ -92,6 +92,15 @@ defmodule Lattice.Capabilities.Sprites.Live do
   end
 
   @impl true
+  def delete_sprite(id) do
+    case delete("/#{@api_version}/sprites/#{URI.encode(id)}") do
+      {:ok, _} -> :ok
+      {:error, :not_found} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl true
   def exec(id, command) do
     query = URI.encode_query([{"cmd", command}])
     path = "/#{@api_version}/sprites/#{URI.encode(id)}/exec?#{query}"
@@ -140,6 +149,10 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   defp put(path, body) do
     request(:put, path, body)
+  end
+
+  defp delete(path) do
+    request(:delete, path, nil)
   end
 
   defp request(method, path, body) do

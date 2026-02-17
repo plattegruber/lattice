@@ -255,6 +255,57 @@ defmodule LatticeWeb.Api.SpriteController do
     end
   end
 
+  operation(:delete,
+    summary: "Delete a sprite",
+    description:
+      "Deletes a sprite from the Sprites API and removes it from the local fleet. This is a dangerous operation.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {"Deleted sprite", "application/json", LatticeWeb.Schemas.DeleteSpriteResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      internal_server_error:
+        {"Server error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
+  @doc """
+  DELETE /api/sprites/:id — delete a sprite.
+
+  Deletes the sprite from the upstream Sprites API first (source of truth),
+  then removes it from the local fleet manager.
+  """
+  def delete(conn, %{"id" => id}) do
+    case SpritesCapability.delete_sprite(id) do
+      :ok ->
+        FleetManager.remove_sprite(id)
+
+        conn
+        |> put_status(200)
+        |> json(%{data: %{id: id, deleted: true}, timestamp: DateTime.utc_now()})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(500)
+        |> json(%{
+          error: "Failed to delete sprite: #{inspect(reason)}",
+          code: "DELETE_FAILED"
+        })
+    end
+  end
+
   # ── Private ──────────────────────────────────────────────────────────
 
   defp create_upstream_sprite(name) do
