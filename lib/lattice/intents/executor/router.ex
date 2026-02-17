@@ -5,6 +5,7 @@ defmodule Lattice.Intents.Executor.Router do
   The Router examines the intent's kind, source, and payload to select the
   correct executor module. The routing logic is:
 
+  - Task intents (run_task operation) -> `Executor.Task`
   - Action intents from sprites -> `Executor.Sprite`
   - Action intents from operators/cron/agents -> `Executor.ControlPlane`
   - Maintenance intents -> `Executor.ControlPlane`
@@ -19,9 +20,10 @@ defmodule Lattice.Intents.Executor.Router do
 
   alias Lattice.Intents.Executor.ControlPlane
   alias Lattice.Intents.Executor.Sprite
+  alias Lattice.Intents.Executor.Task
   alias Lattice.Intents.Intent
 
-  @executors [Sprite, ControlPlane]
+  @executors [Task, Sprite, ControlPlane]
 
   @doc """
   Select the executor module for a given intent.
