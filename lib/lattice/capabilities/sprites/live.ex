@@ -82,12 +82,9 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   @impl true
   def sleep(id) do
-    case delete("/#{@api_version}/sprites/#{URI.encode(id)}") do
+    case put("/#{@api_version}/sprites/#{URI.encode(id)}", %{status: "cold"}) do
       {:ok, sprite} when is_map(sprite) ->
         {:ok, parse_sprite(sprite)}
-
-      {:ok, :no_content} ->
-        {:ok, %{id: id, status: :hibernating}}
 
       {:error, reason} ->
         {:error, reason}
@@ -143,10 +140,6 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   defp put(path, body) do
     request(:put, path, body)
-  end
-
-  defp delete(path) do
-    request(:delete, path, nil)
   end
 
   defp request(method, path, body) do
