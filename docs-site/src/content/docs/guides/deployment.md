@@ -1,0 +1,182 @@
+---
+title: Deployment
+description: Deploying Lattice to Fly.io with Scheduled Machines for automated audits.
+---
+
+Lattice is designed to deploy on [Fly.io](https://fly.io) with minimal configuration. The deployment includes both the main application (Phoenix web server) and optional Scheduled Machines for automated fleet audits.
+
+## Prerequisites
+
+- [Fly CLI (`flyctl`)](https://fly.io/docs/hands-on/install-flyctl/) installed
+- A Fly.io account
+- The Lattice repository cloned locally
+
+## Initial Deployment
+
+### 1. Launch the Application
+
+```bash
+fly launch
+```
+
+This reads the `fly.toml` configuration and sets up the application. The default configuration uses:
+
+- **Region:** `ord` (Chicago)
+- **VM:** 1 shared CPU, 1 GB memory
+- **Auto-stop:** enabled (scales to zero when idle)
+- **Auto-start:** enabled (wakes on incoming requests)
+
+### 2. Set Secrets
+
+```bash
+# Required for production
+fly secrets set SECRET_KEY_BASE="$(mix phx.gen.secret)"
+
+# Sprites API integration
+fly secrets set SPRITES_API_BASE="https://your-sprites-api.example.com"
+fly secrets set SPRITES_API_TOKEN="your-token"
+
+# GitHub HITL integration
+fly secrets set GITHUB_REPO="owner/repo"
+fly secrets set GITHUB_TOKEN="ghp_your-token"
+
+# Clerk authentication (optional)
+fly secrets set CLERK_SECRET_KEY="sk_your-key"
+```
+
+### 3. Deploy
+
+```bash
+fly deploy
+```
+
+The application builds using the `Dockerfile` in the repository root and deploys to Fly.io.
+
+## Environment Variables
+
+| Variable | Purpose | Where Set |
+|----------|---------|-----------|
+| `SECRET_KEY_BASE` | Phoenix cookie signing | `fly secrets set` |
+| `PHX_HOST` | Public hostname | `fly.toml` `[env]` section |
+| `PORT` | HTTP listen port | `fly.toml` `[env]` section |
+| `PHX_SERVER` | Enable HTTP server | Set automatically by Fly |
+| `SPRITES_API_BASE` | Sprites API URL | `fly secrets set` |
+| `SPRITES_API_TOKEN` | Sprites API auth | `fly secrets set` |
+| `GITHUB_REPO` | GitHub repo for HITL | `fly secrets set` |
+| `GITHUB_TOKEN` | GitHub API token | `fly secrets set` |
+| `FLY_APP` | Fly app name | Auto-set by Fly |
+| `FLY_ORG` | Fly organization | `fly secrets set` |
+| `CLERK_SECRET_KEY` | Clerk auth key | `fly secrets set` |
+| `LATTICE_INSTANCE_NAME` | Instance identifier | `fly secrets set` |
+
+### Capability Auto-Selection
+
+Lattice automatically selects live or stub implementations based on which credentials are present:
+
+- `SPRITES_API_TOKEN` present --> uses `Lattice.Capabilities.Sprites.Live`
+- `GITHUB_REPO` present --> uses `Lattice.Capabilities.GitHub.Live`
+- `FLY_APP` present --> uses `Lattice.Capabilities.Fly.Live`
+
+When credentials are absent, stub implementations are used (suitable for development).
+
+## Health Check
+
+The `GET /health` endpoint is unauthenticated and returns a `200` status when the application is running. Use this for load balancer health checks and uptime monitoring.
+
+## Scheduled Machines
+
+Fly Scheduled Machines run one-off tasks on a cron schedule. Lattice uses them for automated fleet audits.
+
+### What the Audit Does
+
+The scheduled audit:
+
+1. Boots a minimal Lattice instance (no Phoenix HTTP server)
+2. Reconciles every sprite's desired vs. observed state
+3. Logs the results
+4. Exits
+
+### Creating a Scheduled Machine
+
+```bash
+fly machines run . \
+  --schedule "0 */6 * * *" \
+  --region ord \
+  --vm-memory 512 \
+  --restart on-fail \
+  --name lattice-audit \
+  --env PHX_SERVER=false \
+  -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+```
+
+This runs the audit every 6 hours. The machine inherits the app's secrets but runs with `PHX_SERVER=false` so the Phoenix HTTP server is not started.
+
+### Ad-Hoc Audit
+
+Run an audit immediately without waiting for the schedule:
+
+```bash
+fly machines run . \
+  --region ord \
+  --vm-memory 512 \
+  --restart no \
+  --rm \
+  --env PHX_SERVER=false \
+  -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+```
+
+The `--rm` flag cleans up the machine after it finishes.
+
+### Mix Task
+
+For local development, you can run the audit via Mix:
+
+```bash
+mix lattice.audit
+```
+
+Or trigger it via the API:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  http://localhost:4000/api/fleet/audit
+```
+
+## fly.toml Configuration
+
+The `fly.toml` file in the repository root configures the Fly deployment:
+
+```toml
+app = 'lattice-broken-forest-2932'
+primary_region = 'ord'
+kill_signal = 'SIGTERM'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+```
+
+Key settings:
+
+- **`auto_stop_machines`** -- stops machines when idle to save costs
+- **`auto_start_machines`** -- automatically starts machines on incoming requests
+- **`min_machines_running = 0`** -- allows scaling to zero
+- **`force_https`** -- redirects HTTP to HTTPS
+
+## CI/CD
+
+The repository includes GitHub Actions workflows:
+
+- **`ci.yml`** -- runs on every PR: formatting, compilation (warnings-as-errors), Credo, tests
+- **`fly-deploy.yml`** -- deploys to Fly.io on push to `main`
+
+Both workflows must pass before merging to `main` (enforced by branch protection rules).

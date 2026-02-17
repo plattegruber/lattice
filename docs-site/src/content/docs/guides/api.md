@@ -1,0 +1,194 @@
+---
+title: API Reference
+description: The Lattice REST API for managing sprites and intents programmatically.
+---
+
+Lattice exposes a JSON REST API under the `/api` scope for programmatic access to fleet management operations.
+
+## Authentication
+
+All `/api` endpoints require a bearer token via the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer <your-token>" \
+  http://localhost:4000/api/fleet
+```
+
+Unauthenticated requests receive a `401 Unauthorized` response.
+
+The `GET /health` endpoint is the only unauthenticated route -- it is outside the `/api` scope.
+
+## Response Format
+
+### Success
+
+```json
+{
+  "data": { ... },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+### Error
+
+```json
+{
+  "error": "Human-readable message",
+  "code": "ERROR_CODE"
+}
+```
+
+### Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `401` | Missing or invalid bearer token |
+| `404` | Resource not found (e.g., `SPRITE_NOT_FOUND`) |
+| `422` | Validation error (e.g., `INVALID_STATE`, `MISSING_FIELD`, `INVALID_STATE_TRANSITION`) |
+
+## Fleet Endpoints
+
+### `GET /api/fleet`
+
+Returns a fleet summary with total sprite count and breakdown by observed state.
+
+**Example response:**
+
+```json
+{
+  "data": {
+    "total": 3,
+    "by_state": {
+      "hibernating": 2,
+      "ready": 1
+    }
+  },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+### `POST /api/fleet/audit`
+
+Triggers a fleet-wide reconciliation audit. Every managed sprite immediately runs a reconciliation cycle.
+
+**Example response:**
+
+```json
+{
+  "data": {
+    "status": "ok"
+  },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+## Sprite Endpoints
+
+### `GET /api/sprites`
+
+Lists all managed sprites with their current state.
+
+**Example response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "sprite-001",
+      "desired_state": "ready",
+      "observed_state": "hibernating",
+      "health": "converging"
+    }
+  ],
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+### `GET /api/sprites/:id`
+
+Returns detail for a single sprite.
+
+**Example:**
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:4000/api/sprites/sprite-001
+```
+
+### `PUT /api/sprites/:id/desired`
+
+Updates the desired state for a sprite. Valid states: `ready`, `hibernating`.
+
+**Request body:**
+
+```json
+{
+  "desired_state": "ready"
+}
+```
+
+**Example:**
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"desired_state": "ready"}' \
+  http://localhost:4000/api/sprites/sprite-001/desired
+```
+
+### `POST /api/sprites/:id/reconcile`
+
+Triggers an immediate reconciliation cycle for a single sprite, without waiting for the next scheduled cycle.
+
+## Intent Endpoints
+
+### `GET /api/intents`
+
+Lists all intents in the system.
+
+### `GET /api/intents/:id`
+
+Returns detail for a single intent, including its full transition log.
+
+### `POST /api/intents`
+
+Creates a new intent and submits it through the classification pipeline.
+
+**Request body:**
+
+```json
+{
+  "kind": "action",
+  "source": {
+    "type": "operator",
+    "id": "operator-1"
+  },
+  "summary": "Wake sprite for deployment",
+  "payload": {
+    "capability": "sprites",
+    "operation": "wake"
+  },
+  "affected_resources": ["sprite-001"],
+  "expected_side_effects": ["sprite-001 transitions to waking"]
+}
+```
+
+### `POST /api/intents/:id/approve`
+
+Approves an intent that is in `:awaiting_approval` state.
+
+### `POST /api/intents/:id/reject`
+
+Rejects an intent that is in `:awaiting_approval` state.
+
+### `POST /api/intents/:id/cancel`
+
+Cancels an intent from any pre-execution state (`:proposed`, `:classified`, `:awaiting_approval`, `:approved`).
+
+## Health Check
+
+### `GET /health`
+
+Unauthenticated health check endpoint. Returns a `200` response when the application is running. Useful for load balancers and monitoring.
