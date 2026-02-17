@@ -219,6 +219,8 @@ defmodule LatticeWeb.SpriteLive.Show do
           />
         </div>
 
+        <.tags_panel tags={@sprite_state.tags} />
+
         <.tasks_section
           sprite_id={@sprite_id}
           tasks={@sprite_tasks}
@@ -585,6 +587,42 @@ defmodule LatticeWeb.SpriteLive.Show do
         </button>
       </div>
     </form>
+    """
+  end
+
+  attr :tags, :map, required: true
+
+  defp tags_panel(assigns) do
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-tag" class="size-5" /> Tags
+        </h2>
+
+        <div :if={@tags == nil or @tags == %{}} class="text-center py-6 text-base-content/50">
+          <.icon name="hero-tag" class="size-8 mx-auto mb-2" />
+          <p class="text-sm">No tags assigned to this sprite.</p>
+        </div>
+
+        <div :if={@tags != nil and @tags != %{}} class="overflow-x-auto">
+          <table class="table table-xs table-zebra">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={{key, value} <- @tags}>
+                <td class="font-mono text-xs">{key}</td>
+                <td class="text-xs">{value}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
     """
   end
 

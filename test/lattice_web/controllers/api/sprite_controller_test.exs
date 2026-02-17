@@ -416,6 +416,94 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
   end
 
+  # ── PUT /api/sprites/:id/tags ──────────────────────────────────────
+
+  describe "PUT /api/sprites/:id/tags" do
+    test "sets tags on a sprite", %{conn: conn} do
+      start_sprites([%{id: "api-tags-001", desired_state: :hibernating}])
+
+      conn =
+        conn
+        |> authenticated()
+        |> put("/api/sprites/api-tags-001/tags", %{
+          "tags" => %{"env" => "prod", "team" => "infra"}
+        })
+
+      body = json_response(conn, 200)
+
+      assert body["data"]["id"] == "api-tags-001"
+      assert body["data"]["tags"]["env"] == "prod"
+      assert body["data"]["tags"]["team"] == "infra"
+      assert is_binary(body["timestamp"])
+    end
+
+    test "merges tags with existing tags", %{conn: conn} do
+      start_sprites([%{id: "api-tags-002", desired_state: :hibernating}])
+
+      # Set initial tags
+      conn
+      |> authenticated()
+      |> put("/api/sprites/api-tags-002/tags", %{"tags" => %{"env" => "staging"}})
+
+      # Merge new tags
+      conn2 =
+        build_conn()
+        |> authenticated()
+        |> put("/api/sprites/api-tags-002/tags", %{"tags" => %{"purpose" => "ci"}})
+
+      body = json_response(conn2, 200)
+
+      assert body["data"]["tags"]["env"] == "staging"
+      assert body["data"]["tags"]["purpose"] == "ci"
+    end
+
+    test "tags appear in sprite detail", %{conn: conn} do
+      start_sprites([%{id: "api-tags-003", desired_state: :hibernating}])
+
+      conn
+      |> authenticated()
+      |> put("/api/sprites/api-tags-003/tags", %{"tags" => %{"env" => "prod"}})
+
+      conn2 =
+        build_conn()
+        |> authenticated()
+        |> get("/api/sprites/api-tags-003")
+
+      body = json_response(conn2, 200)
+      assert body["data"]["tags"]["env"] == "prod"
+    end
+
+    test "returns 404 for unknown sprite", %{conn: conn} do
+      conn =
+        conn
+        |> authenticated()
+        |> put("/api/sprites/nonexistent/tags", %{"tags" => %{"env" => "prod"}})
+
+      body = json_response(conn, 404)
+
+      assert body["code"] == "SPRITE_NOT_FOUND"
+    end
+
+    test "returns 422 when tags field is missing", %{conn: conn} do
+      start_sprites([%{id: "api-tags-004", desired_state: :hibernating}])
+
+      conn =
+        conn
+        |> authenticated()
+        |> put("/api/sprites/api-tags-004/tags", %{})
+
+      body = json_response(conn, 422)
+
+      assert body["code"] == "MISSING_FIELD"
+    end
+
+    test "returns 401 without authentication", %{conn: conn} do
+      conn = put(conn, "/api/sprites/some-id/tags", %{"tags" => %{"env" => "prod"}})
+
+      assert json_response(conn, 401)
+    end
+  end
+
   # ── POST /api/sprites/:id/reconcile ────────────────────────────────
 
   describe "POST /api/sprites/:id/reconcile" do

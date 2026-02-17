@@ -268,6 +268,8 @@ defmodule Lattice.Sprites.FleetManager do
           :ok
       end
 
+      Lattice.Store.delete(:sprite_metadata, sprite_id)
+
       new_state = %{state | sprite_ids: List.delete(state.sprite_ids, sprite_id)}
       broadcast_fleet_summary(new_state)
       {:reply, :ok, new_state}
@@ -292,6 +294,7 @@ defmodule Lattice.Sprites.FleetManager do
   def handle_info({:sprite_externally_deleted, sprite_id}, %FleetState{} = state) do
     if sprite_id in state.sprite_ids do
       Logger.info("Removing externally-deleted sprite #{sprite_id} from fleet")
+      Lattice.Store.delete(:sprite_metadata, sprite_id)
       new_state = %{state | sprite_ids: List.delete(state.sprite_ids, sprite_id)}
       broadcast_fleet_summary(new_state)
       {:noreply, new_state}
@@ -332,11 +335,38 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   defp api_sprite_to_config(sprite) do
-    %{
-      id: sprite[:id] || sprite["id"],
+    sprite_id = sprite[:id] || sprite["id"]
+
+    base = %{
+      id: sprite_id,
       name: sprite[:name] || sprite["name"],
       desired_state: :hibernating
     }
+
+    # Restore persisted metadata (tags, desired_state) from the store
+    case Lattice.Store.get(:sprite_metadata, sprite_id) do
+      {:ok, metadata} ->
+        base
+        |> maybe_restore_tags(metadata)
+        |> maybe_restore_desired_state(metadata)
+
+      {:error, :not_found} ->
+        base
+    end
+  end
+
+  defp maybe_restore_tags(config, metadata) do
+    case Map.get(metadata, :tags) do
+      tags when is_map(tags) and tags != %{} -> Map.put(config, :tags, tags)
+      _ -> config
+    end
+  end
+
+  defp maybe_restore_desired_state(config, metadata) do
+    case Map.get(metadata, :desired_state) do
+      desired when is_atom(desired) and desired != nil -> Map.put(config, :desired_state, desired)
+      _ -> config
+    end
   end
 
   defp sprites_capability do
@@ -352,6 +382,7 @@ defmodule Lattice.Sprites.FleetManager do
   defp start_sprite(%{id: sprite_id} = config, supervisor) do
     desired = Map.get(config, :desired_state, :hibernating)
     sprite_name = Map.get(config, :name)
+    tags = Map.get(config, :tags, %{})
 
     child_spec =
       {Sprite,
@@ -359,6 +390,7 @@ defmodule Lattice.Sprites.FleetManager do
          sprite_id: sprite_id,
          sprite_name: sprite_name,
          desired_state: desired,
+         tags: tags,
          name: Sprite.via(sprite_id)
        ]}
 
@@ -386,14 +418,29 @@ defmodule Lattice.Sprites.FleetManager do
 
   defp set_desired_states(sprite_ids, desired_state) do
     Map.new(sprite_ids, fn id ->
-      result =
-        case get_sprite_pid(id) do
-          {:ok, pid} -> Sprite.set_desired_state(pid, desired_state)
-          {:error, :not_found} -> {:error, :not_found}
-        end
-
-      {id, result}
+      {id, set_desired_state_for_sprite(id, desired_state)}
     end)
+  end
+
+  defp set_desired_state_for_sprite(sprite_id, desired_state) do
+    with {:ok, pid} <- get_sprite_pid(sprite_id),
+         :ok <- Sprite.set_desired_state(pid, desired_state) do
+      persist_sprite_metadata(sprite_id, pid)
+      :ok
+    end
+  end
+
+  defp persist_sprite_metadata(sprite_id, pid) do
+    case Sprite.get_state(pid) do
+      {:ok, sprite_state} ->
+        Lattice.Store.put(:sprite_metadata, sprite_id, %{
+          tags: sprite_state.tags,
+          desired_state: sprite_state.desired_state
+        })
+
+      _ ->
+        :ok
+    end
   end
 
   defp compute_fleet_summary(%FleetState{} = state) do

@@ -279,6 +279,11 @@ defmodule LatticeWeb.Schemas do
           type: :string,
           format: :datetime,
           description: "When the sprite state was last updated"
+        },
+        tags: %Schema{
+          type: :object,
+          description: "Lattice-local metadata tags (key-value pairs)",
+          additionalProperties: %Schema{type: :string}
         }
       },
       required: [:id, :observed_state, :desired_state, :health],
@@ -290,7 +295,8 @@ defmodule LatticeWeb.Schemas do
         "failure_count" => 0,
         "last_observed_at" => "2026-01-15T12:00:00Z",
         "started_at" => "2026-01-15T11:00:00Z",
-        "updated_at" => "2026-01-15T12:00:00Z"
+        "updated_at" => "2026-01-15T12:00:00Z",
+        "tags" => %{"env" => "prod"}
       }
     })
   end
@@ -403,6 +409,64 @@ defmodule LatticeWeb.Schemas do
         "data" => %{
           "id" => "sprite-abc123",
           "deleted" => true
+        },
+        "timestamp" => "2026-01-15T12:00:00Z"
+      }
+    })
+  end
+
+  defmodule UpdateTagsRequest do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "UpdateTagsRequest",
+      description: "Request body for updating a sprite's tags.",
+      type: :object,
+      properties: %{
+        tags: %Schema{
+          type: :object,
+          description: "Key-value map of tags to merge into existing tags",
+          additionalProperties: %Schema{type: :string}
+        }
+      },
+      required: [:tags],
+      example: %{
+        "tags" => %{"env" => "prod", "purpose" => "ci-runner"}
+      }
+    })
+  end
+
+  defmodule UpdateTagsResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "UpdateTagsResponse",
+      description: "Response after updating a sprite's tags.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :object,
+          properties: %{
+            id: %Schema{type: :string, description: "Sprite identifier"},
+            tags: %Schema{
+              type: :object,
+              description: "The merged tags map",
+              additionalProperties: %Schema{type: :string}
+            }
+          },
+          required: [:id, :tags]
+        },
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp],
+      example: %{
+        "data" => %{
+          "id" => "sprite-abc123",
+          "tags" => %{"env" => "prod", "purpose" => "ci-runner"}
         },
         "timestamp" => "2026-01-15T12:00:00Z"
       }

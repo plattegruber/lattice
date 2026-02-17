@@ -306,6 +306,66 @@ defmodule LatticeWeb.Api.SpriteController do
     end
   end
 
+  operation(:update_tags,
+    summary: "Update sprite tags",
+    description:
+      "Merges the provided tags into the sprite's existing tags. Tags are Lattice-local metadata.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    request_body:
+      {"Update tags request", "application/json", LatticeWeb.Schemas.UpdateTagsRequest},
+    responses: [
+      ok: {"Updated tags", "application/json", LatticeWeb.Schemas.UpdateTagsResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
+  @doc """
+  PUT /api/sprites/:id/tags — update tags for a sprite.
+
+  Body: `{ "tags": { "env": "prod", "purpose": "ci" } }`
+
+  Merges the provided tags with existing tags and persists to the store.
+  """
+  def update_tags(conn, %{"id" => id, "tags" => tags}) when is_map(tags) do
+    case get_sprite_state(id) do
+      {:ok, state} ->
+        merged = Map.merge(state.tags || %{}, tags)
+
+        Lattice.Store.put(:sprite_metadata, id, %{
+          tags: merged,
+          desired_state: state.desired_state
+        })
+
+        {:ok, pid} = FleetManager.get_sprite_pid(id)
+        Sprite.set_tags(pid, merged)
+
+        conn
+        |> put_status(200)
+        |> json(%{data: %{id: id, tags: merged}, timestamp: DateTime.utc_now()})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+    end
+  end
+
+  def update_tags(conn, %{"id" => _id}) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "Missing required field: tags", code: "MISSING_FIELD"})
+  end
+
   # ── Private ──────────────────────────────────────────────────────────
 
   defp create_upstream_sprite(name) do
@@ -365,7 +425,8 @@ defmodule LatticeWeb.Api.SpriteController do
       failure_count: state.failure_count,
       last_observed_at: state.last_observed_at,
       started_at: state.started_at,
-      updated_at: state.updated_at
+      updated_at: state.updated_at,
+      tags: state.tags || %{}
     }
   end
 end
