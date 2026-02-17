@@ -91,7 +91,16 @@ config :logger, :default_formatter,
     :fly_org,
     :fly_app,
     :sprites_api_base,
-    :sprite_ids
+    :sprite_ids,
+    :observation_id,
+    :type,
+    :severity,
+    :intent_id,
+    :kind,
+    :source,
+    :from,
+    :to,
+    :artifact_type
   ]
 
 # Use Jason for JSON parsing in Phoenix
