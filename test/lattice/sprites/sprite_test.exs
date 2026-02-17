@@ -556,26 +556,19 @@ defmodule Lattice.Sprites.SpriteTest do
   # ── Edge Cases ──────────────────────────────────────────────────────
 
   describe "edge cases" do
-    test "handles API not_found error (sprite removed externally)" do
+    test "first not-found keeps process alive and increments not_found_count" do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :ready)
-
-      :ok = Events.subscribe_sprite(sprite_id)
+      {pid, _sprite_id} = start_sprite(desired_state: :ready)
 
       Sprite.reconcile_now(pid)
+      Process.sleep(50)
 
-      assert_receive %ReconciliationResult{
-                       sprite_id: ^sprite_id,
-                       outcome: :failure,
-                       details: "sprite not found in API"
-                     },
-                     1_000
+      assert Process.alive?(pid)
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :error
-      assert state.failure_count == 1
+      assert state.not_found_count == 1
     end
 
     test "handles API timeout gracefully" do
@@ -657,6 +650,94 @@ defmodule Lattice.Sprites.SpriteTest do
       {:ok, state} = Sprite.get_state(pid)
       # Missing status maps to :error, then reconciliation attempts recovery
       assert state.observed_state in [:error, :waking]
+    end
+  end
+
+  # ── External Deletion ─────────────────────────────────────────────
+
+  describe "external deletion (two-strike not-found)" do
+    test "first not-found does not kill the process" do
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
+
+      {pid, _id} = start_sprite(desired_state: :ready)
+
+      Sprite.reconcile_now(pid)
+      Process.sleep(50)
+
+      assert Process.alive?(pid)
+      {:ok, state} = Sprite.get_state(pid)
+      assert state.not_found_count == 1
+    end
+
+    test "second consecutive not-found stops the process" do
+      test_pid = self()
+      ref = make_ref()
+      handler_id = "ext-delete-test-#{inspect(ref)}"
+
+      :telemetry.attach(
+        handler_id,
+        [:lattice, :sprite, :externally_deleted],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, ref, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
+
+      {pid, sprite_id} = start_sprite(desired_state: :ready)
+
+      # Monitor the process to detect when it stops
+      process_ref = Process.monitor(pid)
+
+      :ok = Events.subscribe_fleet()
+
+      # First not-found
+      Sprite.reconcile_now(pid)
+      Process.sleep(50)
+      assert Process.alive?(pid)
+
+      # Second not-found — should stop
+      Sprite.reconcile_now(pid)
+
+      assert_receive {:DOWN, ^process_ref, :process, ^pid, :normal}, 1_000
+      refute Process.alive?(pid)
+
+      # Verify telemetry event
+      assert_receive {:telemetry, ^ref, [:lattice, :sprite, :externally_deleted], %{count: 1},
+                      %{sprite_id: ^sprite_id}},
+                     1_000
+
+      # Verify PubSub broadcast
+      assert_receive {:sprite_externally_deleted, ^sprite_id}, 1_000
+
+      :telemetry.detach(handler_id)
+    end
+
+    test "successful reconciliation resets not_found_count" do
+      # First, trigger a not-found to set not_found_count to 1
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
+
+      {pid, _id} = start_sprite(desired_state: :hibernating)
+
+      Sprite.reconcile_now(pid)
+      Process.sleep(50)
+
+      {:ok, state} = Sprite.get_state(pid)
+      assert state.not_found_count == 1
+
+      # Now make the API return success
+      Lattice.Capabilities.MockSprites
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
+
+      Sprite.reconcile_now(pid)
+      Process.sleep(50)
+
+      {:ok, state} = Sprite.get_state(pid)
+      assert state.not_found_count == 0
     end
   end
 

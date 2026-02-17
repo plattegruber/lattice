@@ -178,6 +178,8 @@ defmodule Lattice.Sprites.FleetManager do
   def init(opts) do
     supervisor = Keyword.get(opts, :supervisor, Lattice.Sprites.DynamicSupervisor)
 
+    Phoenix.PubSub.subscribe(Lattice.PubSub, Events.fleet_topic())
+
     state = %FleetState{
       supervisor: supervisor,
       started_at: DateTime.utc_now()
@@ -284,6 +286,25 @@ defmodule Lattice.Sprites.FleetManager do
 
     broadcast_fleet_summary(state)
     {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_info({:sprite_externally_deleted, sprite_id}, %FleetState{} = state) do
+    if sprite_id in state.sprite_ids do
+      Logger.info("Removing externally-deleted sprite #{sprite_id} from fleet")
+      new_state = %{state | sprite_ids: List.delete(state.sprite_ids, sprite_id)}
+      broadcast_fleet_summary(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  # Ignore other PubSub messages on the fleet topic (state changes,
+  # reconciliation results, health updates, etc.) — only externally-deleted
+  # messages need fleet-manager-level handling.
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 
   # ── Private ─────────────────────────────────────────────────────────

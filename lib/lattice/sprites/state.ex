@@ -37,6 +37,7 @@ defmodule Lattice.Sprites.State do
           max_backoff_ms: non_neg_integer(),
           base_backoff_ms: non_neg_integer(),
           failure_count: non_neg_integer(),
+          not_found_count: non_neg_integer(),
           max_retries: non_neg_integer(),
           last_observed_at: DateTime.t() | nil,
           log_cursor: String.t() | nil,
@@ -59,6 +60,7 @@ defmodule Lattice.Sprites.State do
     max_backoff_ms: 60_000,
     base_backoff_ms: 1_000,
     failure_count: 0,
+    not_found_count: 0,
     max_retries: 10
   ]
 
