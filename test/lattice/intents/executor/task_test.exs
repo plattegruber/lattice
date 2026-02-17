@@ -207,7 +207,7 @@ defmodule Lattice.Intents.Executor.TaskTest do
       script = TaskExecutor.build_script(payload)
 
       assert script =~ "origin/develop"
-      assert script =~ ~s(--base "develop")
+      assert script =~ "--base 'develop'"
     end
 
     test "uses custom pr_title" do
@@ -243,6 +243,109 @@ defmodule Lattice.Intents.Executor.TaskTest do
       script = TaskExecutor.build_script(payload)
 
       assert script =~ "lattice/open_pr_trivial_change-"
+    end
+
+    test "writes instructions via heredoc instead of echo" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ "cat > .lattice-task <<'"
+      # The instructions should not be written via echo, but via a heredoc.
+      # (There are other echo statements for the output contract and errors.)
+      refute script =~ ~s(echo "Add a README file")
+    end
+
+    test "cleans up previous task-repo directory" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ "rm -rf task-repo"
+    end
+
+    test "passes --repo flag to gh pr create" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ "--repo 'plattegruber/webapp'"
+    end
+
+    test "validates PR URL was captured" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ ~s(if [ -z "${PR_URL}" ])
+      assert script =~ "exit 1"
+    end
+
+    test "escapes single quotes in pr_title" do
+      payload = task_payload(%{"pr_title" => "It's a test"})
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ "It'\\''s a test"
+    end
+
+    test "escapes single quotes in pr_body" do
+      payload = task_payload(%{"pr_body" => "Body with 'quotes'"})
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ "'\\''quotes'\\''", "Expected escaped single quotes in pr_body"
+    end
+
+    test "handles instructions with shell metacharacters safely" do
+      payload =
+        task_payload(%{
+          "instructions" => "Run $(dangerous-command) and `backtick` and $VARIABLE"
+        })
+
+      script = TaskExecutor.build_script(payload)
+
+      # Instructions should be inside a heredoc with single-quoted delimiter,
+      # which prevents shell expansion
+      assert script =~ "<<'"
+      assert script =~ "$(dangerous-command)"
+    end
+
+    test "handles multiline instructions" do
+      payload =
+        task_payload(%{
+          "instructions" => "Line one\nLine two\nLine three"
+        })
+
+      script = TaskExecutor.build_script(payload)
+
+      # Should contain the multiline instructions within the heredoc
+      assert script =~ "Line one\nLine two\nLine three"
+    end
+
+    test "outputs JSON with pr_url on stdout" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload)
+
+      assert script =~ ~s(echo '{"pr_url": "'"${PR_URL}"'"}')
+    end
+  end
+
+  # ── escape_single_quotes/1 ──────────────────────────────────────────
+
+  describe "escape_single_quotes/1" do
+    test "returns string unchanged when no single quotes" do
+      assert TaskExecutor.escape_single_quotes("hello world") == "hello world"
+    end
+
+    test "escapes a single quote" do
+      assert TaskExecutor.escape_single_quotes("it's") == "it'\\''s"
+    end
+
+    test "escapes multiple single quotes" do
+      assert TaskExecutor.escape_single_quotes("it's a 'test'") == "it'\\''s a '\\''test'\\''"
+    end
+
+    test "handles empty string" do
+      assert TaskExecutor.escape_single_quotes("") == ""
+    end
+
+    test "does not alter double quotes" do
+      assert TaskExecutor.escape_single_quotes(~s(say "hello")) == ~s(say "hello")
     end
   end
 
