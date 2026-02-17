@@ -5,6 +5,24 @@ defmodule Lattice.Capabilities.Sprites.StubTest do
 
   alias Lattice.Capabilities.Sprites.Stub
 
+  describe "create_sprite/2" do
+    test "returns a new sprite with the given name" do
+      assert {:ok, sprite} = Stub.create_sprite("test-sprite")
+      assert sprite.id == "test-sprite"
+      assert sprite.name == "test-sprite"
+      assert sprite.status == "running"
+      assert sprite.started_at != nil
+    end
+
+    test "returns a sprite with required fields" do
+      {:ok, sprite} = Stub.create_sprite("my-sprite")
+
+      assert Map.has_key?(sprite, :id)
+      assert Map.has_key?(sprite, :name)
+      assert Map.has_key?(sprite, :status)
+    end
+  end
+
   describe "list_sprites/0" do
     test "returns a list of sprites" do
       assert {:ok, [_ | _]} = Stub.list_sprites()

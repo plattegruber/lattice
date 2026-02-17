@@ -36,6 +36,10 @@ defmodule Lattice.Capabilities.Sprites do
   @doc "Execute a command on a Sprite."
   @callback exec(sprite_id(), command()) :: {:ok, map()} | {:error, term()}
 
+  @doc "Create a new Sprite with the given name."
+  @callback create_sprite(name :: String.t(), opts :: keyword()) ::
+              {:ok, sprite()} | {:error, term()}
+
   @doc "Fetch logs for a Sprite. Options may include `:since`, `:limit`, etc."
   @callback fetch_logs(sprite_id(), log_opts()) :: {:ok, [String.t()]} | {:error, term()}
 
@@ -53,6 +57,9 @@ defmodule Lattice.Capabilities.Sprites do
 
   @doc "Execute a command on a Sprite."
   def exec(id, command), do: impl().exec(id, command)
+
+  @doc "Create a new Sprite with the given name."
+  def create_sprite(name, opts \\ []), do: impl().create_sprite(name, opts)
 
   @doc "Fetch logs for a Sprite."
   def fetch_logs(id, opts \\ []), do: impl().fetch_logs(id, opts)
