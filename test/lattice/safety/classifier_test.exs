@@ -88,6 +88,11 @@ defmodule Lattice.Safety.ClassifierTest do
 
     # ── Dangerous Actions ──────────────────────────────────────────────
 
+    test "classifies sprites:delete_sprite as dangerous" do
+      assert {:ok, %Action{classification: :dangerous}} =
+               Classifier.classify(:sprites, :delete_sprite)
+    end
+
     test "classifies fly:deploy as dangerous" do
       assert {:ok, %Action{classification: :dangerous}} = Classifier.classify(:fly, :deploy)
     end
@@ -153,7 +158,8 @@ defmodule Lattice.Safety.ClassifierTest do
       dangerous_actions = Classifier.actions_for(:dangerous)
 
       assert {:fly, :deploy} in dangerous_actions
-      assert length(dangerous_actions) == 1
+      assert {:sprites, :delete_sprite} in dangerous_actions
+      assert length(dangerous_actions) == 2
     end
 
     test "returns empty list for classification with no actions" do
@@ -175,9 +181,9 @@ defmodule Lattice.Safety.ClassifierTest do
     test "covers all capability operations" do
       all = Classifier.all_classifications()
 
-      # Sprites: 7 operations (including run_task)
+      # Sprites: 8 operations (including run_task and delete_sprite)
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
-      assert length(sprites_ops) == 7
+      assert length(sprites_ops) == 8
 
       # GitHub: 7 operations
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)

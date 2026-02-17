@@ -40,6 +40,9 @@ defmodule Lattice.Capabilities.Sprites do
   @callback create_sprite(name :: String.t(), opts :: keyword()) ::
               {:ok, sprite()} | {:error, term()}
 
+  @doc "Delete a Sprite by ID. Idempotent: succeeds even if the Sprite does not exist."
+  @callback delete_sprite(sprite_id()) :: :ok | {:error, term()}
+
   @doc "Fetch logs for a Sprite. Options may include `:since`, `:limit`, etc."
   @callback fetch_logs(sprite_id(), log_opts()) :: {:ok, [String.t()]} | {:error, term()}
 
@@ -60,6 +63,9 @@ defmodule Lattice.Capabilities.Sprites do
 
   @doc "Create a new Sprite with the given name."
   def create_sprite(name, opts \\ []), do: impl().create_sprite(name, opts)
+
+  @doc "Delete a Sprite by ID."
+  def delete_sprite(id), do: impl().delete_sprite(id)
 
   @doc "Fetch logs for a Sprite."
   def fetch_logs(id, opts \\ []), do: impl().fetch_logs(id, opts)

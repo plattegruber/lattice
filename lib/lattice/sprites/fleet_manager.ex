@@ -148,6 +148,21 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
+  Remove a sprite from the fleet.
+
+  Terminates the sprite's GenServer and removes it from the fleet's tracked
+  sprite IDs. Broadcasts a fleet summary update via PubSub so the LiveView
+  dashboard reflects the change.
+
+  Returns `:ok` on success, or `{:error, :not_found}` if the sprite is not
+  tracked by the fleet.
+  """
+  @spec remove_sprite(String.t(), GenServer.server()) :: :ok | {:error, :not_found}
+  def remove_sprite(sprite_id, server \\ __MODULE__) when is_binary(sprite_id) do
+    GenServer.call(server, {:remove_sprite, sprite_id})
+  end
+
+  @doc """
   Trigger an immediate reconciliation cycle on all managed sprites.
 
   Returns `:ok` after sending reconcile commands to all sprites.
@@ -238,6 +253,24 @@ defmodule Lattice.Sprites.FleetManager do
         {:error, reason} ->
           {:reply, {:error, reason}, state}
       end
+    end
+  end
+
+  def handle_call({:remove_sprite, sprite_id}, _from, %FleetState{} = state) do
+    if sprite_id in state.sprite_ids do
+      case get_sprite_pid(sprite_id) do
+        {:ok, pid} ->
+          DynamicSupervisor.terminate_child(state.supervisor, pid)
+
+        {:error, :not_found} ->
+          :ok
+      end
+
+      new_state = %{state | sprite_ids: List.delete(state.sprite_ids, sprite_id)}
+      broadcast_fleet_summary(new_state)
+      {:reply, :ok, new_state}
+    else
+      {:reply, {:error, :not_found}, state}
     end
   end
 

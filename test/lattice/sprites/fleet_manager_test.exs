@@ -440,6 +440,71 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
   end
 
+  # ── remove_sprite/2 ──────────────────────────────────────────────
+
+  describe "remove_sprite/2" do
+    test "removes a sprite from the fleet" do
+      configs = [
+        %{id: "fleet-rm-001", desired_state: :hibernating},
+        %{id: "fleet-rm-002", desired_state: :hibernating}
+      ]
+
+      %{fm: fm} = start_fleet_manager(configs)
+
+      assert :ok = FleetManager.remove_sprite("fleet-rm-001", fm)
+
+      sprites = FleetManager.list_sprites(fm)
+      ids = Enum.map(sprites, fn {id, _state} -> id end)
+
+      assert length(sprites) == 1
+      refute "fleet-rm-001" in ids
+      assert "fleet-rm-002" in ids
+    end
+
+    test "terminates the sprite GenServer process" do
+      configs = [%{id: "fleet-rm-term-001", desired_state: :hibernating}]
+      %{fm: fm} = start_fleet_manager(configs)
+
+      {:ok, pid} = FleetManager.get_sprite_pid("fleet-rm-term-001")
+      assert Process.alive?(pid)
+
+      :ok = FleetManager.remove_sprite("fleet-rm-term-001", fm)
+
+      refute Process.alive?(pid)
+    end
+
+    test "returns {:error, :not_found} for unknown sprite" do
+      %{fm: fm} = start_fleet_manager([])
+
+      assert {:error, :not_found} = FleetManager.remove_sprite("nonexistent", fm)
+    end
+
+    test "broadcasts fleet summary after removing sprite" do
+      configs = [%{id: "fleet-rm-bc-001", desired_state: :hibernating}]
+      %{fm: fm} = start_fleet_manager(configs)
+
+      :ok = Events.subscribe_fleet()
+
+      FleetManager.remove_sprite("fleet-rm-bc-001", fm)
+
+      assert_receive {:fleet_summary, %{total: 0}}, 1_000
+    end
+
+    test "removed sprite is no longer in fleet_summary" do
+      configs = [
+        %{id: "fleet-rm-sum-001", desired_state: :hibernating},
+        %{id: "fleet-rm-sum-002", desired_state: :hibernating}
+      ]
+
+      %{fm: fm} = start_fleet_manager(configs)
+
+      FleetManager.remove_sprite("fleet-rm-sum-001", fm)
+
+      summary = FleetManager.fleet_summary(fm)
+      assert summary.total == 1
+    end
+  end
+
   # ── Sprite via Registry ────────────────────────────────────────────
 
   describe "Sprite.via/1 integration" do
