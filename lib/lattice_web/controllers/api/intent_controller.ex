@@ -8,16 +8,68 @@ defmodule LatticeWeb.Api.IntentController do
   """
 
   use LatticeWeb, :controller
+  use OpenApiSpex.ControllerSpecs
 
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
   alias Lattice.Intents.Store
+
+  tags(["Intents"])
+  security([%{"BearerAuth" => []}])
 
   @valid_kinds ~w(action inquiry maintenance)
   @valid_filter_states ~w(proposed classified awaiting_approval approved running completed failed rejected canceled)
   @valid_source_types ~w(sprite agent cron operator)
 
   # ── GET /api/intents ───────────────────────────────────────────────
+
+  operation(:index,
+    summary: "List intents",
+    description: "Returns intents with optional filters by kind, state, and source type.",
+    parameters: [
+      kind: [
+        in: :query,
+        schema: %OpenApiSpex.Schema{
+          type: :string,
+          enum: ["action", "inquiry", "maintenance"]
+        },
+        description: "Filter by intent kind",
+        required: false
+      ],
+      state: [
+        in: :query,
+        schema: %OpenApiSpex.Schema{
+          type: :string,
+          enum: [
+            "proposed",
+            "classified",
+            "awaiting_approval",
+            "approved",
+            "running",
+            "completed",
+            "failed",
+            "rejected",
+            "canceled"
+          ]
+        },
+        description: "Filter by lifecycle state",
+        required: false
+      ],
+      source_type: [
+        in: :query,
+        schema: %OpenApiSpex.Schema{
+          type: :string,
+          enum: ["sprite", "agent", "cron", "operator"]
+        },
+        description: "Filter by source type",
+        required: false
+      ]
+    ],
+    responses: [
+      ok: {"Intent list", "application/json", LatticeWeb.Schemas.IntentListResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   GET /api/intents — list intents with optional filters.
@@ -38,6 +90,25 @@ defmodule LatticeWeb.Api.IntentController do
   end
 
   # ── GET /api/intents/:id ──────────────────────────────────────────
+
+  operation(:show,
+    summary: "Get intent detail",
+    description:
+      "Returns full intent detail including payload, metadata, and transition history.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Intent identifier",
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {"Intent detail", "application/json", LatticeWeb.Schemas.IntentDetailResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   GET /api/intents/:id — intent detail with full transition history.
@@ -60,6 +131,19 @@ defmodule LatticeWeb.Api.IntentController do
   end
 
   # ── POST /api/intents ─────────────────────────────────────────────
+
+  operation(:create,
+    summary: "Propose intent",
+    description:
+      "Proposes a new intent through the pipeline. The intent will be classified, and may require approval before execution.",
+    request_body: {"Intent proposal", "application/json", LatticeWeb.Schemas.CreateIntentRequest},
+    responses: [
+      ok: {"Created intent", "application/json", LatticeWeb.Schemas.IntentSummaryResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   POST /api/intents — propose a new intent through the pipeline.
@@ -139,6 +223,27 @@ defmodule LatticeWeb.Api.IntentController do
 
   # ── POST /api/intents/:id/approve ─────────────────────────────────
 
+  operation(:approve,
+    summary: "Approve intent",
+    description: "Approves an intent that is awaiting approval.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Intent identifier",
+        required: true
+      ]
+    ],
+    request_body: {"Actor identity", "application/json", LatticeWeb.Schemas.IntentActorRequest},
+    responses: [
+      ok: {"Approved intent", "application/json", LatticeWeb.Schemas.IntentSummaryResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Invalid transition", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
   @doc """
   POST /api/intents/:id/approve — approve an awaiting intent.
 
@@ -179,6 +284,27 @@ defmodule LatticeWeb.Api.IntentController do
   end
 
   # ── POST /api/intents/:id/reject ──────────────────────────────────
+
+  operation(:reject,
+    summary: "Reject intent",
+    description: "Rejects an intent that is awaiting approval.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Intent identifier",
+        required: true
+      ]
+    ],
+    request_body: {"Actor and reason", "application/json", LatticeWeb.Schemas.IntentActorRequest},
+    responses: [
+      ok: {"Rejected intent", "application/json", LatticeWeb.Schemas.IntentSummaryResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Invalid transition", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   POST /api/intents/:id/reject — reject an awaiting intent.
@@ -222,6 +348,27 @@ defmodule LatticeWeb.Api.IntentController do
   end
 
   # ── POST /api/intents/:id/cancel ──────────────────────────────────
+
+  operation(:cancel,
+    summary: "Cancel intent",
+    description: "Cancels an intent from any pre-execution state.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Intent identifier",
+        required: true
+      ]
+    ],
+    request_body: {"Actor and reason", "application/json", LatticeWeb.Schemas.IntentActorRequest},
+    responses: [
+      ok: {"Canceled intent", "application/json", LatticeWeb.Schemas.IntentSummaryResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Invalid transition", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   POST /api/intents/:id/cancel — cancel an intent from any pre-execution state.
