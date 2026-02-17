@@ -99,6 +99,9 @@ defmodule Lattice.Intents.Executor.Task do
 
   The script clones the repo, creates a branch, applies the requested change,
   commits, pushes, and opens a PR. Returns the script as a string.
+
+  User-supplied values (instructions, PR title, PR body) are written via
+  heredocs or single-quoted strings to prevent shell injection.
   """
   @spec build_script(map()) :: String.t()
   def build_script(payload) when is_map(payload) do
@@ -110,26 +113,40 @@ defmodule Lattice.Intents.Executor.Task do
     pr_body = Map.get(payload, "pr_body", "Automated task: #{task_kind}")
     branch_name = "lattice/#{task_kind}-#{:os.system_time(:second)}"
 
+    # Use a unique heredoc delimiter to avoid collisions with user content
+    heredoc_delim = "LATTICE_EOF_#{:erlang.phash2(instructions)}"
+
     """
     set -euo pipefail
     cd /workspace
+
+    # Clean up any previous run
+    rm -rf task-repo
+
     git clone "https://github.com/#{repo}.git" task-repo
     cd task-repo
-    git checkout -b "#{branch_name}" "origin/#{base_branch}"
+    git checkout -b '#{escape_single_quotes(branch_name)}' 'origin/#{escape_single_quotes(base_branch)}'
 
-    # Task: #{task_kind}
-    # Instructions: #{instructions}
-    echo "#{instructions}" > .lattice-task
+    # Task: #{sanitize_comment(task_kind)}
+    cat > .lattice-task <<'#{heredoc_delim}'
+    #{instructions}
+    #{heredoc_delim}
 
     git add -A
-    git commit -m "#{escape_shell(pr_title)}"
-    git push origin "#{branch_name}"
+    git commit -m '#{escape_single_quotes(pr_title)}'
+    git push origin '#{escape_single_quotes(branch_name)}'
 
     PR_URL=$(gh pr create \
-      --title "#{escape_shell(pr_title)}" \
-      --body "#{escape_shell(pr_body)}" \
-      --base "#{base_branch}" \
-      --head "#{branch_name}" 2>&1 | tail -1)
+      --repo '#{escape_single_quotes(repo)}' \
+      --title '#{escape_single_quotes(pr_title)}' \
+      --body '#{escape_single_quotes(pr_body)}' \
+      --base '#{escape_single_quotes(base_branch)}' \
+      --head '#{escape_single_quotes(branch_name)}' 2>&1 | grep -oE 'https://github\\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
+
+    if [ -z "${PR_URL}" ]; then
+      echo "ERROR: gh pr create did not return a PR URL" >&2
+      exit 1
+    fi
 
     echo "LATTICE_PR_URL=${PR_URL}"
     echo '{"pr_url": "'"${PR_URL}"'"}'
@@ -178,7 +195,14 @@ defmodule Lattice.Intents.Executor.Task do
 
   defp broadcast_log(_intent_id, _output), do: :ok
 
-  defp escape_shell(str) when is_binary(str) do
-    String.replace(str, ~s("), ~s(\\"))
+  @doc false
+  def escape_single_quotes(str) when is_binary(str) do
+    String.replace(str, "'", "'\\''")
+  end
+
+  defp sanitize_comment(str) when is_binary(str) do
+    str
+    |> String.replace(~r/[\r\n]+/, " ")
+    |> String.slice(0, 200)
   end
 end
