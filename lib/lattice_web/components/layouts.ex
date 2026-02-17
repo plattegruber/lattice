@@ -54,6 +54,11 @@ defmodule LatticeWeb.Layouts do
             </.link>
           </li>
           <li>
+            <.link navigate={~p"/intents"} class="font-medium">
+              <.icon name="hero-clipboard-document-list" class="size-4" /> Intents
+            </.link>
+          </li>
+          <li>
             <.link navigate={~p"/incidents"} class="font-medium">
               <.icon name="hero-exclamation-triangle" class="size-4" /> Incidents
             </.link>
