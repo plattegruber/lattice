@@ -50,6 +50,13 @@ defmodule LatticeWeb.Router do
     get "/sprites/:id", SpriteController, :show
     put "/sprites/:id/desired", SpriteController, :update_desired
     post "/sprites/:id/reconcile", SpriteController, :reconcile
+
+    get "/intents", IntentController, :index
+    get "/intents/:id", IntentController, :show
+    post "/intents", IntentController, :create
+    post "/intents/:id/approve", IntentController, :approve
+    post "/intents/:id/reject", IntentController, :reject
+    post "/intents/:id/cancel", IntentController, :cancel
   end
 
   # Authenticated LiveView routes
