@@ -72,6 +72,7 @@ defmodule LatticeWeb.Router do
     post "/fleet/audit", FleetController, :audit
 
     get "/sprites", SpriteController, :index
+    post "/sprites", SpriteController, :create
     get "/sprites/:id", SpriteController, :show
     put "/sprites/:id/desired", SpriteController, :update_desired
     post "/sprites/:id/reconcile", SpriteController, :reconcile

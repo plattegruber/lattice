@@ -334,6 +334,69 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
   end
 
+  # ── add_sprite/3 ──────────────────────────────────────────────────
+
+  describe "add_sprite/3" do
+    test "adds a new sprite to the fleet at runtime" do
+      %{fm: fm} = start_fleet_manager([])
+
+      assert {:ok, "runtime-sprite-001"} = FleetManager.add_sprite("runtime-sprite-001", [], fm)
+
+      sprites = FleetManager.list_sprites(fm)
+      ids = Enum.map(sprites, fn {id, _state} -> id end)
+      assert "runtime-sprite-001" in ids
+    end
+
+    test "new sprite is reachable via Registry" do
+      %{fm: fm} = start_fleet_manager([])
+
+      {:ok, "runtime-reg-001"} = FleetManager.add_sprite("runtime-reg-001", [], fm)
+
+      assert {:ok, pid} = FleetManager.get_sprite_pid("runtime-reg-001")
+      assert Process.alive?(pid)
+    end
+
+    test "returns error for duplicate sprite" do
+      configs = [%{id: "runtime-dup-001", desired_state: :hibernating}]
+      %{fm: fm} = start_fleet_manager(configs)
+
+      assert {:error, :already_exists} = FleetManager.add_sprite("runtime-dup-001", [], fm)
+    end
+
+    test "broadcasts fleet summary after adding sprite" do
+      %{fm: fm} = start_fleet_manager([])
+
+      :ok = Events.subscribe_fleet()
+
+      FleetManager.add_sprite("runtime-bc-001", [], fm)
+
+      assert_receive {:fleet_summary, %{total: 1}}, 1_000
+    end
+
+    test "new sprite appears in fleet_summary" do
+      %{fm: fm} = start_fleet_manager([])
+
+      FleetManager.add_sprite("runtime-sum-001", [], fm)
+
+      summary = FleetManager.fleet_summary(fm)
+      assert summary.total == 1
+      assert summary.by_state[:hibernating] == 1
+    end
+
+    test "respects desired_state option" do
+      %{fm: fm} = start_fleet_manager([])
+
+      {:ok, "runtime-ds-001"} =
+        FleetManager.add_sprite("runtime-ds-001", [desired_state: :ready], fm)
+
+      [{_id, state}] =
+        FleetManager.list_sprites(fm)
+        |> Enum.filter(fn {id, _} -> id == "runtime-ds-001" end)
+
+      assert state.desired_state == :ready
+    end
+  end
+
   # ── Sprite via Registry ────────────────────────────────────────────
 
   describe "Sprite.via/1 integration" do

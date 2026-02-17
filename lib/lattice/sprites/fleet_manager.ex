@@ -132,6 +132,22 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
+  Add a sprite to the fleet at runtime.
+
+  Starts a new Sprite GenServer under the DynamicSupervisor and registers
+  it in the fleet. Broadcasts a fleet summary update via PubSub so the
+  LiveView dashboard picks up the new sprite.
+
+  Returns `{:ok, sprite_id}` on success, or `{:error, :already_exists}`
+  if a sprite with that ID is already in the fleet.
+  """
+  @spec add_sprite(String.t(), keyword(), GenServer.server()) ::
+          {:ok, String.t()} | {:error, :already_exists}
+  def add_sprite(sprite_id, opts \\ [], server \\ __MODULE__) when is_binary(sprite_id) do
+    GenServer.call(server, {:add_sprite, sprite_id, opts})
+  end
+
+  @doc """
   Trigger an immediate reconciliation cycle on all managed sprites.
 
   Returns `:ok` after sending reconcile commands to all sprites.
@@ -203,6 +219,25 @@ defmodule Lattice.Sprites.FleetManager do
     results = set_desired_states(sprite_ids, :hibernating)
     broadcast_fleet_summary(state)
     {:reply, results, state}
+  end
+
+  def handle_call({:add_sprite, sprite_id, opts}, _from, %FleetState{} = state) do
+    if sprite_id in state.sprite_ids do
+      {:reply, {:error, :already_exists}, state}
+    else
+      desired = Keyword.get(opts, :desired_state, :hibernating)
+      config = %{id: sprite_id, desired_state: desired}
+
+      case start_sprite(config, state.supervisor) do
+        {:ok, ^sprite_id} ->
+          new_state = %{state | sprite_ids: state.sprite_ids ++ [sprite_id]}
+          broadcast_fleet_summary(new_state)
+          {:reply, {:ok, sprite_id}, new_state}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    end
   end
 
   def handle_call(:run_audit, _from, %FleetState{} = state) do

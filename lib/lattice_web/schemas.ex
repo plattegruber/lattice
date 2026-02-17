@@ -32,7 +32,9 @@ defmodule LatticeWeb.Schemas do
             "INVALID_KIND",
             "INVALID_SOURCE_TYPE",
             "INVALID_STATE_TRANSITION",
-            "INVALID_TRANSITION"
+            "INVALID_TRANSITION",
+            "SPRITE_ALREADY_EXISTS",
+            "UPSTREAM_API_ERROR"
           ]
         }
       },
@@ -349,6 +351,28 @@ defmodule LatticeWeb.Schemas do
       required: [:state],
       example: %{
         "state" => "ready"
+      }
+    })
+  end
+
+  defmodule CreateSpriteRequest do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "CreateSpriteRequest",
+      description: "Request body for creating a new sprite.",
+      type: :object,
+      properties: %{
+        name: %Schema{
+          type: :string,
+          description: "Name for the new sprite"
+        }
+      },
+      required: [:name],
+      example: %{
+        "name" => "my-sprite"
       }
     })
   end
