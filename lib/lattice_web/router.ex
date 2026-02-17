@@ -1,4 +1,16 @@
 defmodule LatticeWeb.Router do
+  @moduledoc """
+  Router for the Lattice web application.
+
+  Defines three pipelines:
+
+  - `:browser` -- HTML requests with session, CSRF protection, and LiveView flash
+  - `:api` -- JSON requests (unauthenticated, used for health checks)
+  - `:authenticated_api` -- JSON requests protected by bearer token via `LatticeWeb.Plugs.Auth`
+
+  LiveView routes are wrapped in an authenticated `live_session` using
+  `LatticeWeb.Hooks.AuthHook`.
+  """
   use LatticeWeb, :router
 
   pipeline :browser do
@@ -19,6 +31,11 @@ defmodule LatticeWeb.Router do
     plug LatticeWeb.Plugs.Auth
   end
 
+  pipeline :api_docs do
+    plug :accepts, ["json", "html"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: LatticeWeb.ApiSpec
+  end
+
   scope "/", LatticeWeb do
     pipe_through :browser
 
@@ -30,6 +47,14 @@ defmodule LatticeWeb.Router do
     pipe_through :browser
 
     live "/sprites/:id", SpriteLive.Show
+  end
+
+  # OpenAPI spec and Swagger UI (unauthenticated)
+  scope "/api" do
+    pipe_through :api_docs
+
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, []
+    get "/docs", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi"
   end
 
   # Unauthenticated API routes

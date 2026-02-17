@@ -1,4 +1,10 @@
 defmodule LatticeWeb.Telemetry do
+  @moduledoc """
+  Telemetry metrics supervisor for Lattice.
+
+  Defines Phoenix, VM, and Lattice-specific metrics that are collected by the
+  telemetry poller and exposed via Phoenix LiveDashboard.
+  """
   use Supervisor
   import Telemetry.Metrics
 
