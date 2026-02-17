@@ -7,12 +7,25 @@ defmodule LatticeWeb.Api.SpriteController do
   """
 
   use LatticeWeb, :controller
+  use OpenApiSpex.ControllerSpecs
 
   alias Lattice.Sprites.FleetManager
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
 
+  tags(["Sprites"])
+  security([%{"BearerAuth" => []}])
+
   @allowed_desired_states ~w(ready hibernating)
+
+  operation(:index,
+    summary: "List sprites",
+    description: "Returns all sprites in the fleet with their current state.",
+    responses: [
+      ok: {"Sprite list", "application/json", LatticeWeb.Schemas.SpriteListResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   GET /api/sprites — list all sprites with current state.
@@ -27,6 +40,25 @@ defmodule LatticeWeb.Api.SpriteController do
       timestamp: DateTime.utc_now()
     })
   end
+
+  operation(:show,
+    summary: "Get sprite detail",
+    description:
+      "Returns full detail for a single sprite including timestamps and failure count.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {"Sprite detail", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   GET /api/sprites/:id — single sprite detail.
@@ -47,6 +79,29 @@ defmodule LatticeWeb.Api.SpriteController do
         |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
     end
   end
+
+  operation(:update_desired,
+    summary: "Update desired state",
+    description:
+      "Sets the desired state for a sprite. The reconciliation loop will work to converge.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    request_body:
+      {"Desired state", "application/json", LatticeWeb.Schemas.UpdateDesiredStateRequest},
+    responses: [
+      ok: {"Updated sprite", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   PUT /api/sprites/:id/desired — update desired state for a sprite.
@@ -106,6 +161,26 @@ defmodule LatticeWeb.Api.SpriteController do
       code: "MISSING_FIELD"
     })
   end
+
+  operation(:reconcile,
+    summary: "Trigger sprite reconciliation",
+    description: "Triggers an immediate reconciliation cycle for a single sprite.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    responses: [
+      ok:
+        {"Reconciliation triggered", "application/json",
+         LatticeWeb.Schemas.ReconcileTriggeredResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   POST /api/sprites/:id/reconcile — trigger reconciliation for a single sprite.

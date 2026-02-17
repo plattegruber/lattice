@@ -7,8 +7,21 @@ defmodule LatticeWeb.Api.FleetController do
   """
 
   use LatticeWeb, :controller
+  use OpenApiSpex.ControllerSpecs
 
   alias Lattice.Sprites.FleetManager
+
+  tags(["Fleet"])
+  security([%{"BearerAuth" => []}])
+
+  operation(:index,
+    summary: "Fleet summary",
+    description: "Returns fleet summary with sprite counts by state and overall health.",
+    responses: [
+      ok: {"Fleet summary", "application/json", LatticeWeb.Schemas.FleetSummaryResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   GET /api/fleet — fleet summary with sprite counts by state and overall health.
@@ -26,6 +39,15 @@ defmodule LatticeWeb.Api.FleetController do
       timestamp: DateTime.utc_now()
     })
   end
+
+  operation(:audit,
+    summary: "Trigger fleet audit",
+    description: "Triggers a fleet-wide reconciliation audit across all sprites.",
+    responses: [
+      ok: {"Audit triggered", "application/json", LatticeWeb.Schemas.AuditTriggeredResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
   @doc """
   POST /api/fleet/audit — trigger a fleet-wide reconciliation audit.
