@@ -259,7 +259,7 @@ defmodule Lattice.Capabilities.Sprites.Live do
   @doc false
   def parse_sprite(data) when is_map(data) do
     %{
-      id: data["id"] || data["name"],
+      id: data["name"] || data["id"],
       name: data["name"],
       status: parse_status(data["status"]),
       organization: data["organization"],

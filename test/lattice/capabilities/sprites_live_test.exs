@@ -21,7 +21,7 @@ defmodule Lattice.Capabilities.Sprites.LiveTest do
 
       result = Live.parse_sprite(api_response)
 
-      assert result.id == "abc-123"
+      assert result.id == "my-sprite"
       assert result.name == "my-sprite"
       assert result.status == :ready
       assert result.organization == "plattegruber"
@@ -59,7 +59,7 @@ defmodule Lattice.Capabilities.Sprites.LiveTest do
 
       result = Live.parse_sprite(api_response)
 
-      assert result.id == "abc-123"
+      assert result.id == "my-sprite"
       assert result.status == :waking
       assert result.organization == nil
     end
