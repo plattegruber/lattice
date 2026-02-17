@@ -23,7 +23,7 @@ defmodule Lattice.Events.TelemetryHandler do
 
   ## Attaching
 
-  Called from `Lattice.Application.start/2`:
+  Called during application startup:
 
       Lattice.Events.TelemetryHandler.attach()
 

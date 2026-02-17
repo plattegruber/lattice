@@ -1,4 +1,10 @@
 defmodule LatticeWeb.Endpoint do
+  @moduledoc """
+  Phoenix endpoint for the Lattice web application.
+
+  Configures the HTTP listener, static file serving, session management,
+  LiveView websocket, and the plug pipeline that terminates at `LatticeWeb.Router`.
+  """
   use Phoenix.Endpoint, otp_app: :lattice
 
   # The session will be stored in the cookie and signed,
