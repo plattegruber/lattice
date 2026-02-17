@@ -47,6 +47,7 @@ defmodule Lattice.Intents.Store do
   @callback create(Intent.t()) :: {:ok, Intent.t()} | {:error, term()}
   @callback get(String.t()) :: {:ok, Intent.t()} | {:error, :not_found}
   @callback list(filters()) :: {:ok, [Intent.t()]}
+  @callback list_by_sprite(String.t()) :: {:ok, [Intent.t()]}
   @callback update(String.t(), map()) :: {:ok, Intent.t()} | {:error, term()}
   @callback add_artifact(String.t(), map()) :: {:ok, Intent.t()} | {:error, term()}
   @callback get_history(String.t()) :: {:ok, [Intent.transition_entry()]} | {:error, :not_found}
@@ -95,6 +96,18 @@ defmodule Lattice.Intents.Store do
   @spec list(filters()) :: {:ok, [Intent.t()]}
   def list(filters \\ %{}) when is_map(filters) do
     impl().list(filters)
+  end
+
+  @doc """
+  List intents associated with a specific sprite.
+
+  Returns intents where the source is a sprite with the given ID, or where
+  the payload targets the given sprite name. Results are sorted newest-first
+  by `updated_at`.
+  """
+  @spec list_by_sprite(String.t()) :: {:ok, [Intent.t()]}
+  def list_by_sprite(sprite_name) when is_binary(sprite_name) do
+    impl().list_by_sprite(sprite_name)
   end
 
   @doc """
