@@ -439,6 +439,17 @@ defmodule Lattice.Sprites.Sprite do
     end
   end
 
+  defp attempt_transition(%State{
+         sprite_id: id,
+         observed_state: :waking,
+         desired_state: :hibernating
+       }) do
+    case sprites_capability().sleep(id) do
+      {:ok, _} -> {:ok, :hibernating}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp attempt_transition(%State{sprite_id: id, observed_state: :ready, desired_state: :busy}) do
     case sprites_capability().exec(id, "start-task") do
       {:ok, _} -> {:ok, :busy}
@@ -476,9 +487,21 @@ defmodule Lattice.Sprites.Sprite do
     end
   end
 
+  defp attempt_transition(%State{
+         sprite_id: id,
+         observed_state: :error,
+         desired_state: :hibernating
+       }) do
+    # Recovery to hibernating: sleep the sprite
+    case sprites_capability().sleep(id) do
+      {:ok, _} -> {:ok, :hibernating}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp attempt_transition(%State{sprite_id: id, observed_state: :error, desired_state: desired})
-       when desired in [:hibernating, :waking, :ready] do
-    # Attempt recovery from error state
+       when desired in [:waking, :ready] do
+    # Recovery from error: wake the sprite
     case sprites_capability().wake(id) do
       {:ok, _} -> {:ok, :waking}
       {:error, reason} -> {:error, reason}
