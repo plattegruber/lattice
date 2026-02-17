@@ -9,6 +9,7 @@ defmodule LatticeWeb.Api.SpriteController do
   use LatticeWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias Lattice.Capabilities.Sprites, as: SpritesCapability
   alias Lattice.Sprites.FleetManager
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
@@ -39,6 +40,56 @@ defmodule LatticeWeb.Api.SpriteController do
       data: Enum.map(sprites, fn {id, state} -> serialize_sprite(id, state) end),
       timestamp: DateTime.utc_now()
     })
+  end
+
+  operation(:create,
+    summary: "Create a sprite",
+    description:
+      "Creates a new sprite via the Sprites API and starts a GenServer for it in the fleet.",
+    request_body:
+      {"Create sprite request", "application/json", LatticeWeb.Schemas.CreateSpriteRequest},
+    responses: [
+      ok: {"Created sprite", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      bad_gateway: {"Upstream API error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
+  @doc """
+  POST /api/sprites — create a new sprite.
+
+  Body: `{ "name": "my-sprite" }`
+  """
+  def create(conn, %{"name" => name}) when is_binary(name) and name != "" do
+    with {:ok, sprite_data} <- create_upstream_sprite(name),
+         sprite_id = extract_sprite_id(sprite_data, name),
+         {:ok, ^sprite_id} <- add_to_fleet(sprite_id) do
+      render_created_sprite(conn, sprite_id)
+    else
+      {:error, :already_exists} ->
+        conn
+        |> put_status(422)
+        |> json(%{error: "Sprite already exists", code: "SPRITE_ALREADY_EXISTS"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(502)
+        |> json(%{error: "Upstream API error: #{inspect(reason)}", code: "UPSTREAM_API_ERROR"})
+    end
+  end
+
+  def create(conn, %{"name" => ""}) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "Missing required field: name", code: "MISSING_FIELD"})
+  end
+
+  def create(conn, _params) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "Missing required field: name", code: "MISSING_FIELD"})
   end
 
   operation(:show,
@@ -205,6 +256,38 @@ defmodule LatticeWeb.Api.SpriteController do
   end
 
   # ── Private ──────────────────────────────────────────────────────────
+
+  defp create_upstream_sprite(name) do
+    SpritesCapability.create_sprite(name)
+  end
+
+  defp extract_sprite_id(sprite_data, fallback_name) do
+    Map.get(sprite_data, :id) || Map.get(sprite_data, "id") || fallback_name
+  end
+
+  defp add_to_fleet(sprite_id) do
+    FleetManager.add_sprite(sprite_id)
+  end
+
+  defp render_created_sprite(conn, sprite_id) do
+    data =
+      case get_sprite_state(sprite_id) do
+        {:ok, state} ->
+          serialize_sprite_detail(sprite_id, state)
+
+        {:error, :not_found} ->
+          %{
+            id: sprite_id,
+            observed_state: :hibernating,
+            desired_state: :hibernating,
+            health: :unknown
+          }
+      end
+
+    conn
+    |> put_status(200)
+    |> json(%{data: data, timestamp: DateTime.utc_now()})
+  end
 
   defp get_sprite_state(sprite_id) do
     case FleetManager.get_sprite_pid(sprite_id) do

@@ -67,6 +67,126 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
   end
 
+  # ── POST /api/sprites ───────────────────────────────────────────────
+
+  describe "POST /api/sprites" do
+    test "creates a sprite and returns sprite detail", %{conn: conn} do
+      Lattice.Capabilities.MockSprites
+      |> expect(:create_sprite, fn "new-sprite", [] ->
+        {:ok, %{id: "new-sprite", status: "cold"}}
+      end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> post("/api/sprites", %{"name" => "new-sprite"})
+
+      body = json_response(conn, 200)
+
+      assert body["data"]["id"] == "new-sprite"
+      assert body["data"]["observed_state"] == "hibernating"
+      assert body["data"]["desired_state"] == "hibernating"
+      assert is_binary(body["timestamp"])
+
+      # Verify the sprite is now in the fleet
+      conn2 =
+        build_conn()
+        |> authenticated()
+        |> get("/api/sprites/new-sprite")
+
+      assert json_response(conn2, 200)["data"]["id"] == "new-sprite"
+
+      on_exit(fn -> terminate_sprite("new-sprite") end)
+    end
+
+    test "returns 422 when name is missing", %{conn: conn} do
+      conn =
+        conn
+        |> authenticated()
+        |> post("/api/sprites", %{})
+
+      body = json_response(conn, 422)
+
+      assert body["error"] == "Missing required field: name"
+      assert body["code"] == "MISSING_FIELD"
+    end
+
+    test "returns 422 when name is empty string", %{conn: conn} do
+      conn =
+        conn
+        |> authenticated()
+        |> post("/api/sprites", %{"name" => ""})
+
+      body = json_response(conn, 422)
+
+      assert body["error"] == "Missing required field: name"
+      assert body["code"] == "MISSING_FIELD"
+    end
+
+    test "returns 422 when sprite already exists", %{conn: conn} do
+      start_sprites([%{id: "existing-sprite", desired_state: :hibernating}])
+
+      Lattice.Capabilities.MockSprites
+      |> expect(:create_sprite, fn "existing-sprite", [] ->
+        {:ok, %{id: "existing-sprite", status: "cold"}}
+      end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> post("/api/sprites", %{"name" => "existing-sprite"})
+
+      body = json_response(conn, 422)
+
+      assert body["error"] == "Sprite already exists"
+      assert body["code"] == "SPRITE_ALREADY_EXISTS"
+    end
+
+    test "returns 502 when upstream API fails", %{conn: conn} do
+      Lattice.Capabilities.MockSprites
+      |> expect(:create_sprite, fn "fail-sprite", [] ->
+        {:error, :timeout}
+      end)
+
+      conn =
+        conn
+        |> authenticated()
+        |> post("/api/sprites", %{"name" => "fail-sprite"})
+
+      body = json_response(conn, 502)
+
+      assert body["code"] == "UPSTREAM_API_ERROR"
+    end
+
+    test "returns 401 without authentication", %{conn: conn} do
+      conn = post(conn, "/api/sprites", %{"name" => "some-sprite"})
+
+      assert json_response(conn, 401)
+    end
+
+    test "newly created sprite appears in GET /api/sprites", %{conn: conn} do
+      Lattice.Capabilities.MockSprites
+      |> expect(:create_sprite, fn "list-test-sprite", [] ->
+        {:ok, %{id: "list-test-sprite", status: "cold"}}
+      end)
+
+      conn
+      |> authenticated()
+      |> post("/api/sprites", %{"name" => "list-test-sprite"})
+
+      conn2 =
+        build_conn()
+        |> authenticated()
+        |> get("/api/sprites")
+
+      body = json_response(conn2, 200)
+      sprite_ids = Enum.map(body["data"], & &1["id"])
+      assert "list-test-sprite" in sprite_ids
+
+      on_exit(fn -> terminate_sprite("list-test-sprite") end)
+    end
+  end
+
   # ── GET /api/sprites ────────────────────────────────────────────────
 
   describe "GET /api/sprites" do
