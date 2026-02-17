@@ -15,6 +15,15 @@ defmodule Lattice.Sprites.FleetManagerTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
+  # Default: API discovery fails, so FleetManager falls back to static config.
+  # Tests that want API discovery can override this stub before calling start_fleet_manager.
+  setup do
+    Lattice.Capabilities.MockSprites
+    |> Mox.stub(:list_sprites, fn -> {:error, :not_configured} end)
+
+    :ok
+  end
+
   # ── Helpers ─────────────────────────────────────────────────────────
 
   defp unique_name(prefix) do
@@ -125,6 +134,40 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
       [{_id, state}] = FleetManager.list_sprites(fm)
       assert state.desired_state == :hibernating
+    end
+  end
+
+  # ── API Discovery ────────────────────────────────────────────────
+
+  describe "API sprite discovery" do
+    test "discovers sprites from API at boot" do
+      Lattice.Capabilities.MockSprites
+      |> Mox.stub(:list_sprites, fn ->
+        {:ok, [%{id: "api-sprite-001"}, %{id: "api-sprite-002"}]}
+      end)
+
+      %{fm: fm} = start_fleet_manager([])
+
+      sprites = FleetManager.list_sprites(fm)
+      ids = Enum.map(sprites, fn {id, _state} -> id end)
+
+      assert length(sprites) == 2
+      assert "api-sprite-001" in ids
+      assert "api-sprite-002" in ids
+    end
+
+    test "falls back to static config when API fails" do
+      Lattice.Capabilities.MockSprites
+      |> Mox.stub(:list_sprites, fn -> {:error, :connection_refused} end)
+
+      configs = [%{id: "fallback-001", desired_state: :hibernating}]
+      %{fm: fm} = start_fleet_manager(configs)
+
+      sprites = FleetManager.list_sprites(fm)
+      ids = Enum.map(sprites, fn {id, _state} -> id end)
+
+      assert length(sprites) == 1
+      assert "fallback-001" in ids
     end
   end
 

@@ -12,6 +12,13 @@ defmodule Mix.Tasks.Lattice.AuditTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
+  setup do
+    MockSprites
+    |> Mox.stub(:list_sprites, fn -> {:error, :not_configured} end)
+
+    :ok
+  end
+
   defp unique_name(prefix) do
     :"#{prefix}_#{System.unique_integer([:positive])}"
   end

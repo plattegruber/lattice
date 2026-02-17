@@ -173,7 +173,7 @@ defmodule Lattice.Sprites.FleetManager do
 
   @impl true
   def handle_continue(:discover_sprites, %FleetState{} = state) do
-    sprite_configs = configured_sprites()
+    sprite_configs = discover_sprites()
 
     sprite_ids =
       sprite_configs
@@ -253,6 +253,35 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   # ── Private ─────────────────────────────────────────────────────────
+
+  defp discover_sprites do
+    capability = sprites_capability()
+
+    if capability && function_exported?(capability, :list_sprites, 0) do
+      case capability.list_sprites() do
+        {:ok, api_sprites} ->
+          Logger.info("Discovered #{length(api_sprites)} sprites from API")
+          Enum.map(api_sprites, &api_sprite_to_config/1)
+
+        {:error, reason} ->
+          Logger.warning(
+            "API sprite discovery failed: #{inspect(reason)}, falling back to config"
+          )
+
+          configured_sprites()
+      end
+    else
+      configured_sprites()
+    end
+  end
+
+  defp api_sprite_to_config(sprite) do
+    %{id: sprite[:id] || sprite["id"], desired_state: :hibernating}
+  end
+
+  defp sprites_capability do
+    Application.get_env(:lattice, :capabilities)[:sprites]
+  end
 
   defp configured_sprites do
     :lattice
