@@ -52,7 +52,7 @@ Lattice is an **Elixir/Phoenix control plane for managing AI coding agents ("Spr
 | Process model | GenServer, DynamicSupervisor, Registry |
 | Events | :telemetry + Phoenix.PubSub |
 | Persistence | ETS initially, PostgreSQL later |
-| Auth | Clerk (deferred — stubbed initially) |
+| Auth | Bearer token (current) / Clerk integration available |
 | Deployment | Fly.io + Fly Scheduled Machines |
 | CI | GitHub Actions |
 
@@ -177,13 +177,54 @@ config :lattice, :resources,
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 ```
 
+## API Contract
+
+The `/api` scope is protected by bearer token auth (`Authorization: Bearer <token>`) via `LatticeWeb.Plugs.Auth`. Unauthenticated requests receive a `401` response.
+
+**Response envelope:**
+
+- Success: `%{data: ..., timestamp: DateTime.utc_now()}`
+- Error: `%{error: "message", code: "ERROR_CODE"}`
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `401` | Missing or invalid bearer token |
+| `404` | Resource not found (e.g., `SPRITE_NOT_FOUND`) |
+| `422` | Validation error (e.g., `INVALID_STATE`, `MISSING_FIELD`, `INVALID_STATE_TRANSITION`) |
+
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/fleet` | Fleet summary |
+| `POST` | `/api/fleet/audit` | Trigger fleet-wide reconciliation |
+| `GET` | `/api/sprites` | List all sprites |
+| `GET` | `/api/sprites/:id` | Sprite detail |
+| `PUT` | `/api/sprites/:id/desired` | Update desired state |
+| `POST` | `/api/sprites/:id/reconcile` | Trigger sprite reconciliation |
+
+`GET /health` is unauthenticated.
+
+## Branch Protection
+
+The `main` branch should have these protection rules configured in GitHub (Settings > Branches > Branch protection rules):
+
+- **Require status checks to pass before merging** — select both `Build and test` and `Prod compile check` jobs
+- **Require branches to be up to date before merging** — ensures PRs are tested against the latest main
+- **Require pull request reviews before merging** (optional) — at least 1 approval recommended
+
+These rules must be set manually in the GitHub UI. They cannot be applied via CI.
+
 ## Issue Tracker
 
 Active issues are in [github.com/plattegruber/lattice/issues](https://github.com/plattegruber/lattice/issues).
 
 Phases:
-1. **Foundation** — capability architecture, event infrastructure, safety framework, CI
-2. **Step 1** — scaffold, sprite processes, fleet manager, LiveView dashboard
-3. **Step 2** — real Sprites API integration, reconciliation, Phoenix API
-4. **Step 3** — GitHub HITL workflow, approvals queue
-5. **Step 4** — Fly deployment, Scheduled Machines
+1. **Foundation** (done) — capability architecture, event infrastructure, safety framework, CI
+2. **Step 1** (done) — scaffold, sprite processes, fleet manager, LiveView dashboard
+3. **Step 2** (done) — real Sprites API integration, reconciliation, Phoenix API
+4. **Step 3** (done) — GitHub HITL workflow, approvals queue
+5. **Step 4** (done) — Fly deployment, Scheduled Machines

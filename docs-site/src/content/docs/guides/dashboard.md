@@ -1,0 +1,97 @@
+---
+title: Dashboard Guide
+description: Using the Lattice LiveView dashboard to monitor and manage your Sprite fleet.
+---
+
+Lattice provides a real-time operations dashboard built with Phoenix LiveView. The dashboard subscribes to PubSub events and renders live projections -- it never polls. When a Sprite changes state, you see it immediately.
+
+## Accessing the Dashboard
+
+Start the server and visit [http://localhost:4000](http://localhost:4000) in your browser:
+
+```bash
+mix phx.server
+```
+
+The dashboard requires authentication when Clerk is configured. In development (stub auth mode), all routes are accessible without credentials.
+
+## Views
+
+### Fleet View (`/sprites`)
+
+The fleet view is the primary operations pane -- the "NOC glass." It provides:
+
+- **Fleet summary** -- total sprite count and breakdown by observed state
+- **Sprite list** -- each sprite with its ID, desired state, observed state, and health
+- **Bulk actions** -- wake or sleep selected sprites
+- **Real-time updates** -- state changes appear instantly via PubSub
+
+The fleet view subscribes to the `"sprites:fleet"` topic and re-renders whenever the Fleet Manager broadcasts a summary update.
+
+### Sprite Detail (`/sprites/:id`)
+
+Click on any sprite in the fleet view to see its detail page:
+
+- **Current state** -- desired vs. observed, with health indicator
+- **Reconciliation history** -- recent reconciliation results and durations
+- **State transitions** -- timeline of observed state changes
+- **Health status** -- current health assessment with failure count
+
+### Intents View (`/intents`)
+
+The intents view shows all intents in the system:
+
+- **Active intents** -- proposed, classified, awaiting approval, approved, running
+- **Completed intents** -- finished, failed, rejected, canceled
+- **Filtering** -- by state, kind, source type
+- **Real-time updates** -- intent lifecycle transitions appear live
+
+### Intent Detail (`/intents/:id`)
+
+Detailed view of a single intent:
+
+- **Intent metadata** -- kind, source, summary, classification
+- **Transition log** -- full history of state changes with actors and reasons
+- **Payload** -- the intent's data including affected resources and expected side effects
+- **Actions** -- approve, reject, or cancel (for intents awaiting approval)
+
+### Approvals Queue (`/approvals`)
+
+A focused view of intents that need human attention:
+
+- **Pending approvals** -- intents in `:awaiting_approval` state
+- **Classification context** -- why the intent requires approval
+- **Approve / Reject** -- one-click actions with optional reason
+
+### Incidents View (`/incidents`)
+
+The incidents view shows safety audit entries:
+
+- **Audit trail** -- every capability invocation with classification, result, and actor
+- **Filtering** -- by capability, classification level, result status
+- **Real-time stream** -- new audit entries appear as they are logged
+
+## Navigation
+
+The authenticated LiveView routes are:
+
+| Path | View | Purpose |
+|------|------|---------|
+| `/sprites` | Fleet | Fleet overview and sprite management |
+| `/sprites/:id` | Sprite Detail | Individual sprite state and history |
+| `/intents` | Intents | All intents with lifecycle tracking |
+| `/intents/:id` | Intent Detail | Single intent with full transition log |
+| `/approvals` | Approvals | Pending human approvals |
+| `/incidents` | Incidents | Safety audit trail |
+
+## Real-Time Updates
+
+The dashboard uses Phoenix PubSub to receive real-time updates. Each view subscribes to relevant topics:
+
+| View | Topic | Events |
+|------|-------|--------|
+| Fleet | `"sprites:fleet"` | Fleet summary changes |
+| Fleet | `"sprites:<id>"` | Individual sprite state changes |
+| Intents | `"intents:all"` | All intent lifecycle transitions |
+| Intent Detail | `"intents:<id>"` | Specific intent transitions |
+| Incidents | `"safety:audit"` | New audit entries |

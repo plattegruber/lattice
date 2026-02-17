@@ -6,6 +6,7 @@ defmodule Lattice.Application do
   use Application
 
   alias Lattice.Events.TelemetryHandler
+  alias Lattice.Instance
 
   @impl true
   def start(_type, _args) do
@@ -13,12 +14,21 @@ defmodule Lattice.Application do
     # This ensures events emitted during startup are captured.
     TelemetryHandler.attach()
 
+    # Validate resource bindings and log instance identity at boot.
+    # In prod, missing bindings cause a crash (fail fast).
+    Instance.validate!()
+    Instance.log_boot_info()
+
     children = [
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lattice.PubSub},
-      # Start a worker by calling: Lattice.Worker.start_link(arg)
-      # {Lattice.Worker, arg},
+      # Intent persistence
+      Lattice.Intents.Store.ETS,
+      # Sprite process infrastructure
+      {Registry, keys: :unique, name: Lattice.Sprites.Registry},
+      {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
+      Lattice.Sprites.FleetManager,
       # Start to serve requests, typically the last entry
       LatticeWeb.Endpoint
     ]

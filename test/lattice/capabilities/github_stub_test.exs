@@ -79,6 +79,18 @@ defmodule Lattice.Capabilities.GitHub.StubTest do
     end
   end
 
+  describe "get_issue/1" do
+    test "returns a known issue" do
+      assert {:ok, issue} = Stub.get_issue(1)
+      assert issue.number == 1
+      assert issue.title == "Set up CI pipeline"
+    end
+
+    test "returns error for an unknown issue" do
+      assert {:error, :not_found} = Stub.get_issue(999)
+    end
+  end
+
   describe "list_issues/1" do
     test "returns all issues when no filters are given" do
       assert {:ok, [_, _ | _]} = Stub.list_issues([])

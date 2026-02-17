@@ -1,0 +1,313 @@
+defmodule Lattice.Sprites.StateTest do
+  use ExUnit.Case, async: true
+
+  @moduletag :unit
+
+  alias Lattice.Sprites.State
+
+  # ── Construction ────────────────────────────────────────────────────
+
+  describe "new/2" do
+    test "creates a state with defaults" do
+      assert {:ok, state} = State.new("sprite-001")
+
+      assert state.sprite_id == "sprite-001"
+      assert state.observed_state == :hibernating
+      assert state.desired_state == :hibernating
+      assert state.health == :unknown
+      assert state.failure_count == 0
+      assert state.backoff_ms == 1_000
+      assert state.base_backoff_ms == 1_000
+      assert state.max_backoff_ms == 60_000
+      assert state.log_cursor == nil
+      assert %DateTime{} = state.started_at
+      assert %DateTime{} = state.updated_at
+    end
+
+    test "accepts custom desired_state" do
+      assert {:ok, state} = State.new("sprite-001", desired_state: :ready)
+      assert state.desired_state == :ready
+    end
+
+    test "accepts custom observed_state" do
+      assert {:ok, state} = State.new("sprite-001", observed_state: :busy)
+      assert state.observed_state == :busy
+    end
+
+    test "accepts custom backoff parameters" do
+      assert {:ok, state} =
+               State.new("sprite-001", base_backoff_ms: 500, max_backoff_ms: 30_000)
+
+      assert state.base_backoff_ms == 500
+      assert state.backoff_ms == 500
+      assert state.max_backoff_ms == 30_000
+    end
+
+    test "rejects invalid desired_state" do
+      assert {:error, {:invalid_lifecycle, :invalid}} =
+               State.new("sprite-001", desired_state: :invalid)
+    end
+
+    test "rejects invalid observed_state" do
+      assert {:error, {:invalid_lifecycle, :bogus}} =
+               State.new("sprite-001", observed_state: :bogus)
+    end
+  end
+
+  # ── Transitions ─────────────────────────────────────────────────────
+
+  describe "transition/2" do
+    test "updates observed state" do
+      {:ok, state} = State.new("sprite-001")
+      assert {:ok, new_state} = State.transition(state, :waking)
+      assert new_state.observed_state == :waking
+    end
+
+    test "updates timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      {:ok, new_state} = State.transition(state, :waking)
+      assert DateTime.compare(new_state.updated_at, state.updated_at) in [:gt, :eq]
+    end
+
+    test "rejects invalid state" do
+      {:ok, state} = State.new("sprite-001")
+      assert {:error, {:invalid_lifecycle, :flying}} = State.transition(state, :flying)
+    end
+
+    test "allows all valid lifecycle states" do
+      {:ok, state} = State.new("sprite-001")
+
+      for lifecycle <- State.valid_lifecycle_states() do
+        assert {:ok, %State{observed_state: ^lifecycle}} = State.transition(state, lifecycle)
+      end
+    end
+  end
+
+  # ── Set Desired ─────────────────────────────────────────────────────
+
+  describe "set_desired/2" do
+    test "updates desired state" do
+      {:ok, state} = State.new("sprite-001")
+      assert {:ok, new_state} = State.set_desired(state, :ready)
+      assert new_state.desired_state == :ready
+    end
+
+    test "updates timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      {:ok, new_state} = State.set_desired(state, :ready)
+      assert DateTime.compare(new_state.updated_at, state.updated_at) in [:gt, :eq]
+    end
+
+    test "rejects invalid state" do
+      {:ok, state} = State.new("sprite-001")
+      assert {:error, {:invalid_lifecycle, :nope}} = State.set_desired(state, :nope)
+    end
+  end
+
+  # ── Backoff & Failure Tracking ──────────────────────────────────────
+
+  describe "record_failure/1" do
+    test "increments failure count" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.record_failure(state)
+      assert state.failure_count == 1
+    end
+
+    test "applies exponential backoff" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 100, max_backoff_ms: 10_000)
+
+      state = State.record_failure(state)
+      # 100 * 2^0 = 100
+      assert state.backoff_ms == 100
+
+      state = State.record_failure(state)
+      # 100 * 2^1 = 200
+      assert state.backoff_ms == 200
+
+      state = State.record_failure(state)
+      # 100 * 2^2 = 400
+      assert state.backoff_ms == 400
+
+      state = State.record_failure(state)
+      # 100 * 2^3 = 800
+      assert state.backoff_ms == 800
+    end
+
+    test "caps backoff at max" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 100, max_backoff_ms: 500)
+
+      state =
+        Enum.reduce(1..10, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert state.backoff_ms == 500
+    end
+
+    test "tracks consecutive failures" do
+      {:ok, state} = State.new("sprite-001")
+
+      state =
+        Enum.reduce(1..5, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert state.failure_count == 5
+    end
+  end
+
+  describe "reset_backoff/1" do
+    test "resets failure count to zero" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.record_failure(state)
+      state = State.record_failure(state)
+      state = State.reset_backoff(state)
+      assert state.failure_count == 0
+    end
+
+    test "resets backoff to base value" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 200)
+      state = State.record_failure(state)
+      state = State.record_failure(state)
+      state = State.reset_backoff(state)
+      assert state.backoff_ms == 200
+    end
+  end
+
+  # ── Needs Reconciliation ────────────────────────────────────────────
+
+  describe "needs_reconciliation?/1" do
+    test "returns false when observed matches desired" do
+      {:ok, state} = State.new("sprite-001")
+      refute State.needs_reconciliation?(state)
+    end
+
+    test "returns true when observed differs from desired" do
+      {:ok, state} = State.new("sprite-001", desired_state: :ready)
+      assert State.needs_reconciliation?(state)
+    end
+  end
+
+  # ── Valid States ────────────────────────────────────────────────────
+
+  describe "valid_lifecycle_states/0" do
+    test "returns all lifecycle states" do
+      states = State.valid_lifecycle_states()
+      assert :hibernating in states
+      assert :waking in states
+      assert :ready in states
+      assert :busy in states
+      assert :error in states
+      assert length(states) == 5
+    end
+  end
+
+  # ── Max Retries ─────────────────────────────────────────────────────
+
+  describe "max_retries" do
+    test "defaults to 10" do
+      {:ok, state} = State.new("sprite-001")
+      assert state.max_retries == 10
+    end
+
+    test "accepts custom max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 5)
+      assert state.max_retries == 5
+    end
+  end
+
+  # ── Record Observation ──────────────────────────────────────────────
+
+  describe "record_observation/1" do
+    test "sets last_observed_at timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      assert state.last_observed_at == nil
+
+      state = State.record_observation(state)
+      assert %DateTime{} = state.last_observed_at
+    end
+
+    test "updates updated_at timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.record_observation(state)
+      assert DateTime.compare(state.updated_at, state.started_at) in [:gt, :eq]
+    end
+  end
+
+  # ── Compute Health ─────────────────────────────────────────────────
+
+  describe "compute_health/1" do
+    test "returns :ok when observed matches desired and no failures" do
+      {:ok, state} = State.new("sprite-001")
+      assert State.compute_health(state) == :ok
+    end
+
+    test "returns :converging when observed differs from desired with no failures" do
+      {:ok, state} = State.new("sprite-001", desired_state: :ready)
+      assert State.compute_health(state) == :converging
+    end
+
+    test "returns :degraded when there are failures below max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 10)
+      state = State.record_failure(state)
+      assert State.compute_health(state) == :degraded
+    end
+
+    test "returns :error when failure_count reaches max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 3)
+
+      state =
+        Enum.reduce(1..3, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert State.compute_health(state) == :error
+    end
+
+    test "returns :error when failure_count exceeds max_retries" do
+      {:ok, state} = State.new("sprite-001", max_retries: 2)
+
+      state =
+        Enum.reduce(1..5, state, fn _, acc -> State.record_failure(acc) end)
+
+      assert State.compute_health(state) == :error
+    end
+
+    test "degraded takes priority over converging" do
+      # Has failures AND observed != desired
+      {:ok, state} = State.new("sprite-001", desired_state: :ready, max_retries: 10)
+      state = State.record_failure(state)
+      assert State.compute_health(state) == :degraded
+    end
+  end
+
+  # ── Backoff with Jitter ─────────────────────────────────────────────
+
+  describe "backoff_with_jitter/1" do
+    test "returns a value near the backoff_ms" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 1_000, max_backoff_ms: 60_000)
+      state = State.record_failure(state)
+
+      # Run multiple times to verify jitter varies
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      # All results should be within +/- 25% of 1000
+      assert Enum.all?(results, fn r -> r >= 750 and r <= 1250 end)
+    end
+
+    test "returns non-negative values for small backoffs" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 1, max_backoff_ms: 100)
+      state = State.record_failure(state)
+
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      assert Enum.all?(results, fn r -> r >= 0 end)
+    end
+
+    test "jitter is bounded by max_backoff through backoff_ms" do
+      {:ok, state} = State.new("sprite-001", base_backoff_ms: 100, max_backoff_ms: 200)
+
+      state =
+        Enum.reduce(1..20, state, fn _, acc -> State.record_failure(acc) end)
+
+      # backoff_ms is capped at 200, jitter should be around that
+      results = for _ <- 1..100, do: State.backoff_with_jitter(state)
+
+      assert Enum.all?(results, fn r -> r >= 150 and r <= 250 end)
+    end
+  end
+end

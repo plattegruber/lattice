@@ -41,3 +41,6 @@ Thumbs.db
 
 # Node (Phoenix asset pipeline)
 /assets/node_modules/
+
+# ExDoc output
+/doc/

@@ -17,11 +17,20 @@ config :lattice, :capabilities,
   fly: Lattice.Capabilities.Fly.Stub,
   secret_store: Lattice.Capabilities.SecretStore.Env
 
+# Fleet configuration — sprites to discover and manage at boot
+config :lattice, :fleet, sprites: []
+
+# Auth provider — stub for dev, Clerk for production
+config :lattice, :auth, provider: Lattice.Auth.Stub
+
 # Safety guardrails — action gating and approval requirements
 config :lattice, :guardrails,
   allow_controlled: true,
   allow_dangerous: false,
   require_approval_for_controlled: true
+
+# Task allowlist — repos that auto-approve task intents
+config :lattice, :task_allowlist, auto_approve_repos: []
 
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
@@ -78,7 +87,23 @@ config :logger, :default_formatter,
     :total,
     :by_state,
     :actor,
-    :args
+    :args,
+    :instance_name,
+    :environment,
+    :github_repo,
+    :fly_org,
+    :fly_app,
+    :sprites_api_base,
+    :sprite_ids,
+    :observation_id,
+    :type,
+    :severity,
+    :intent_id,
+    :kind,
+    :source,
+    :from,
+    :to,
+    :artifact_type
   ]
 
 # Use Jason for JSON parsing in Phoenix

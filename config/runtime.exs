@@ -34,6 +34,37 @@ config :lattice, :resources,
   fly_app: System.get_env("FLY_APP"),
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 
+# Capability auto-selection: use live implementations when credentials are present
+capabilities = Application.get_env(:lattice, :capabilities, [])
+
+capabilities =
+  if System.get_env("SPRITES_API_TOKEN") do
+    Keyword.put(capabilities, :sprites, Lattice.Capabilities.Sprites.Live)
+  else
+    capabilities
+  end
+
+capabilities =
+  if System.get_env("GITHUB_REPO") do
+    Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Live)
+  else
+    capabilities
+  end
+
+capabilities =
+  if System.get_env("FLY_APP") do
+    Keyword.put(capabilities, :fly, Lattice.Capabilities.Fly.Live)
+  else
+    capabilities
+  end
+
+config :lattice, :capabilities, capabilities
+
+# Auth provider: use Clerk when secret key is configured, otherwise stub
+if System.get_env("CLERK_SECRET_KEY") do
+  config :lattice, :auth, provider: Lattice.Auth.Clerk
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

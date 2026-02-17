@@ -25,6 +25,10 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:github, :list_issues)
     end
 
+    test "classifies github:get_issue as safe" do
+      assert {:ok, %Action{classification: :safe}} = Classifier.classify(:github, :get_issue)
+    end
+
     test "classifies fly:logs as safe" do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:fly, :logs)
     end
@@ -50,6 +54,11 @@ defmodule Lattice.Safety.ClassifierTest do
 
     test "classifies sprites:exec as controlled" do
       assert {:ok, %Action{classification: :controlled}} = Classifier.classify(:sprites, :exec)
+    end
+
+    test "classifies sprites:run_task as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:sprites, :run_task)
     end
 
     test "classifies github:create_issue as controlled" do
@@ -124,6 +133,7 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:sprites, :get_sprite} in safe_actions
       assert {:sprites, :fetch_logs} in safe_actions
       assert {:github, :list_issues} in safe_actions
+      assert {:github, :get_issue} in safe_actions
       assert {:fly, :logs} in safe_actions
       assert {:fly, :machine_status} in safe_actions
       assert {:secret_store, :get_secret} in safe_actions
@@ -135,6 +145,7 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:sprites, :wake} in controlled_actions
       assert {:sprites, :sleep} in controlled_actions
       assert {:sprites, :exec} in controlled_actions
+      assert {:sprites, :run_task} in controlled_actions
       assert {:github, :create_issue} in controlled_actions
     end
 
@@ -164,13 +175,13 @@ defmodule Lattice.Safety.ClassifierTest do
     test "covers all capability operations" do
       all = Classifier.all_classifications()
 
-      # Sprites: 6 operations
+      # Sprites: 7 operations (including run_task)
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
-      assert length(sprites_ops) == 6
+      assert length(sprites_ops) == 7
 
-      # GitHub: 6 operations
+      # GitHub: 7 operations
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)
-      assert length(github_ops) == 6
+      assert length(github_ops) == 7
 
       # Fly: 3 operations
       fly_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :fly end)

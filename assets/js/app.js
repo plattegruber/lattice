@@ -25,11 +25,29 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/lattice"
 import topbar from "../vendor/topbar"
 
+// Custom hooks
+const AutoScroll = {
+  mounted() {
+    this._scrollToBottom()
+    this._observer = new MutationObserver(() => this._scrollToBottom())
+    this._observer.observe(this.el, { childList: true, subtree: true })
+  },
+  updated() {
+    this._scrollToBottom()
+  },
+  destroyed() {
+    if (this._observer) this._observer.disconnect()
+  },
+  _scrollToBottom() {
+    this.el.scrollTop = this.el.scrollHeight
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, AutoScroll},
 })
 
 // Show progress bar on live navigation and form submits
