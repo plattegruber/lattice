@@ -10,33 +10,20 @@ export default defineConfig({
       title: "Lattice",
       description:
         "Control plane for managing AI coding agents (Sprites). Real-time fleet operations with safety guardrails.",
-      social: [
-        {
-          icon: "github",
-          label: "GitHub",
-          href: "https://github.com/plattegruber/lattice",
-        },
-      ],
+      social: {
+        github: "https://github.com/plattegruber/lattice",
+      },
       sidebar: [
-        { label: "Getting Started", slug: "" },
+        { label: "Getting Started", link: "/" },
         {
           label: "Concepts",
-          items: [
-            { label: "Sprites", slug: "concepts/sprites" },
-            { label: "Intents", slug: "concepts/intents" },
-            { label: "Fleet Manager", slug: "concepts/fleet-manager" },
-          ],
+          autogenerate: { directory: "concepts" },
         },
         {
           label: "Guides",
-          items: [
-            { label: "Dashboard", slug: "guides/dashboard" },
-            { label: "API Reference", slug: "guides/api" },
-            { label: "Safety & Guardrails", slug: "guides/safety" },
-            { label: "Deployment", slug: "guides/deployment" },
-          ],
+          autogenerate: { directory: "guides" },
         },
-        { label: "Architecture", slug: "architecture" },
+        { label: "Architecture", link: "/architecture/" },
       ],
       editLink: {
         baseUrl:
