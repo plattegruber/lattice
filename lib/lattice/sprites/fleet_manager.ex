@@ -303,6 +303,7 @@ defmodule Lattice.Sprites.FleetManager do
   # Ignore other PubSub messages on the fleet topic (state changes,
   # reconciliation results, health updates, etc.) — only externally-deleted
   # messages need fleet-manager-level handling.
+  @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end

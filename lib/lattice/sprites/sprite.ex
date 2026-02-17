@@ -386,7 +386,7 @@ defmodule Lattice.Sprites.Sprite do
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
-        "sprites:fleet",
+        Events.fleet_topic(),
         {:sprite_externally_deleted, state.sprite_id}
       )
 
@@ -408,6 +408,7 @@ defmodule Lattice.Sprites.Sprite do
     duration = System.monotonic_time(:millisecond) - start_time
     old_observed = state.observed_state
     new_state = State.record_failure(state)
+    new_state = %{new_state | not_found_count: 0}
 
     Logger.warning("Sprite reconciliation failure",
       sprite_id: state.sprite_id,
