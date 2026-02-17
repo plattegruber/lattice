@@ -15,6 +15,8 @@ defmodule Lattice.Events do
   - `"observations:<sprite_id>"` — per-sprite observation events
   - `"observations:all"` — all observations across all sprites
   - `"intents"` — intent store mutations (create, transition, artifact)
+  - `"intents:<intent_id>"` — per-intent pipeline events
+  - `"intents:all"` — all intent pipeline events
 
   ## Usage
 
@@ -81,6 +83,16 @@ defmodule Lattice.Events do
   @spec observations_topic() :: String.t()
   def observations_topic, do: "observations:all"
 
+  @doc "Returns the PubSub topic for a specific intent's pipeline events."
+  @spec intent_topic(String.t()) :: String.t()
+  def intent_topic(intent_id) when is_binary(intent_id) do
+    "intents:#{intent_id}"
+  end
+
+  @doc "Returns the PubSub topic for all intent pipeline events."
+  @spec intents_all_topic() :: String.t()
+  def intents_all_topic, do: "intents:all"
+
   # ── Subscribe ──────────────────────────────────────────────────────
 
   @doc "Subscribe the calling process to events for a specific Sprite."
@@ -123,6 +135,18 @@ defmodule Lattice.Events do
   @spec subscribe_all_observations() :: :ok | {:error, term()}
   def subscribe_all_observations do
     Phoenix.PubSub.subscribe(pubsub(), observations_topic())
+  end
+
+  @doc "Subscribe the calling process to pipeline events for a specific intent."
+  @spec subscribe_intent(String.t()) :: :ok | {:error, term()}
+  def subscribe_intent(intent_id) do
+    Phoenix.PubSub.subscribe(pubsub(), intent_topic(intent_id))
+  end
+
+  @doc "Subscribe the calling process to all intent pipeline events."
+  @spec subscribe_all_intents() :: :ok | {:error, term()}
+  def subscribe_all_intents do
+    Phoenix.PubSub.subscribe(pubsub(), intents_all_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────
