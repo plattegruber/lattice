@@ -44,6 +44,8 @@ defmodule Lattice.Sprites.Sprite do
   alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
+  alias Lattice.Intents.IntentGenerator
+  alias Lattice.Intents.Observation
   alias Lattice.Sprites.State
 
   @default_reconcile_interval_ms 5_000
@@ -117,6 +119,33 @@ defmodule Lattice.Sprites.Sprite do
     GenServer.cast(server, :reconcile_now)
   end
 
+  @doc """
+  Emit an observation from this Sprite.
+
+  Observations are structured facts about the world that the Sprite has
+  noticed. They are broadcast via PubSub and may generate Intent proposals
+  through the configured IntentGenerator.
+
+  ## Options
+
+  - `:type` (required) -- observation type (`:metric`, `:anomaly`, `:status`, `:recommendation`)
+  - `:data` -- observation data map (default: `%{}`)
+  - `:severity` -- severity level (default: `:info`)
+
+  ## Returns
+
+  - `{:ok, observation}` -- observation emitted, no intent generated
+  - `{:ok, observation, intent}` -- observation emitted and intent generated
+  - `{:error, reason}` -- invalid observation parameters
+  """
+  @spec emit_observation(GenServer.server(), keyword()) ::
+          {:ok, Observation.t()}
+          | {:ok, Observation.t(), Lattice.Intents.Intent.t()}
+          | {:error, term()}
+  def emit_observation(server, opts) do
+    GenServer.call(server, {:emit_observation, opts})
+  end
+
   # ── GenServer Callbacks ─────────────────────────────────────────────
 
   @impl true
@@ -153,6 +182,30 @@ defmodule Lattice.Sprites.Sprite do
 
       {:error, _reason} = error ->
         {:reply, error, {state, interval}}
+    end
+  end
+
+  def handle_call({:emit_observation, opts}, _from, {state, interval}) do
+    type = Keyword.fetch!(opts, :type)
+    obs_opts = Keyword.drop(opts, [:type])
+
+    case Observation.new(state.sprite_id, type, obs_opts) do
+      {:ok, observation} ->
+        Events.broadcast_observation(observation)
+
+        case IntentGenerator.generate(observation) do
+          {:ok, intent} ->
+            {:reply, {:ok, observation, intent}, {state, interval}}
+
+          :skip ->
+            {:reply, {:ok, observation}, {state, interval}}
+
+          {:error, _reason} ->
+            {:reply, {:ok, observation}, {state, interval}}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, {state, interval}}
     end
   end
 

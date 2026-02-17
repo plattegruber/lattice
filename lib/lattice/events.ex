@@ -12,6 +12,9 @@ defmodule Lattice.Events do
   - `"sprites:<sprite_id>"` — per-sprite events (state changes, health, logs)
   - `"sprites:fleet"` — fleet-wide notifications and summary updates
   - `"sprites:approvals"` — human-in-the-loop approval requests
+  - `"observations:<sprite_id>"` — per-sprite observation events
+  - `"observations:all"` — all observations across all sprites
+  - `"intents"` — intent store mutations (create, transition, artifact)
 
   ## Usage
 
@@ -42,6 +45,7 @@ defmodule Lattice.Events do
   alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
+  alias Lattice.Intents.Observation
 
   # ── Topic Helpers ──────────────────────────────────────────────────
 
@@ -62,6 +66,20 @@ defmodule Lattice.Events do
   @doc "Returns the PubSub topic for safety audit events."
   @spec audit_topic() :: String.t()
   def audit_topic, do: "safety:audit"
+
+  @doc "Returns the PubSub topic for intent store events."
+  @spec intents_topic() :: String.t()
+  def intents_topic, do: "intents"
+
+  @doc "Returns the PubSub topic for a specific Sprite's observations."
+  @spec observation_topic(String.t()) :: String.t()
+  def observation_topic(sprite_id) when is_binary(sprite_id) do
+    "observations:#{sprite_id}"
+  end
+
+  @doc "Returns the PubSub topic for all observations across all sprites."
+  @spec observations_topic() :: String.t()
+  def observations_topic, do: "observations:all"
 
   # ── Subscribe ──────────────────────────────────────────────────────
 
@@ -87,6 +105,24 @@ defmodule Lattice.Events do
   @spec subscribe_audit() :: :ok | {:error, term()}
   def subscribe_audit do
     Phoenix.PubSub.subscribe(pubsub(), audit_topic())
+  end
+
+  @doc "Subscribe the calling process to intent store events."
+  @spec subscribe_intents() :: :ok | {:error, term()}
+  def subscribe_intents do
+    Phoenix.PubSub.subscribe(pubsub(), intents_topic())
+  end
+
+  @doc "Subscribe the calling process to observations for a specific Sprite."
+  @spec subscribe_observations(String.t()) :: :ok | {:error, term()}
+  def subscribe_observations(sprite_id) do
+    Phoenix.PubSub.subscribe(pubsub(), observation_topic(sprite_id))
+  end
+
+  @doc "Subscribe the calling process to all observations across all sprites."
+  @spec subscribe_all_observations() :: :ok | {:error, term()}
+  def subscribe_all_observations do
+    Phoenix.PubSub.subscribe(pubsub(), observations_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────
@@ -142,6 +178,27 @@ defmodule Lattice.Events do
     broadcast_to_sprite(event.sprite_id, event)
     broadcast_to_fleet(event)
     broadcast_to_approvals(event)
+  end
+
+  @doc """
+  Broadcast an observation event.
+
+  Emits a `[:lattice, :observation, :emitted]` Telemetry event and broadcasts
+  to the per-sprite observation topic and the all-observations topic.
+  """
+  @spec broadcast_observation(Observation.t()) :: :ok | {:error, term()}
+  def broadcast_observation(%Observation{} = observation) do
+    :telemetry.execute(
+      [:lattice, :observation, :emitted],
+      %{system_time: System.system_time()},
+      %{
+        sprite_id: observation.sprite_id,
+        observation: observation
+      }
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), observation_topic(observation.sprite_id), observation)
+    Phoenix.PubSub.broadcast(pubsub(), observations_topic(), observation)
   end
 
   # ── Telemetry ──────────────────────────────────────────────────────
