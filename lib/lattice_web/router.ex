@@ -68,6 +68,8 @@ defmodule LatticeWeb.Router do
       live "/sprites", FleetLive
       live "/approvals", ApprovalsLive
       live "/incidents", IncidentsLive
+      live "/intents", IntentsLive
+      live "/intents/:id", IntentLive.Show
     end
   end
 
