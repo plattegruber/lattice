@@ -23,6 +23,8 @@ defmodule Lattice.Application do
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lattice.PubSub},
+      # Intent persistence
+      Lattice.Intents.Store.ETS,
       # Sprite process infrastructure
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
