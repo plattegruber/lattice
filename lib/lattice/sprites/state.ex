@@ -29,6 +29,7 @@ defmodule Lattice.Sprites.State do
 
   @type t :: %__MODULE__{
           sprite_id: String.t(),
+          name: String.t() | nil,
           observed_state: lifecycle(),
           desired_state: lifecycle(),
           health: :healthy | :degraded | :unhealthy | :unknown | health(),
@@ -46,6 +47,7 @@ defmodule Lattice.Sprites.State do
   @enforce_keys [:sprite_id, :started_at, :updated_at]
   defstruct [
     :sprite_id,
+    :name,
     :log_cursor,
     :started_at,
     :updated_at,
@@ -84,6 +86,7 @@ defmodule Lattice.Sprites.State do
   """
   @spec new(String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def new(sprite_id, opts \\ []) when is_binary(sprite_id) do
+    name = Keyword.get(opts, :name)
     desired = Keyword.get(opts, :desired_state, :hibernating)
     observed = Keyword.get(opts, :observed_state, :hibernating)
     base_backoff = Keyword.get(opts, :base_backoff_ms, 1_000)
@@ -97,6 +100,7 @@ defmodule Lattice.Sprites.State do
       {:ok,
        %__MODULE__{
          sprite_id: sprite_id,
+         name: name,
          observed_state: observed,
          desired_state: desired,
          base_backoff_ms: base_backoff,
@@ -224,6 +228,14 @@ defmodule Lattice.Sprites.State do
   def record_observation(%__MODULE__{} = state) do
     %{state | last_observed_at: DateTime.utc_now(), updated_at: DateTime.utc_now()}
   end
+
+  @doc """
+  Returns the display name for a Sprite: the human-readable name if set,
+  otherwise falls back to the sprite_id.
+  """
+  @spec display_name(t()) :: String.t()
+  def display_name(%__MODULE__{name: name}) when is_binary(name), do: name
+  def display_name(%__MODULE__{sprite_id: id}), do: id
 
   @doc """
   Compute health summary based on current state.

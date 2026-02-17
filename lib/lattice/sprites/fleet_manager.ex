@@ -226,7 +226,8 @@ defmodule Lattice.Sprites.FleetManager do
       {:reply, {:error, :already_exists}, state}
     else
       desired = Keyword.get(opts, :desired_state, :hibernating)
-      config = %{id: sprite_id, desired_state: desired}
+      sprite_name = Keyword.get(opts, :sprite_name)
+      config = %{id: sprite_id, name: sprite_name, desired_state: desired}
 
       case start_sprite(config, state.supervisor) do
         {:ok, ^sprite_id} ->
@@ -276,7 +277,11 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   defp api_sprite_to_config(sprite) do
-    %{id: sprite[:id] || sprite["id"], desired_state: :hibernating}
+    %{
+      id: sprite[:id] || sprite["id"],
+      name: sprite[:name] || sprite["name"],
+      desired_state: :hibernating
+    }
   end
 
   defp sprites_capability do
@@ -291,11 +296,13 @@ defmodule Lattice.Sprites.FleetManager do
 
   defp start_sprite(%{id: sprite_id} = config, supervisor) do
     desired = Map.get(config, :desired_state, :hibernating)
+    sprite_name = Map.get(config, :name)
 
     child_spec =
       {Sprite,
        [
          sprite_id: sprite_id,
+         sprite_name: sprite_name,
          desired_state: desired,
          name: Sprite.via(sprite_id)
        ]}

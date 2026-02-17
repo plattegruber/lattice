@@ -49,7 +49,7 @@ defmodule LatticeWeb.SpriteLive.Show do
 
         {:ok,
          socket
-         |> assign(:page_title, "Sprite #{sprite_id}")
+         |> assign(:page_title, State.display_name(sprite_state))
          |> assign(:sprite_id, sprite_id)
          |> assign(:sprite_state, sprite_state)
          |> assign(:events, [])
@@ -187,7 +187,7 @@ defmodule LatticeWeb.SpriteLive.Show do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.breadcrumb sprite_id={@sprite_id} />
+      <.breadcrumb sprite_id={@sprite_id} sprite_state={@sprite_state} />
 
       <div :if={@not_found} class="text-center py-12">
         <.icon name="hero-exclamation-triangle" class="size-12 mx-auto mb-4 text-warning" />
@@ -204,8 +204,9 @@ defmodule LatticeWeb.SpriteLive.Show do
 
       <div :if={!@not_found} class="space-y-6">
         <.header>
-          Sprite: {@sprite_id}
+          {State.display_name(@sprite_state)}
           <:subtitle>
+            <span :if={@sprite_state.name}>ID: {@sprite_id}  · </span>
             Real-time detail view for this Sprite process.
           </:subtitle>
         </.header>
@@ -239,6 +240,7 @@ defmodule LatticeWeb.SpriteLive.Show do
   # ── Functional Components ──────────────────────────────────────────
 
   attr :sprite_id, :string, required: true
+  attr :sprite_state, State, default: nil
 
   defp breadcrumb(assigns) do
     ~H"""
@@ -250,7 +252,9 @@ defmodule LatticeWeb.SpriteLive.Show do
           </.link>
         </li>
         <li>
-          <span class="font-medium">{@sprite_id}</span>
+          <span class="font-medium">
+            {if @sprite_state, do: State.display_name(@sprite_state), else: @sprite_id}
+          </span>
         </li>
       </ul>
     </div>

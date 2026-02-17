@@ -151,6 +151,7 @@ defmodule Lattice.Sprites.Sprite do
   @impl true
   def init({sprite_id, opts}) do
     state_opts = [
+      name: Keyword.get(opts, :sprite_name),
       desired_state: Keyword.get(opts, :desired_state, :hibernating),
       observed_state: Keyword.get(opts, :observed_state, :hibernating),
       base_backoff_ms: Keyword.get(opts, :base_backoff_ms, 1_000),
