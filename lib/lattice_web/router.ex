@@ -31,6 +31,11 @@ defmodule LatticeWeb.Router do
     plug LatticeWeb.Plugs.Auth
   end
 
+  pipeline :webhook do
+    plug :accepts, ["json"]
+    plug LatticeWeb.Plugs.WebhookSignature
+  end
+
   pipeline :api_docs do
     plug :accepts, ["json", "html"]
     plug OpenApiSpex.Plug.PutApiSpec, module: LatticeWeb.ApiSpec
@@ -62,6 +67,13 @@ defmodule LatticeWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+  end
+
+  # Webhook routes -- authenticated via HMAC signature, not bearer token
+  scope "/api/webhooks", LatticeWeb.Api do
+    pipe_through :webhook
+
+    post "/github", WebhookController, :github
   end
 
   # Authenticated API routes -- protected by bearer token

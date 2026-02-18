@@ -35,3 +35,8 @@ config :lattice, :auth, provider: Lattice.Auth.Stub
 
 # Empty fleet in tests — individual tests configure their own sprites
 config :lattice, :fleet, sprites: []
+
+# Test webhook secret for HMAC signature verification
+config :lattice, :webhooks,
+  github_secret: "test-webhook-secret",
+  dedup_ttl_ms: :timer.minutes(5)

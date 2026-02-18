@@ -19,7 +19,7 @@ defmodule LatticeWeb.Api.IntentController do
 
   @valid_kinds ~w(action inquiry maintenance)
   @valid_filter_states ~w(proposed classified awaiting_approval approved running blocked waiting_for_input completed failed rejected canceled)
-  @valid_source_types ~w(sprite agent cron operator)
+  @valid_source_types ~w(sprite agent cron operator webhook)
 
   # ── GET /api/intents ───────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ defmodule LatticeWeb.Api.IntentController do
         in: :query,
         schema: %OpenApiSpex.Schema{
           type: :string,
-          enum: ["sprite", "agent", "cron", "operator"]
+          enum: ["sprite", "agent", "cron", "operator", "webhook"]
         },
         description: "Filter by source type",
         required: false
