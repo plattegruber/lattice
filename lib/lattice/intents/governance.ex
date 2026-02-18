@@ -197,6 +197,7 @@ defmodule Lattice.Intents.Governance do
       side_effects_section(intent),
       rollback_section(intent),
       inquiry_section(intent),
+      plan_section(intent),
       source_section(intent),
       approval_instructions(intent),
       traceability_footer(intent)
@@ -368,6 +369,16 @@ defmodule Lattice.Intents.Governance do
   end
 
   defp inquiry_section(_intent), do: nil
+
+  defp plan_section(%Intent{plan: nil}), do: nil
+
+  defp plan_section(%Intent{plan: plan}) do
+    """
+    ## Execution Plan
+
+    #{plan.rendered_markdown}\
+    """
+  end
 
   defp source_section(%Intent{source: source}) do
     """

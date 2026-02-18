@@ -44,7 +44,9 @@ defmodule Lattice.Events.TelemetryHandler do
     [:lattice, :intent, :transitioned],
     [:lattice, :intent, :artifact_added],
     [:lattice, :webhook, :received],
-    [:lattice, :webhook, :intent_proposed]
+    [:lattice, :webhook, :intent_proposed],
+    [:lattice, :intent, :plan_attached],
+    [:lattice, :intent, :plan_step_updated]
   ]
 
   @doc """
@@ -281,6 +283,36 @@ defmodule Lattice.Events.TelemetryHandler do
       intent_id: intent.id,
       event_type: event_type,
       kind: intent.kind
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :plan_attached],
+        _measurements,
+        %{intent: intent},
+        _config
+      ) do
+    step_count = length(intent.plan.steps)
+
+    Logger.info(
+      "Plan attached to intent: #{intent.id} (#{intent.plan.title}, #{step_count} steps)",
+      intent_id: intent.id,
+      plan_title: intent.plan.title,
+      step_count: step_count
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :plan_step_updated],
+        _measurements,
+        %{intent: intent, step_id: step_id, status: status},
+        _config
+      ) do
+    Logger.info(
+      "Plan step updated: #{step_id} -> #{status} (intent: #{intent.id})",
+      intent_id: intent.id,
+      step_id: step_id,
+      step_status: status
     )
   end
 end
