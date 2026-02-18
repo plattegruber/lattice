@@ -828,6 +828,60 @@ defmodule LatticeWeb.Schemas do
     })
   end
 
+  # ── Plans ───────────────────────────────────────────────────────
+
+  defmodule UpdatePlanRequest do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "UpdatePlanRequest",
+      description: "Request body for attaching or replacing a structured execution plan.",
+      type: :object,
+      properties: %{
+        title: %Schema{type: :string, description: "Plan title"},
+        steps: %Schema{
+          type: :array,
+          description: "Ordered list of plan steps",
+          items: %Schema{
+            type: :object,
+            properties: %{
+              description: %Schema{type: :string, description: "Step description"},
+              skill: %Schema{
+                type: :string,
+                nullable: true,
+                description: "Skill/capability this step uses"
+              },
+              inputs: %Schema{
+                type: :object,
+                nullable: true,
+                description: "Input parameters for the step",
+                additionalProperties: true
+              }
+            },
+            required: [:description]
+          }
+        },
+        source: %Schema{
+          type: :string,
+          description: "Who generated the plan",
+          enum: ["agent", "operator", "system"]
+        }
+      },
+      required: [:title, :steps],
+      example: %{
+        "title" => "Deploy v1.2.3",
+        "steps" => [
+          %{"description" => "Run tests", "skill" => "test_runner"},
+          %{"description" => "Build image"},
+          %{"description" => "Deploy to staging", "skill" => "fly_deploy"}
+        ],
+        "source" => "agent"
+      }
+    })
+  end
+
   # ── Tasks ───────────────────────────────────────────────────────
 
   defmodule CreateTaskRequest do

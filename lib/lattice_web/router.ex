@@ -107,6 +107,7 @@ defmodule LatticeWeb.Router do
     post "/intents/:id/approve", IntentController, :approve
     post "/intents/:id/reject", IntentController, :reject
     post "/intents/:id/cancel", IntentController, :cancel
+    put "/intents/:id/plan", IntentController, :update_plan
 
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show

@@ -27,9 +27,16 @@ defmodule Lattice.Intents.Store.ETS do
 
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Lifecycle
+  alias Lattice.Intents.Plan
 
   @table_name :lattice_intents
-  @frozen_fields [:payload, :affected_resources, :expected_side_effects, :rollback_strategy]
+  @frozen_fields [
+    :payload,
+    :affected_resources,
+    :expected_side_effects,
+    :rollback_strategy,
+    :plan
+  ]
   @post_approval_states [
     :approved,
     :running,
@@ -81,6 +88,12 @@ defmodule Lattice.Intents.Store.ETS do
   @impl Lattice.Intents.Store
   def get_history(id) when is_binary(id) do
     GenServer.call(__MODULE__, {:get_history, id})
+  end
+
+  @impl Lattice.Intents.Store
+  def update_plan_step(intent_id, step_id, status, output \\ nil)
+      when is_binary(intent_id) and is_binary(step_id) and is_atom(status) do
+    GenServer.call(__MODULE__, {:update_plan_step, intent_id, step_id, status, output})
   end
 
   @doc """
@@ -199,6 +212,33 @@ defmodule Lattice.Intents.Store.ETS do
     end
   end
 
+  def handle_call({:update_plan_step, intent_id, step_id, status, output}, _from, state) do
+    case :ets.lookup(state.table, intent_id) do
+      [{^intent_id, intent}] ->
+        {:reply, do_update_plan_step(intent, intent_id, step_id, status, output, state), state}
+
+      [] ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  defp do_update_plan_step(%{plan: nil}, _intent_id, _step_id, _status, _output, _state) do
+    {:error, :no_plan}
+  end
+
+  defp do_update_plan_step(intent, intent_id, step_id, status, output, state) do
+    case Plan.update_step_status(intent.plan, step_id, status, output) do
+      {:ok, updated_plan} ->
+        now = DateTime.utc_now()
+        updated = %{intent | plan: updated_plan, updated_at: now}
+        :ets.insert(state.table, {intent_id, updated})
+        {:ok, updated}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
   defp sprite_match?(intent, sprite_name) do
     source_match =
       intent.source.type == :sprite and intent.source.id == sprite_name
@@ -264,6 +304,7 @@ defmodule Lattice.Intents.Store.ETS do
         {:affected_resources, value}, acc -> %{acc | affected_resources: value}
         {:expected_side_effects, value}, acc -> %{acc | expected_side_effects: value}
         {:rollback_strategy, value}, acc -> %{acc | rollback_strategy: value}
+        {:plan, value}, acc -> %{acc | plan: value}
         {:blocked_reason, value}, acc -> %{acc | blocked_reason: value}
         {:pending_question, value}, acc -> %{acc | pending_question: value}
         _unknown, acc -> acc

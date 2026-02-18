@@ -102,6 +102,20 @@ defmodule LatticeWeb.IntentLive.Show do
     {:noreply, refresh_intent(socket)}
   end
 
+  def handle_info(
+        {:intent_plan_attached, %Intent{id: id}},
+        %{assigns: %{intent_id: id}} = socket
+      ) do
+    {:noreply, refresh_intent(socket)}
+  end
+
+  def handle_info(
+        {:intent_plan_step_updated, %Intent{id: id}, _step_id, _status},
+        %{assigns: %{intent_id: id}} = socket
+      ) do
+    {:noreply, refresh_intent(socket)}
+  end
+
   def handle_info({:intent_created, %Intent{id: id}}, %{assigns: %{intent_id: id}} = socket) do
     {:noreply, refresh_intent(socket)}
   end
@@ -223,6 +237,8 @@ defmodule LatticeWeb.IntentLive.Show do
           <.intent_details_panel intent={@intent} />
           <.classification_panel intent={@intent} />
         </div>
+
+        <.plan_panel :if={@intent.plan} intent={@intent} />
 
         <.task_details_panel :if={Intent.task?(@intent)} intent={@intent} />
 
@@ -788,6 +804,60 @@ defmodule LatticeWeb.IntentLive.Show do
     """
   end
 
+  attr :intent, Intent, required: true
+
+  defp plan_panel(assigns) do
+    plan = assigns.intent.plan
+
+    completed =
+      Enum.count(plan.steps, fn s -> s.status in [:completed, :skipped] end)
+
+    total = length(plan.steps)
+
+    assigns =
+      assigns
+      |> assign(:plan, plan)
+      |> assign(:completed, completed)
+      |> assign(:total, total)
+
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-list-bullet" class="size-5" /> Execution Plan
+          <span class="text-xs font-normal text-base-content/50 ml-2">
+            v{@plan.version} &middot; {@plan.source}
+          </span>
+        </h2>
+
+        <div class="flex items-center gap-3 mt-2">
+          <progress
+            class="progress progress-primary w-full"
+            value={@completed}
+            max={@total}
+          >
+          </progress>
+          <span class="text-xs font-mono whitespace-nowrap">
+            {@completed}/{@total}
+          </span>
+        </div>
+
+        <div class="mt-3 space-y-1">
+          <div
+            :for={{step, idx} <- Enum.with_index(@plan.steps, 1)}
+            class={["flex items-center gap-2 py-1 px-2 rounded text-sm", step_bg_class(step.status)]}
+          >
+            <span class="font-mono text-xs text-base-content/50 w-5">{idx}.</span>
+            <span class="text-base">{step_status_icon(step.status)}</span>
+            <span class="flex-1">{step.description}</span>
+            <span :if={step.skill} class="badge badge-xs badge-outline">{step.skill}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   # ── Shared Functional Components ──────────────────────────────────
 
   attr :state, :atom, required: true
@@ -915,6 +985,18 @@ defmodule LatticeWeb.IntentLive.Show do
   defp format_log_timestamp(datetime) do
     Calendar.strftime(datetime, "%H:%M:%S")
   end
+
+  defp step_bg_class(:completed), do: "bg-success/10"
+  defp step_bg_class(:running), do: "bg-info/10"
+  defp step_bg_class(:failed), do: "bg-error/10"
+  defp step_bg_class(:skipped), do: "bg-base-300/50"
+  defp step_bg_class(_), do: ""
+
+  defp step_status_icon(:completed), do: "[x]"
+  defp step_status_icon(:running), do: "[~]"
+  defp step_status_icon(:failed), do: "[!]"
+  defp step_status_icon(:skipped), do: "[-]"
+  defp step_status_icon(_), do: "[ ]"
 
   defp intent_state_color(:proposed), do: "badge-ghost"
   defp intent_state_color(:classified), do: "badge-info"

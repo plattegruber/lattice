@@ -110,7 +110,11 @@ config :logger, :default_formatter,
     :to,
     :artifact_type,
     :event_type,
-    :delivery_id
+    :delivery_id,
+    :plan_title,
+    :step_count,
+    :step_id,
+    :step_status
   ]
 
 # Use Jason for JSON parsing in Phoenix
