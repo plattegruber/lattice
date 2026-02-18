@@ -25,7 +25,7 @@ defmodule Lattice.Capabilities do
   In `config/config.exs` (or environment-specific configs):
 
       config :lattice, :capabilities,
-        sprites: Lattice.Capabilities.Sprites.Stub,
+        sprites: Lattice.Capabilities.Sprites.Live,
         github: Lattice.Capabilities.GitHub.Stub,
         fly: Lattice.Capabilities.Fly.Stub,
         secret_store: Lattice.Capabilities.SecretStore.Env
@@ -46,7 +46,7 @@ defmodule Lattice.Capabilities do
   ## Examples
 
       Lattice.Capabilities.impl(:sprites)
-      #=> Lattice.Capabilities.Sprites.Stub
+      #=> Lattice.Capabilities.Sprites.Live
 
       Lattice.Capabilities.impl(:github)
       #=> Lattice.Capabilities.GitHub.Stub

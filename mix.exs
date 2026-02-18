@@ -87,7 +87,6 @@ defmodule Lattice.MixProject do
           Lattice.Capabilities.Fly.Stub,
           Lattice.Capabilities.Sprites,
           Lattice.Capabilities.Sprites.Live,
-          Lattice.Capabilities.Sprites.Stub,
           Lattice.Capabilities.SecretStore,
           Lattice.Capabilities.SecretStore.Env,
           Lattice.Capabilities.SecretStore.Stub

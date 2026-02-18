@@ -9,6 +9,7 @@ defmodule LatticeWeb.SpriteLive.ProtocolEventsTest do
   import Mox
   import Phoenix.LiveViewTest
 
+  alias Lattice.Intents.Store.ETS, as: IntentStore
   alias Lattice.Protocol.Event
   alias Lattice.Protocol.Events.Checkpoint
   alias Lattice.Protocol.Events.Progress
@@ -21,7 +22,7 @@ defmodule LatticeWeb.SpriteLive.ProtocolEventsTest do
   setup :verify_on_exit!
 
   setup do
-    Lattice.Intents.Store.ETS.reset()
+    IntentStore.reset()
 
     Lattice.Capabilities.MockSprites
     |> Mox.stub(:fetch_logs, fn _sprite_id, _opts -> {:ok, []} end)

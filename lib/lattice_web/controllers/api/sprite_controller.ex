@@ -436,8 +436,15 @@ defmodule LatticeWeb.Api.SpriteController do
 
   defp get_sprite_state(sprite_id) do
     case FleetManager.get_sprite_pid(sprite_id) do
-      {:ok, pid} -> Sprite.get_state(pid)
-      {:error, :not_found} -> {:error, :not_found}
+      {:ok, pid} ->
+        try do
+          Sprite.get_state(pid)
+        catch
+          :exit, _ -> {:error, :not_found}
+        end
+
+      {:error, :not_found} ->
+        {:error, :not_found}
     end
   end
 
