@@ -84,7 +84,6 @@ defmodule Lattice.MixProject do
           Lattice.Capabilities.GitHub.WorkProposal,
           Lattice.Capabilities.Fly,
           Lattice.Capabilities.Fly.Live,
-          Lattice.Capabilities.Fly.Stub,
           Lattice.Capabilities.Sprites,
           Lattice.Capabilities.Sprites.Live,
           Lattice.Capabilities.SecretStore,
