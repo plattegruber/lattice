@@ -10,6 +10,10 @@ defmodule Lattice.Sprites.ExecSession.Stub do
 
   alias Lattice.Sprites.ExecSession
 
+  def start_link(args) do
+    GenServer.start_link(__MODULE__, args)
+  end
+
   @impl true
   def init(args) do
     sprite_id = Keyword.fetch!(args, :sprite_id)
@@ -18,6 +22,12 @@ defmodule Lattice.Sprites.ExecSession.Stub do
 
     session_id =
       "exec_stub_" <> Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
+
+    {:ok, _} =
+      Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
+        sprite_id: sprite_id,
+        command: command
+      })
 
     Process.send_after(self(), :simulate_output, 100)
 
