@@ -1,9 +1,9 @@
 defmodule Lattice.Sprites.ExecSession do
   @moduledoc """
-  GenServer managing a WebSocket exec session with a sprite.
+  GenServer managing an exec session with a sprite via `Sprites.Command`.
 
-  Connects to WSS /v1/sprites/{name}/exec, sends commands, and streams
-  output chunks via PubSub. Maintains an output buffer for replay.
+  Uses the sprites-ex SDK to connect and stream command output.
+  Broadcasts output chunks via PubSub and maintains an output buffer for replay.
   """
   use GenServer
 
@@ -21,8 +21,7 @@ defmodule Lattice.Sprites.ExecSession do
     :session_id,
     :sprite_id,
     :command,
-    :conn_pid,
-    :stream_ref,
+    :sprites_command,
     :status,
     :started_at,
     :idle_timer,
@@ -97,12 +96,13 @@ defmodule Lattice.Sprites.ExecSession do
 
   @impl true
   def handle_continue(:connect, state) do
-    case connect_ws(state.sprite_id, state.command) do
-      {:ok, conn_pid, stream_ref} ->
+    case start_command(state.sprite_id, state.command) do
+      {:ok, cmd} ->
+        Process.link(cmd.pid)
+
         new_state = %{
           state
-          | conn_pid: conn_pid,
-            stream_ref: stream_ref,
+          | sprites_command: cmd,
             status: :running,
             idle_timer: schedule_idle_timeout(state.idle_timeout)
         }
@@ -159,85 +159,38 @@ defmodule Lattice.Sprites.ExecSession do
     {:stop, :normal, :ok, new_state}
   end
 
-  # Handle gun WebSocket frames
+  # ── Sprites.Command message handlers ─────────────────────────────────
+
   @impl true
-  def handle_info({:gun_ws, _conn_pid, _stream_ref, {:text, data}}, state) do
-    state = cancel_idle_timer(state)
-
-    case Jason.decode(data) do
-      {:ok, %{"type" => "stdout", "data" => chunk}} ->
-        new_state = handle_output_chunk(state, :stdout, chunk)
-        {:noreply, reset_idle_timer(new_state)}
-
-      {:ok, %{"type" => "stderr", "data" => chunk}} ->
-        new_state = handle_output_chunk(state, :stderr, chunk)
-        {:noreply, reset_idle_timer(new_state)}
-
-      {:ok, %{"type" => "exit", "exit_code" => code}} ->
-        new_state = %{state | exit_code: code, status: :closed}
-
-        :telemetry.execute(
-          [:lattice, :exec, :completed],
-          %{count: 1, exit_code: code},
-          %{session_id: state.session_id, sprite_id: state.sprite_id}
-        )
-
-        broadcast_output(new_state, :exit, "Process exited with code #{code}")
-        {:stop, :normal, new_state}
-
-      {:ok, %{"type" => type, "data" => chunk}} ->
-        new_state = handle_output_chunk(state, :stdout, chunk)
-        Logger.debug("Unknown frame type: #{type}")
-        {:noreply, reset_idle_timer(new_state)}
-
-      {:ok, _other} ->
-        {:noreply, reset_idle_timer(state)}
-
-      {:error, _} ->
-        new_state = handle_output_chunk(state, :stdout, data)
-        {:noreply, reset_idle_timer(new_state)}
-    end
-  end
-
-  # Handle binary WebSocket frames (raw output)
-  def handle_info({:gun_ws, _conn_pid, _stream_ref, {:binary, data}}, state) do
+  def handle_info({:stdout, %{ref: ref}, data}, %{sprites_command: %{ref: ref}} = state) do
     state = cancel_idle_timer(state)
     new_state = handle_output_chunk(state, :stdout, data)
     {:noreply, reset_idle_timer(new_state)}
   end
 
-  # WebSocket closed by server
-  def handle_info({:gun_ws, _conn_pid, _stream_ref, :close}, state) do
-    Logger.info("Exec session #{state.session_id} closed by server")
-    {:stop, :normal, %{state | status: :closed}}
+  def handle_info({:stderr, %{ref: ref}, data}, %{sprites_command: %{ref: ref}} = state) do
+    state = cancel_idle_timer(state)
+    new_state = handle_output_chunk(state, :stderr, data)
+    {:noreply, reset_idle_timer(new_state)}
   end
 
-  def handle_info({:gun_ws, _conn_pid, _stream_ref, {:close, code, reason}}, state) do
-    Logger.info("Exec session #{state.session_id} closed: #{code} #{reason}")
-    {:stop, :normal, %{state | status: :closed}}
-  end
+  def handle_info({:exit, %{ref: ref}, code}, %{sprites_command: %{ref: ref}} = state) do
+    new_state = %{state | exit_code: code, status: :closed}
 
-  # Gun connection down
-  def handle_info({:gun_down, _conn_pid, _protocol, reason, _killed_streams}, state) do
-    Logger.warning("Exec session #{state.session_id} connection down: #{inspect(reason)}")
-    {:stop, {:shutdown, {:connection_down, reason}}, %{state | status: :closed}}
-  end
-
-  # Gun upgrade success (WebSocket handshake completed)
-  # Command is already passed via the `cmd` query parameter on the upgrade URL,
-  # so no need to send it again via stdin frame.
-  def handle_info({:gun_upgrade, _conn_pid, _stream_ref, ["websocket"], _headers}, state) do
-    Logger.debug("Exec session #{state.session_id} WebSocket upgrade successful")
-    {:noreply, state}
-  end
-
-  # Gun response (non-upgrade)
-  def handle_info({:gun_response, _conn_pid, _stream_ref, _fin, status, _headers}, state) do
-    Logger.error(
-      "Exec session #{state.session_id} got HTTP #{status} instead of WebSocket upgrade"
+    :telemetry.execute(
+      [:lattice, :exec, :completed],
+      %{count: 1, exit_code: code},
+      %{session_id: state.session_id, sprite_id: state.sprite_id}
     )
 
-    {:stop, {:shutdown, {:upgrade_failed, status}}, state}
+    broadcast_output(new_state, :exit, "Process exited with code #{code}")
+    {:stop, :normal, new_state}
+  end
+
+  def handle_info({:error, %{ref: ref}, reason}, %{sprites_command: %{ref: ref}} = state) do
+    Logger.error("Exec session #{state.session_id} command error: #{inspect(reason)}")
+    broadcast_output(state, :stderr, "Error: #{inspect(reason)}")
+    {:stop, {:shutdown, reason}, %{state | status: :closed}}
   end
 
   # Idle timeout
@@ -247,7 +200,7 @@ defmodule Lattice.Sprites.ExecSession do
     {:stop, :normal, new_state}
   end
 
-  # Catch-all for gun messages we don't handle
+  # Catch-all
   def handle_info(msg, state) do
     Logger.debug("Exec session #{state.session_id} unhandled message: #{inspect(msg)}")
     {:noreply, state}
@@ -255,8 +208,11 @@ defmodule Lattice.Sprites.ExecSession do
 
   @impl true
   def terminate(_reason, state) do
-    if state.conn_pid && Process.alive?(state.conn_pid) do
-      :gun.close(state.conn_pid)
+    if cmd = state.sprites_command do
+      if Process.alive?(cmd.pid) do
+        Process.unlink(cmd.pid)
+        GenServer.stop(cmd.pid, :normal, 5_000)
+      end
     end
 
     :ok
@@ -264,50 +220,14 @@ defmodule Lattice.Sprites.ExecSession do
 
   # ── Private ─────────────────────────────────────────────────────────
 
-  defp connect_ws(sprite_id, command) do
-    base_url = sprites_api_base()
+  defp start_command(sprite_id, command) do
     token = sprites_api_token()
+    base_url = sprites_api_base()
 
-    uri = URI.parse(base_url)
-    host = String.to_charlist(uri.host)
-    port = uri.port || if(uri.scheme == "https", do: 443, else: 80)
-    transport = if uri.scheme == "https", do: :tls, else: :tcp
+    client = Sprites.new(token, base_url: base_url)
+    sprite = Sprites.sprite(client, sprite_id)
 
-    gun_opts = %{
-      protocols: [:http],
-      transport: transport,
-      tls_opts: [
-        verify: :verify_peer,
-        cacerts: :public_key.cacerts_get(),
-        depth: 3,
-        customize_hostname_check: [
-          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-        ]
-      ]
-    }
-
-    case :gun.open(host, port, gun_opts) do
-      {:ok, conn_pid} ->
-        case :gun.await_up(conn_pid, 10_000) do
-          {:ok, _protocol} ->
-            query = URI.encode_query([{"cmd", command}])
-            path = "/v1/sprites/#{URI.encode(sprite_id)}/exec?#{query}"
-
-            headers = [
-              {"authorization", "Bearer #{token}"}
-            ]
-
-            stream_ref = :gun.ws_upgrade(conn_pid, String.to_charlist(path), headers)
-            {:ok, conn_pid, stream_ref}
-
-          {:error, reason} ->
-            :gun.close(conn_pid)
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    Sprites.spawn(sprite, "sh", ["-c", command], owner: self())
   end
 
   defp handle_output_chunk(state, stream, chunk) do
@@ -419,12 +339,15 @@ defmodule Lattice.Sprites.ExecSession do
   end
 
   defp do_close(state) do
-    if state.conn_pid && Process.alive?(state.conn_pid) do
-      :gun.close(state.conn_pid)
+    if cmd = state.sprites_command do
+      if Process.alive?(cmd.pid) do
+        Process.unlink(cmd.pid)
+        GenServer.stop(cmd.pid, :normal, 5_000)
+      end
     end
 
     state = cancel_idle_timer(state)
-    %{state | status: :closed, conn_pid: nil}
+    %{state | status: :closed, sprites_command: nil}
   end
 
   defp generate_session_id do

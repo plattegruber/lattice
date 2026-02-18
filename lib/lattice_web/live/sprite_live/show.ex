@@ -184,18 +184,34 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   # Exec session output via PubSub
   def handle_info({:exec_output, %{session_id: sid, stream: stream, chunk: chunk}}, socket) do
-    if socket.assigns[:active_session_id] == sid do
-      line = %{
-        id: System.unique_integer([:positive]),
-        stream: stream,
-        data: chunk,
-        timestamp: DateTime.utc_now()
-      }
+    socket =
+      if socket.assigns[:active_session_id] == sid do
+        line = %{
+          id: System.unique_integer([:positive]),
+          stream: stream,
+          data: chunk,
+          timestamp: DateTime.utc_now()
+        }
 
-      {:noreply, stream_insert(socket, :log_lines, line)}
-    else
-      {:noreply, socket}
-    end
+        stream_insert(socket, :log_lines, line)
+      else
+        socket
+      end
+
+    # Refresh session list when a session exits so status badges update
+    socket =
+      if stream == :exit do
+        assign(socket, :exec_sessions, load_exec_sessions(socket.assigns.sprite_id))
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  # Exec session process died — refresh session list
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, assign(socket, :exec_sessions, load_exec_sessions(socket.assigns.sprite_id))}
   end
 
   # Sprite log stream events
@@ -273,6 +289,7 @@ defmodule LatticeWeb.SpriteLive.Show do
     case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
       {:ok, session_pid} ->
         {:ok, state} = ExecSession.get_state(session_pid)
+        Process.monitor(session_pid)
 
         Phoenix.PubSub.subscribe(
           Lattice.PubSub,
