@@ -38,19 +38,6 @@ config :lattice, :resources,
 capabilities = Application.get_env(:lattice, :capabilities, [])
 
 capabilities =
-  cond do
-    System.get_env("SPRITES_API_TOKEN") ->
-      capabilities
-
-    config_env() == :test ->
-      capabilities
-
-    true ->
-      # No token — fall back to stub for local dev without credentials
-      Keyword.put(capabilities, :sprites, Lattice.Capabilities.Sprites.Stub)
-  end
-
-capabilities =
   if System.get_env("GITHUB_REPO") do
     Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Live)
   else
