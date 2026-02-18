@@ -21,7 +21,9 @@ defmodule Lattice.Intents.Lifecycle do
     classified: [:awaiting_approval, :approved],
     awaiting_approval: [:approved, :rejected, :canceled],
     approved: [:running, :canceled],
-    running: [:completed, :failed],
+    running: [:completed, :failed, :blocked, :waiting_for_input],
+    blocked: [:running, :failed, :canceled],
+    waiting_for_input: [:running, :failed, :canceled],
     completed: [],
     failed: [],
     rejected: [],
@@ -49,10 +51,11 @@ defmodule Lattice.Intents.Lifecycle do
   def transition(%Intent{} = intent, new_state, opts \\ []) do
     with :ok <- validate_state(new_state),
          :ok <- validate_transition(intent.state, new_state) do
+      from_state = intent.state
       now = DateTime.utc_now()
 
       entry = %{
-        from: intent.state,
+        from: from_state,
         to: new_state,
         timestamp: now,
         actor: Keyword.get(opts, :actor),
@@ -64,7 +67,7 @@ defmodule Lattice.Intents.Lifecycle do
         |> Map.put(:state, new_state)
         |> Map.put(:updated_at, now)
         |> Map.update!(:transition_log, fn log -> [entry | log] end)
-        |> put_lifecycle_timestamp(new_state, now)
+        |> put_lifecycle_timestamp(from_state, new_state, now)
 
       {:ok, updated}
     end
@@ -105,17 +108,24 @@ defmodule Lattice.Intents.Lifecycle do
     end
   end
 
-  defp put_lifecycle_timestamp(intent, :classified, now),
+  defp put_lifecycle_timestamp(intent, _from, :classified, now),
     do: Map.put(intent, :classified_at, now)
 
-  defp put_lifecycle_timestamp(intent, :approved, now),
+  defp put_lifecycle_timestamp(intent, _from, :approved, now),
     do: Map.put(intent, :approved_at, now)
 
-  defp put_lifecycle_timestamp(intent, :running, now),
+  defp put_lifecycle_timestamp(intent, from, :running, now)
+       when from in [:blocked, :waiting_for_input],
+       do: Map.put(intent, :resumed_at, now)
+
+  defp put_lifecycle_timestamp(intent, _from, :running, now),
     do: Map.put(intent, :started_at, now)
 
-  defp put_lifecycle_timestamp(intent, state, now) when state in [:completed, :failed],
+  defp put_lifecycle_timestamp(intent, _from, to, now) when to in [:blocked, :waiting_for_input],
+    do: Map.put(intent, :blocked_at, now)
+
+  defp put_lifecycle_timestamp(intent, _from, to, now) when to in [:completed, :failed],
     do: Map.put(intent, :completed_at, now)
 
-  defp put_lifecycle_timestamp(intent, _state, _now), do: intent
+  defp put_lifecycle_timestamp(intent, _from, _to, _now), do: intent
 end

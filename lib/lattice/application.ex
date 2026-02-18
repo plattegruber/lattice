@@ -27,6 +27,8 @@ defmodule Lattice.Application do
       Lattice.Store.ETS,
       # Intent persistence
       Lattice.Intents.Store.ETS,
+      # Bridge Run lifecycle events to Intent state transitions
+      Lattice.Intents.RunBridge,
       # Sprite process infrastructure
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},

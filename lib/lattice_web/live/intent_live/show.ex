@@ -106,6 +106,14 @@ defmodule LatticeWeb.IntentLive.Show do
     {:noreply, refresh_intent(socket)}
   end
 
+  def handle_info({:intent_blocked, %Intent{id: id}}, %{assigns: %{intent_id: id}} = socket) do
+    {:noreply, refresh_intent(socket)}
+  end
+
+  def handle_info({:intent_resumed, %Intent{id: id}}, %{assigns: %{intent_id: id}} = socket) do
+    {:noreply, refresh_intent(socket)}
+  end
+
   def handle_info(
         {:intent_log_line, id, line, timestamp},
         %{assigns: %{intent_id: id}} = socket
@@ -206,6 +214,11 @@ defmodule LatticeWeb.IntentLive.Show do
 
         <.action_buttons intent={@intent} />
 
+        <.blocking_context_panel
+          :if={@intent.state in [:blocked, :waiting_for_input]}
+          intent={@intent}
+        />
+
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <.intent_details_panel intent={@intent} />
           <.classification_panel intent={@intent} />
@@ -292,6 +305,71 @@ defmodule LatticeWeb.IntentLive.Show do
       >
         <.icon name="hero-no-symbol" class="size-4" /> Cancel
       </button>
+    </div>
+    """
+  end
+
+  attr :intent, Intent, required: true
+
+  defp blocking_context_panel(assigns) do
+    ~H"""
+    <div class={[
+      "card shadow-sm",
+      if(@intent.state == :waiting_for_input,
+        do: "bg-error/10 border border-error/30",
+        else: "bg-warning/10 border border-warning/30"
+      )
+    ]}>
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon
+            name={
+              if(@intent.state == :waiting_for_input,
+                do: "hero-question-mark-circle",
+                else: "hero-pause-circle"
+              )
+            }
+            class="size-5"
+          />
+          {if @intent.state == :waiting_for_input, do: "Waiting for Input", else: "Blocked"}
+        </h2>
+
+        <div :if={@intent.blocked_reason} class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Reason
+          </div>
+          <p class="text-sm">{@intent.blocked_reason}</p>
+        </div>
+
+        <div :if={@intent.pending_question} class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Question
+          </div>
+          <p class="text-sm font-medium">
+            {Map.get(
+              @intent.pending_question,
+              "prompt",
+              Map.get(@intent.pending_question, :prompt, "")
+            )}
+          </p>
+
+          <div
+            :if={question_choices(@intent.pending_question) != []}
+            class="mt-2 flex flex-wrap gap-2"
+          >
+            <span
+              :for={choice <- question_choices(@intent.pending_question)}
+              class="badge badge-sm badge-outline"
+            >
+              {choice}
+            </span>
+          </div>
+        </div>
+
+        <div :if={@intent.blocked_at} class="mt-3 text-xs text-base-content/50">
+          Blocked since <.relative_time datetime={@intent.blocked_at} />
+        </div>
+      </div>
     </div>
     """
   end
@@ -538,11 +616,13 @@ defmodule LatticeWeb.IntentLive.Show do
 
   defp live_log_panel(assigns) do
     is_running = assigns.intent.state == :running
+    is_blocked = assigns.intent.state in [:blocked, :waiting_for_input]
     is_terminal = assigns.intent.state in [:completed, :failed, :canceled, :rejected]
 
     assigns =
       assigns
       |> assign(:is_running, is_running)
+      |> assign(:is_blocked, is_blocked)
       |> assign(:is_terminal, is_terminal)
 
     ~H"""
@@ -551,6 +631,7 @@ defmodule LatticeWeb.IntentLive.Show do
         <h2 class="card-title text-base">
           <.icon name="hero-document-text" class="size-5" /> Live Logs
           <span :if={@is_running} class="loading loading-spinner loading-xs ml-2"></span>
+          <.intent_state_badge :if={@is_blocked} state={@intent.state} />
           <.intent_state_badge :if={@is_terminal} state={@intent.state} />
         </h2>
 
@@ -805,6 +886,12 @@ defmodule LatticeWeb.IntentLive.Show do
     :erlang.phash2({entry.from, entry.to, entry.timestamp})
   end
 
+  defp question_choices(nil), do: []
+
+  defp question_choices(question) when is_map(question) do
+    Map.get(question, "choices", Map.get(question, :choices, []))
+  end
+
   defp execution_duration(%Intent{started_at: nil}), do: nil
 
   defp execution_duration(%Intent{started_at: started_at, completed_at: nil}) do
@@ -834,6 +921,8 @@ defmodule LatticeWeb.IntentLive.Show do
   defp intent_state_color(:awaiting_approval), do: "badge-warning"
   defp intent_state_color(:approved), do: "badge-success"
   defp intent_state_color(:running), do: "badge-info"
+  defp intent_state_color(:blocked), do: "badge-warning"
+  defp intent_state_color(:waiting_for_input), do: "badge-error"
   defp intent_state_color(:completed), do: "badge-success"
   defp intent_state_color(:failed), do: "badge-error"
   defp intent_state_color(:rejected), do: "badge-error"
