@@ -29,6 +29,8 @@ defmodule Lattice.Application do
       Lattice.Intents.Store.ETS,
       # Bridge Run lifecycle events to Intent state transitions
       Lattice.Intents.RunBridge,
+      # Webhook deduplication (ETS-backed with TTL sweep)
+      Lattice.Webhooks.Dedup,
       # Sprite process infrastructure
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},

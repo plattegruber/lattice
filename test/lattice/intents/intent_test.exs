@@ -436,7 +436,8 @@ defmodule Lattice.Intents.IntentTest do
       assert :agent in types
       assert :cron in types
       assert :operator in types
-      assert length(types) == 4
+      assert :webhook in types
+      assert length(types) == 5
     end
   end
 

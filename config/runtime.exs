@@ -53,6 +53,13 @@ capabilities =
 
 config :lattice, :capabilities, capabilities
 
+# Webhook secret for GitHub HMAC-SHA256 signature verification
+if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
+  config :lattice, :webhooks,
+    github_secret: github_webhook_secret,
+    dedup_ttl_ms: :timer.minutes(5)
+end
+
 # Auth provider: use Clerk when secret key is configured, otherwise stub
 if System.get_env("CLERK_SECRET_KEY") do
   config :lattice, :auth, provider: Lattice.Auth.Clerk

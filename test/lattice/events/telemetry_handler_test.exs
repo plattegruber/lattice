@@ -43,7 +43,9 @@ defmodule Lattice.Events.TelemetryHandlerTest do
       assert [:lattice, :intent, :created] in events
       assert [:lattice, :intent, :transitioned] in events
       assert [:lattice, :intent, :artifact_added] in events
-      assert length(events) == 10
+      assert [:lattice, :webhook, :received] in events
+      assert [:lattice, :webhook, :intent_proposed] in events
+      assert length(events) == 12
     end
   end
 

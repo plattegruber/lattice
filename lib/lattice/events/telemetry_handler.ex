@@ -42,7 +42,9 @@ defmodule Lattice.Events.TelemetryHandler do
     [:lattice, :observation, :emitted],
     [:lattice, :intent, :created],
     [:lattice, :intent, :transitioned],
-    [:lattice, :intent, :artifact_added]
+    [:lattice, :intent, :artifact_added],
+    [:lattice, :webhook, :received],
+    [:lattice, :webhook, :intent_proposed]
   ]
 
   @doc """
@@ -252,6 +254,33 @@ defmodule Lattice.Events.TelemetryHandler do
       "Artifact added to intent: #{intent.id}",
       intent_id: intent.id,
       artifact_type: Map.get(artifact, :type, :unknown)
+    )
+  end
+
+  def handle_event(
+        [:lattice, :webhook, :received],
+        _measurements,
+        %{event_type: event_type, delivery_id: delivery_id},
+        _config
+      ) do
+    Logger.info(
+      "Webhook received: #{event_type}",
+      event_type: event_type,
+      delivery_id: delivery_id
+    )
+  end
+
+  def handle_event(
+        [:lattice, :webhook, :intent_proposed],
+        _measurements,
+        %{event_type: event_type, intent: intent},
+        _config
+      ) do
+    Logger.info(
+      "Webhook proposed intent: #{intent.id} (#{event_type})",
+      intent_id: intent.id,
+      event_type: event_type,
+      kind: intent.kind
     )
   end
 end

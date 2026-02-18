@@ -32,6 +32,11 @@ config :lattice, :guardrails,
 # Task allowlist — repos that auto-approve task intents
 config :lattice, :task_allowlist, auto_approve_repos: []
 
+# Webhook configuration
+config :lattice, :webhooks,
+  github_secret: nil,
+  dedup_ttl_ms: :timer.minutes(5)
+
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
   url: [host: "localhost"],
@@ -103,7 +108,9 @@ config :logger, :default_formatter,
     :source,
     :from,
     :to,
-    :artifact_type
+    :artifact_type,
+    :event_type,
+    :delivery_id
   ]
 
 # Use Jason for JSON parsing in Phoenix

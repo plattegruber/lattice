@@ -22,7 +22,7 @@ defmodule Lattice.Intents.Intent do
   """
 
   @valid_kinds [:action, :inquiry, :maintenance]
-  @valid_source_types [:sprite, :agent, :cron, :operator]
+  @valid_source_types [:sprite, :agent, :cron, :operator, :webhook]
 
   @type kind :: :action | :inquiry | :maintenance
   @type state ::
@@ -38,7 +38,7 @@ defmodule Lattice.Intents.Intent do
           | :rejected
           | :canceled
   @type classification :: :safe | :controlled | :dangerous | nil
-  @type source :: %{type: :sprite | :agent | :cron | :operator, id: String.t()}
+  @type source :: %{type: :sprite | :agent | :cron | :operator | :webhook, id: String.t()}
   @type transition_entry :: %{
           from: state(),
           to: state(),
