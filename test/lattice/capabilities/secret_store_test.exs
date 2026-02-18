@@ -3,17 +3,25 @@ defmodule Lattice.Capabilities.SecretStore.Test do
 
   @moduletag :unit
 
-  describe "Stub" do
-    alias Lattice.Capabilities.SecretStore.Stub
+  describe "MockSecretStore (Mox)" do
+    import Mox
 
-    test "returns a known stub secret" do
-      assert {:ok, value} = Stub.get_secret("GITHUB_TOKEN")
-      assert is_binary(value)
-      assert String.length(value) > 0
+    setup :verify_on_exit!
+
+    test "returns a secret when expected" do
+      Lattice.Capabilities.MockSecretStore
+      |> expect(:get_secret, fn "GITHUB_TOKEN" -> {:ok, "ghp_test_token"} end)
+
+      assert {:ok, "ghp_test_token"} =
+               Lattice.Capabilities.SecretStore.get_secret("GITHUB_TOKEN")
     end
 
     test "returns error for an unknown secret" do
-      assert {:error, {:not_found, "NONEXISTENT_KEY"}} = Stub.get_secret("NONEXISTENT_KEY")
+      Lattice.Capabilities.MockSecretStore
+      |> expect(:get_secret, fn "NONEXISTENT_KEY" -> {:error, {:not_found, "NONEXISTENT_KEY"}} end)
+
+      assert {:error, {:not_found, "NONEXISTENT_KEY"}} =
+               Lattice.Capabilities.SecretStore.get_secret("NONEXISTENT_KEY")
     end
   end
 
