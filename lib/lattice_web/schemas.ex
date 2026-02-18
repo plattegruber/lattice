@@ -208,28 +208,16 @@ defmodule LatticeWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, description: "Sprite identifier"},
-        observed_state: %Schema{
+        status: %Schema{
           type: :string,
-          description: "Current observed lifecycle state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        desired_state: %Schema{
-          type: :string,
-          description: "Operator-set target state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        health: %Schema{
-          type: :string,
-          description: "Current health status",
-          enum: ["ok", "converging", "degraded", "error", "healthy", "unhealthy", "unknown"]
+          description: "Current status from the Sprites API",
+          enum: ["cold", "warm", "running"]
         }
       },
-      required: [:id, :observed_state, :desired_state, :health],
+      required: [:id, :status],
       example: %{
         "id" => "sprite-abc123",
-        "observed_state" => "ready",
-        "desired_state" => "ready",
-        "health" => "ok"
+        "status" => "running"
       }
     })
   end
@@ -245,20 +233,10 @@ defmodule LatticeWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, description: "Sprite identifier"},
-        observed_state: %Schema{
+        status: %Schema{
           type: :string,
-          description: "Current observed lifecycle state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        desired_state: %Schema{
-          type: :string,
-          description: "Operator-set target state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        health: %Schema{
-          type: :string,
-          description: "Current health status",
-          enum: ["ok", "converging", "degraded", "error", "healthy", "unhealthy", "unknown"]
+          description: "Current status from the Sprites API",
+          enum: ["cold", "warm", "running"]
         },
         failure_count: %Schema{
           type: :integer,
@@ -286,12 +264,10 @@ defmodule LatticeWeb.Schemas do
           additionalProperties: %Schema{type: :string}
         }
       },
-      required: [:id, :observed_state, :desired_state, :health],
+      required: [:id, :status],
       example: %{
         "id" => "sprite-abc123",
-        "observed_state" => "ready",
-        "desired_state" => "ready",
-        "health" => "ok",
+        "status" => "running",
         "failure_count" => 0,
         "last_observed_at" => "2026-01-15T12:00:00Z",
         "started_at" => "2026-01-15T11:00:00Z",
@@ -336,29 +312,6 @@ defmodule LatticeWeb.Schemas do
         timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
       },
       required: [:data, :timestamp]
-    })
-  end
-
-  defmodule UpdateDesiredStateRequest do
-    @moduledoc false
-    require OpenApiSpex
-    alias OpenApiSpex.Schema
-
-    OpenApiSpex.schema(%{
-      title: "UpdateDesiredStateRequest",
-      description: "Request body for updating a sprite's desired state.",
-      type: :object,
-      properties: %{
-        state: %Schema{
-          type: :string,
-          description: "Target desired state",
-          enum: ["ready", "hibernating"]
-        }
-      },
-      required: [:state],
-      example: %{
-        "state" => "ready"
-      }
     })
   end
 

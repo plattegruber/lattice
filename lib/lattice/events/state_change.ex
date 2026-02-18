@@ -1,9 +1,8 @@
 defmodule Lattice.Events.StateChange do
   @moduledoc """
-  Event emitted when a Sprite transitions between states.
+  Event emitted when a Sprite transitions between statuses.
 
-  The Sprite lifecycle follows:
-  `hibernating -> waking -> ready -> busy -> error`
+  Sprites have three statuses: `cold`, `warm`, `running`.
 
   Each transition produces a `StateChange` event that flows through both
   Telemetry (for metrics/logging) and PubSub (for real-time fan-out to
@@ -21,7 +20,7 @@ defmodule Lattice.Events.StateChange do
   @enforce_keys [:sprite_id, :from_state, :to_state, :timestamp]
   defstruct [:sprite_id, :from_state, :to_state, :reason, :timestamp]
 
-  @valid_states [:hibernating, :waking, :ready, :busy, :error]
+  @valid_states [:cold, :warm, :running]
 
   @doc """
   Creates a new StateChange event.

@@ -12,26 +12,20 @@ defmodule Lattice.Sprites.StateTest do
       assert {:ok, state} = State.new("sprite-001")
 
       assert state.sprite_id == "sprite-001"
-      assert state.observed_state == :hibernating
-      assert state.desired_state == :hibernating
-      assert state.health == :unknown
+      assert state.status == :cold
       assert state.failure_count == 0
       assert state.backoff_ms == 1_000
       assert state.base_backoff_ms == 1_000
       assert state.max_backoff_ms == 60_000
       assert state.log_cursor == nil
+      assert state.tags == %{}
       assert %DateTime{} = state.started_at
       assert %DateTime{} = state.updated_at
     end
 
-    test "accepts custom desired_state" do
-      assert {:ok, state} = State.new("sprite-001", desired_state: :ready)
-      assert state.desired_state == :ready
-    end
-
-    test "accepts custom observed_state" do
-      assert {:ok, state} = State.new("sprite-001", observed_state: :busy)
-      assert state.observed_state == :busy
+    test "accepts custom status" do
+      assert {:ok, state} = State.new("sprite-001", status: :warm)
+      assert state.status == :warm
     end
 
     test "accepts custom backoff parameters" do
@@ -43,64 +37,48 @@ defmodule Lattice.Sprites.StateTest do
       assert state.max_backoff_ms == 30_000
     end
 
-    test "rejects invalid desired_state" do
-      assert {:error, {:invalid_lifecycle, :invalid}} =
-               State.new("sprite-001", desired_state: :invalid)
+    test "accepts custom name" do
+      assert {:ok, state} = State.new("sprite-001", name: "my-sprite")
+      assert state.name == "my-sprite"
     end
 
-    test "rejects invalid observed_state" do
-      assert {:error, {:invalid_lifecycle, :bogus}} =
-               State.new("sprite-001", observed_state: :bogus)
+    test "accepts custom tags" do
+      assert {:ok, state} = State.new("sprite-001", tags: %{"env" => "prod"})
+      assert state.tags == %{"env" => "prod"}
+    end
+
+    test "rejects invalid status" do
+      assert {:error, {:invalid_status, :invalid}} =
+               State.new("sprite-001", status: :invalid)
     end
   end
 
-  # ── Transitions ─────────────────────────────────────────────────────
+  # ── Status Updates ─────────────────────────────────────────────────
 
-  describe "transition/2" do
-    test "updates observed state" do
+  describe "update_status/2" do
+    test "updates status" do
       {:ok, state} = State.new("sprite-001")
-      assert {:ok, new_state} = State.transition(state, :waking)
-      assert new_state.observed_state == :waking
+      assert {:ok, new_state} = State.update_status(state, :warm)
+      assert new_state.status == :warm
     end
 
     test "updates timestamp" do
       {:ok, state} = State.new("sprite-001")
-      {:ok, new_state} = State.transition(state, :waking)
+      {:ok, new_state} = State.update_status(state, :warm)
       assert DateTime.compare(new_state.updated_at, state.updated_at) in [:gt, :eq]
     end
 
-    test "rejects invalid state" do
+    test "rejects invalid status" do
       {:ok, state} = State.new("sprite-001")
-      assert {:error, {:invalid_lifecycle, :flying}} = State.transition(state, :flying)
+      assert {:error, {:invalid_status, :flying}} = State.update_status(state, :flying)
     end
 
-    test "allows all valid lifecycle states" do
+    test "allows all valid statuses" do
       {:ok, state} = State.new("sprite-001")
 
-      for lifecycle <- State.valid_lifecycle_states() do
-        assert {:ok, %State{observed_state: ^lifecycle}} = State.transition(state, lifecycle)
+      for status <- State.valid_statuses() do
+        assert {:ok, %State{status: ^status}} = State.update_status(state, status)
       end
-    end
-  end
-
-  # ── Set Desired ─────────────────────────────────────────────────────
-
-  describe "set_desired/2" do
-    test "updates desired state" do
-      {:ok, state} = State.new("sprite-001")
-      assert {:ok, new_state} = State.set_desired(state, :ready)
-      assert new_state.desired_state == :ready
-    end
-
-    test "updates timestamp" do
-      {:ok, state} = State.new("sprite-001")
-      {:ok, new_state} = State.set_desired(state, :ready)
-      assert DateTime.compare(new_state.updated_at, state.updated_at) in [:gt, :eq]
-    end
-
-    test "rejects invalid state" do
-      {:ok, state} = State.new("sprite-001")
-      assert {:error, {:invalid_lifecycle, :nope}} = State.set_desired(state, :nope)
     end
   end
 
@@ -170,31 +148,15 @@ defmodule Lattice.Sprites.StateTest do
     end
   end
 
-  # ── Needs Reconciliation ────────────────────────────────────────────
+  # ── Valid Statuses ────────────────────────────────────────────────
 
-  describe "needs_reconciliation?/1" do
-    test "returns false when observed matches desired" do
-      {:ok, state} = State.new("sprite-001")
-      refute State.needs_reconciliation?(state)
-    end
-
-    test "returns true when observed differs from desired" do
-      {:ok, state} = State.new("sprite-001", desired_state: :ready)
-      assert State.needs_reconciliation?(state)
-    end
-  end
-
-  # ── Valid States ────────────────────────────────────────────────────
-
-  describe "valid_lifecycle_states/0" do
-    test "returns all lifecycle states" do
-      states = State.valid_lifecycle_states()
-      assert :hibernating in states
-      assert :waking in states
-      assert :ready in states
-      assert :busy in states
-      assert :error in states
-      assert length(states) == 5
+  describe "valid_statuses/0" do
+    test "returns all valid statuses" do
+      statuses = State.valid_statuses()
+      assert :cold in statuses
+      assert :warm in statuses
+      assert :running in statuses
+      assert length(statuses) == 3
     end
   end
 
@@ -230,48 +192,33 @@ defmodule Lattice.Sprites.StateTest do
     end
   end
 
-  # ── Compute Health ─────────────────────────────────────────────────
+  # ── Display Name ──────────────────────────────────────────────────
 
-  describe "compute_health/1" do
-    test "returns :ok when observed matches desired and no failures" do
+  describe "display_name/1" do
+    test "returns name when set" do
+      {:ok, state} = State.new("sprite-001", name: "my-sprite")
+      assert State.display_name(state) == "my-sprite"
+    end
+
+    test "falls back to sprite_id when name is nil" do
       {:ok, state} = State.new("sprite-001")
-      assert State.compute_health(state) == :ok
+      assert State.display_name(state) == "sprite-001"
+    end
+  end
+
+  # ── Tags ──────────────────────────────────────────────────────────
+
+  describe "set_tags/2" do
+    test "replaces tags" do
+      {:ok, state} = State.new("sprite-001", tags: %{"old" => "value"})
+      state = State.set_tags(state, %{"new" => "value"})
+      assert state.tags == %{"new" => "value"}
     end
 
-    test "returns :converging when observed differs from desired with no failures" do
-      {:ok, state} = State.new("sprite-001", desired_state: :ready)
-      assert State.compute_health(state) == :converging
-    end
-
-    test "returns :degraded when there are failures below max_retries" do
-      {:ok, state} = State.new("sprite-001", max_retries: 10)
-      state = State.record_failure(state)
-      assert State.compute_health(state) == :degraded
-    end
-
-    test "returns :error when failure_count reaches max_retries" do
-      {:ok, state} = State.new("sprite-001", max_retries: 3)
-
-      state =
-        Enum.reduce(1..3, state, fn _, acc -> State.record_failure(acc) end)
-
-      assert State.compute_health(state) == :error
-    end
-
-    test "returns :error when failure_count exceeds max_retries" do
-      {:ok, state} = State.new("sprite-001", max_retries: 2)
-
-      state =
-        Enum.reduce(1..5, state, fn _, acc -> State.record_failure(acc) end)
-
-      assert State.compute_health(state) == :error
-    end
-
-    test "degraded takes priority over converging" do
-      # Has failures AND observed != desired
-      {:ok, state} = State.new("sprite-001", desired_state: :ready, max_retries: 10)
-      state = State.record_failure(state)
-      assert State.compute_health(state) == :degraded
+    test "updates timestamp" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.set_tags(state, %{"env" => "prod"})
+      assert DateTime.compare(state.updated_at, state.started_at) in [:gt, :eq]
     end
   end
 

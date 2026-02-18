@@ -44,7 +44,6 @@ defmodule Lattice.Events do
   """
 
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.Observation
@@ -207,19 +206,6 @@ defmodule Lattice.Events do
   @spec broadcast_reconciliation_result(ReconciliationResult.t()) :: :ok | {:error, term()}
   def broadcast_reconciliation_result(%ReconciliationResult{} = event) do
     emit_telemetry([:lattice, :sprite, :reconciliation], event)
-    broadcast_to_sprite(event.sprite_id, event)
-    broadcast_to_fleet(event)
-  end
-
-  @doc """
-  Broadcast a health update event.
-
-  Emits a Telemetry event and broadcasts to the per-sprite topic and
-  the fleet topic.
-  """
-  @spec broadcast_health_update(HealthUpdate.t()) :: :ok | {:error, term()}
-  def broadcast_health_update(%HealthUpdate{} = event) do
-    emit_telemetry([:lattice, :sprite, :health_update], event)
     broadcast_to_sprite(event.sprite_id, event)
     broadcast_to_fleet(event)
   end

@@ -82,10 +82,10 @@ defmodule Mix.Tasks.Lattice.AuditTest do
     test "completes audit with sprites present" do
       MockSprites
       |> stub(:get_sprite, fn _id ->
-        {:ok, %{id: "audit-task-001", status: :hibernating}}
+        {:ok, %{id: "audit-task-001", status: :cold}}
       end)
 
-      %{fm: _fm} = start_fleet_manager([%{id: "audit-task-001", desired_state: :hibernating}])
+      %{fm: _fm} = start_fleet_manager([%{id: "audit-task-001"}])
 
       assert :ok = Audit.run_release(timeout: 5_000)
     end

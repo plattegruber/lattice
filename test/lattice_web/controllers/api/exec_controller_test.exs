@@ -20,7 +20,6 @@ defmodule LatticeWeb.Api.ExecControllerTest do
         {Sprite,
          [
            sprite_id: sprite_id,
-           desired_state: :hibernating,
            name: Sprite.via(sprite_id),
            reconcile_interval_ms: 600_000
          ]}

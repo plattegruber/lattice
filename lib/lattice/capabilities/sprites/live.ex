@@ -8,14 +8,13 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   ## Status Mapping
 
-  The API returns string statuses that are mapped to internal atoms:
+  The API returns string statuses that map directly to atoms:
 
-  | API Status  | Internal Atom   |
-  |-------------|-----------------|
-  | `"cold"`    | `:hibernating`  |
-  | `"warm"`    | `:waking`       |
-  | `"running"` | `:ready`        |
-  | other       | `:error`        |
+  | API Status  | Internal Atom |
+  |-------------|---------------|
+  | `"cold"`    | `:cold`       |
+  | `"warm"`    | `:warm`       |
+  | `"running"` | `:running`    |
   """
 
   @behaviour Lattice.Capabilities.Sprites
@@ -286,11 +285,11 @@ defmodule Lattice.Capabilities.Sprites.Live do
   end
 
   @doc false
-  def parse_status("cold"), do: :hibernating
-  def parse_status("warm"), do: :waking
-  def parse_status("running"), do: :ready
-  def parse_status(nil), do: :error
-  def parse_status(_other), do: :error
+  def parse_status("cold"), do: :cold
+  def parse_status("warm"), do: :warm
+  def parse_status("running"), do: :running
+  def parse_status(nil), do: :cold
+  def parse_status(_other), do: :cold
 
   defp parse_exec_result(id, command, result) do
     %{

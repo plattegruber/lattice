@@ -42,15 +42,12 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
   end
 
   defp start_sprite_process(config) do
-    desired = Map.get(config, :desired_state, :hibernating)
-
     {:ok, _pid} =
       DynamicSupervisor.start_child(
         Lattice.Sprites.DynamicSupervisor,
         {Sprite,
          [
            sprite_id: config.id,
-           desired_state: desired,
            name: Sprite.via(config.id),
            reconcile_interval_ms: 600_000
          ]}
@@ -84,8 +81,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
       body = json_response(conn, 200)
 
       assert body["data"]["id"] == "new-sprite"
-      assert body["data"]["observed_state"] == "hibernating"
-      assert body["data"]["desired_state"] == "hibernating"
+      assert body["data"]["status"] == "cold"
       assert is_binary(body["timestamp"])
 
       # Verify the sprite is now in the fleet
@@ -124,7 +120,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
 
     test "returns 422 when sprite already exists", %{conn: conn} do
-      start_sprites([%{id: "existing-sprite", desired_state: :hibernating}])
+      start_sprites([%{id: "existing-sprite"}])
 
       Lattice.Capabilities.MockSprites
       |> expect(:create_sprite, fn "existing-sprite", [] ->
@@ -190,10 +186,10 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
   # ── GET /api/sprites ────────────────────────────────────────────────
 
   describe "GET /api/sprites" do
-    test "lists all sprites with state", %{conn: conn} do
+    test "lists all sprites with status", %{conn: conn} do
       start_sprites([
-        %{id: "api-sprite-001", desired_state: :hibernating},
-        %{id: "api-sprite-002", desired_state: :hibernating}
+        %{id: "api-sprite-001"},
+        %{id: "api-sprite-002"}
       ])
 
       conn =
@@ -210,8 +206,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
       assert "api-sprite-002" in sprite_ids
 
       first = Enum.find(body["data"], &(&1["id"] == "api-sprite-001"))
-      assert first["observed_state"] == "hibernating"
-      assert first["desired_state"] == "hibernating"
+      assert first["status"] == "cold"
       assert is_binary(body["timestamp"])
     end
 
@@ -237,7 +232,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
 
   describe "GET /api/sprites/:id" do
     test "returns sprite detail when found", %{conn: conn} do
-      start_sprites([%{id: "api-show-001", desired_state: :hibernating}])
+      start_sprites([%{id: "api-show-001"}])
 
       conn =
         conn
@@ -247,8 +242,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
       body = json_response(conn, 200)
 
       assert body["data"]["id"] == "api-show-001"
-      assert body["data"]["observed_state"] == "hibernating"
-      assert body["data"]["desired_state"] == "hibernating"
+      assert body["data"]["status"] == "cold"
       assert is_integer(body["data"]["failure_count"])
       assert is_binary(body["data"]["started_at"])
       assert is_binary(body["data"]["updated_at"])
@@ -274,77 +268,58 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
   end
 
-  # ── PUT /api/sprites/:id/desired ───────────────────────────────────
+  # ── POST /api/sprites/:id/wake ───────────────────────────────────
 
-  describe "PUT /api/sprites/:id/desired" do
-    test "updates desired state to ready", %{conn: conn} do
-      start_sprites([%{id: "api-desired-001", desired_state: :hibernating}])
+  describe "POST /api/sprites/:id/wake" do
+    test "wakes a sprite", %{conn: conn} do
+      start_sprites([%{id: "api-wake-001"}])
 
-      conn =
-        conn
-        |> authenticated()
-        |> put("/api/sprites/api-desired-001/desired", %{"state" => "ready"})
+      Lattice.Capabilities.MockSprites
+      |> expect(:wake, fn "api-wake-001" -> {:ok, %{id: "api-wake-001", status: "warm"}} end)
 
+      conn = conn |> authenticated() |> post("/api/sprites/api-wake-001/wake")
       body = json_response(conn, 200)
 
-      assert body["data"]["id"] == "api-desired-001"
-      assert body["data"]["desired_state"] == "ready"
-    end
-
-    test "updates desired state to hibernating", %{conn: conn} do
-      start_sprites([%{id: "api-desired-002", desired_state: :ready}])
-
-      conn =
-        conn
-        |> authenticated()
-        |> put("/api/sprites/api-desired-002/desired", %{"state" => "hibernating"})
-
-      body = json_response(conn, 200)
-
-      assert body["data"]["id"] == "api-desired-002"
-      assert body["data"]["desired_state"] == "hibernating"
-    end
-
-    test "returns 422 for invalid state", %{conn: conn} do
-      start_sprites([%{id: "api-desired-003", desired_state: :hibernating}])
-
-      conn =
-        conn
-        |> authenticated()
-        |> put("/api/sprites/api-desired-003/desired", %{"state" => "invalid"})
-
-      body = json_response(conn, 422)
-
-      assert body["code"] == "INVALID_STATE"
-    end
-
-    test "returns 422 when state field is missing", %{conn: conn} do
-      start_sprites([%{id: "api-desired-004", desired_state: :hibernating}])
-
-      conn =
-        conn
-        |> authenticated()
-        |> put("/api/sprites/api-desired-004/desired", %{})
-
-      body = json_response(conn, 422)
-
-      assert body["code"] == "MISSING_FIELD"
+      assert body["data"]["id"] == "api-wake-001"
+      assert body["data"]["status"] in ["cold", "warm", "running"]
     end
 
     test "returns 404 for unknown sprite", %{conn: conn} do
-      conn =
-        conn
-        |> authenticated()
-        |> put("/api/sprites/nonexistent/desired", %{"state" => "ready"})
-
+      conn = conn |> authenticated() |> post("/api/sprites/nonexistent/wake")
       body = json_response(conn, 404)
-
       assert body["code"] == "SPRITE_NOT_FOUND"
     end
 
     test "returns 401 without authentication", %{conn: conn} do
-      conn = put(conn, "/api/sprites/some-id/desired", %{"state" => "ready"})
+      conn = post(conn, "/api/sprites/some-id/wake")
+      assert json_response(conn, 401)
+    end
+  end
 
+  # ── POST /api/sprites/:id/sleep ──────────────────────────────────
+
+  describe "POST /api/sprites/:id/sleep" do
+    test "sleeps a sprite", %{conn: conn} do
+      start_sprites([%{id: "api-sleep-001"}])
+
+      Lattice.Capabilities.MockSprites
+      |> expect(:sleep, fn "api-sleep-001" -> {:ok, %{id: "api-sleep-001", status: "cold"}} end)
+
+      conn = conn |> authenticated() |> post("/api/sprites/api-sleep-001/sleep")
+      body = json_response(conn, 200)
+
+      assert body["data"]["id"] == "api-sleep-001"
+      assert body["data"]["status"] in ["cold", "warm", "running"]
+    end
+
+    test "returns 404 for unknown sprite", %{conn: conn} do
+      conn = conn |> authenticated() |> post("/api/sprites/nonexistent/sleep")
+      body = json_response(conn, 404)
+      assert body["code"] == "SPRITE_NOT_FOUND"
+    end
+
+    test "returns 401 without authentication", %{conn: conn} do
+      conn = post(conn, "/api/sprites/some-id/sleep")
       assert json_response(conn, 401)
     end
   end
@@ -353,7 +328,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
 
   describe "DELETE /api/sprites/:id" do
     test "deletes a sprite and returns confirmation", %{conn: conn} do
-      start_sprites([%{id: "api-delete-001", desired_state: :hibernating}])
+      start_sprites([%{id: "api-delete-001"}])
 
       Lattice.Capabilities.MockSprites
       |> expect(:delete_sprite, fn "api-delete-001" -> :ok end)
@@ -394,7 +369,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
 
     test "returns 500 when upstream API fails", %{conn: conn} do
-      start_sprites([%{id: "api-delete-fail", desired_state: :hibernating}])
+      start_sprites([%{id: "api-delete-fail"}])
 
       Lattice.Capabilities.MockSprites
       |> expect(:delete_sprite, fn "api-delete-fail" -> {:error, :timeout} end)
@@ -420,7 +395,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
 
   describe "PUT /api/sprites/:id/tags" do
     test "sets tags on a sprite", %{conn: conn} do
-      start_sprites([%{id: "api-tags-001", desired_state: :hibernating}])
+      start_sprites([%{id: "api-tags-001"}])
 
       conn =
         conn
@@ -438,7 +413,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
 
     test "merges tags with existing tags", %{conn: conn} do
-      start_sprites([%{id: "api-tags-002", desired_state: :hibernating}])
+      start_sprites([%{id: "api-tags-002"}])
 
       # Set initial tags
       conn
@@ -458,7 +433,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
 
     test "tags appear in sprite detail", %{conn: conn} do
-      start_sprites([%{id: "api-tags-003", desired_state: :hibernating}])
+      start_sprites([%{id: "api-tags-003"}])
 
       conn
       |> authenticated()
@@ -485,7 +460,7 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
     end
 
     test "returns 422 when tags field is missing", %{conn: conn} do
-      start_sprites([%{id: "api-tags-004", desired_state: :hibernating}])
+      start_sprites([%{id: "api-tags-004"}])
 
       conn =
         conn
@@ -509,9 +484,9 @@ defmodule LatticeWeb.Api.SpriteControllerTest do
   describe "POST /api/sprites/:id/reconcile" do
     test "triggers reconciliation for a sprite", %{conn: conn} do
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "api-recon-001", status: :hibernating}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "api-recon-001", status: :cold}} end)
 
-      start_sprites([%{id: "api-recon-001", desired_state: :hibernating}])
+      start_sprites([%{id: "api-recon-001"}])
 
       conn =
         conn

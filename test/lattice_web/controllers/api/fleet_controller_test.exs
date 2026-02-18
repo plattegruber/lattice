@@ -42,15 +42,12 @@ defmodule LatticeWeb.Api.FleetControllerTest do
   end
 
   defp start_sprite_process(config) do
-    desired = Map.get(config, :desired_state, :hibernating)
-
     {:ok, _pid} =
       DynamicSupervisor.start_child(
         Lattice.Sprites.DynamicSupervisor,
         {Sprite,
          [
            sprite_id: config.id,
-           desired_state: desired,
            name: Sprite.via(config.id),
            reconcile_interval_ms: 600_000
          ]}
@@ -72,8 +69,8 @@ defmodule LatticeWeb.Api.FleetControllerTest do
   describe "GET /api/fleet" do
     test "returns fleet summary when authenticated", %{conn: conn} do
       start_sprites([
-        %{id: "api-fleet-001", desired_state: :hibernating},
-        %{id: "api-fleet-002", desired_state: :hibernating}
+        %{id: "api-fleet-001"},
+        %{id: "api-fleet-002"}
       ])
 
       conn =
@@ -84,7 +81,7 @@ defmodule LatticeWeb.Api.FleetControllerTest do
       body = json_response(conn, 200)
 
       assert body["data"]["total"] == 2
-      assert body["data"]["by_state"]["hibernating"] == 2
+      assert body["data"]["by_state"]["cold"] == 2
       assert is_binary(body["timestamp"])
     end
 
@@ -114,7 +111,7 @@ defmodule LatticeWeb.Api.FleetControllerTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "api-audit-001", status: :hibernating}} end)
 
-      start_sprites([%{id: "api-audit-001", desired_state: :hibernating}])
+      start_sprites([%{id: "api-audit-001"}])
 
       conn =
         conn

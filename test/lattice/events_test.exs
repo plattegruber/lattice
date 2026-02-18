@@ -5,7 +5,6 @@ defmodule Lattice.EventsTest do
 
   alias Lattice.Events
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
 
@@ -31,19 +30,19 @@ defmodule Lattice.EventsTest do
     test "delivers state change events to sprite subscribers" do
       :ok = Events.subscribe_sprite("sprite-pub-1")
 
-      {:ok, event} = StateChange.new("sprite-pub-1", :hibernating, :waking)
+      {:ok, event} = StateChange.new("sprite-pub-1", :cold, :warm)
       :ok = Events.broadcast_state_change(event)
 
-      assert_receive %StateChange{sprite_id: "sprite-pub-1", to_state: :waking}
+      assert_receive %StateChange{sprite_id: "sprite-pub-1", to_state: :warm}
     end
 
     test "delivers state change events to fleet subscribers" do
       :ok = Events.subscribe_fleet()
 
-      {:ok, event} = StateChange.new("sprite-fleet-1", :ready, :busy)
+      {:ok, event} = StateChange.new("sprite-fleet-1", :running, :cold)
       :ok = Events.broadcast_state_change(event)
 
-      assert_receive %StateChange{sprite_id: "sprite-fleet-1", to_state: :busy}
+      assert_receive %StateChange{sprite_id: "sprite-fleet-1", to_state: :cold}
     end
   end
 
@@ -64,26 +63,6 @@ defmodule Lattice.EventsTest do
       :ok = Events.broadcast_reconciliation_result(event)
 
       assert_receive %ReconciliationResult{sprite_id: "sprite-recon-2", outcome: :failure}
-    end
-  end
-
-  describe "broadcast_health_update/1" do
-    test "delivers health events to sprite subscribers" do
-      :ok = Events.subscribe_sprite("sprite-health-1")
-
-      {:ok, event} = HealthUpdate.new("sprite-health-1", :healthy, 15)
-      :ok = Events.broadcast_health_update(event)
-
-      assert_receive %HealthUpdate{sprite_id: "sprite-health-1", status: :healthy}
-    end
-
-    test "delivers health events to fleet subscribers" do
-      :ok = Events.subscribe_fleet()
-
-      {:ok, event} = HealthUpdate.new("sprite-health-2", :degraded, 200)
-      :ok = Events.broadcast_health_update(event)
-
-      assert_receive %HealthUpdate{sprite_id: "sprite-health-2", status: :degraded}
     end
   end
 
@@ -152,7 +131,6 @@ defmodule Lattice.EventsTest do
       events = [
         [:lattice, :sprite, :state_change],
         [:lattice, :sprite, :reconciliation],
-        [:lattice, :sprite, :health_update],
         [:lattice, :sprite, :approval_needed],
         [:lattice, :capability, :call],
         [:lattice, :fleet, :summary]
@@ -174,7 +152,7 @@ defmodule Lattice.EventsTest do
 
     test "broadcast_state_change emits telemetry", %{ref: ref} do
       :ok = Events.subscribe_sprite("sprite-tel-1")
-      {:ok, event} = StateChange.new("sprite-tel-1", :waking, :ready)
+      {:ok, event} = StateChange.new("sprite-tel-1", :warm, :running)
       Events.broadcast_state_change(event)
 
       assert_receive {:telemetry, ^ref, [:lattice, :sprite, :state_change], measurements,
@@ -195,18 +173,6 @@ defmodule Lattice.EventsTest do
 
       assert metadata.sprite_id == "sprite-tel-2"
       assert metadata.event.outcome == :success
-    end
-
-    test "broadcast_health_update emits telemetry", %{ref: ref} do
-      :ok = Events.subscribe_sprite("sprite-tel-3")
-      {:ok, event} = HealthUpdate.new("sprite-tel-3", :unhealthy, 5000)
-      Events.broadcast_health_update(event)
-
-      assert_receive {:telemetry, ^ref, [:lattice, :sprite, :health_update], _measurements,
-                      metadata}
-
-      assert metadata.sprite_id == "sprite-tel-3"
-      assert metadata.event.status == :unhealthy
     end
 
     test "broadcast_approval_needed emits telemetry", %{ref: ref} do
@@ -243,13 +209,13 @@ defmodule Lattice.EventsTest do
     end
 
     test "emit_fleet_summary emits telemetry", %{ref: ref} do
-      summary = %{total: 10, by_state: %{ready: 5, busy: 3, hibernating: 2}}
+      summary = %{total: 10, by_state: %{running: 5, warm: 3, cold: 2}}
       Events.emit_fleet_summary(summary)
 
       assert_receive {:telemetry, ^ref, [:lattice, :fleet, :summary], measurements, metadata}
 
       assert measurements.total == 10
-      assert metadata.by_state == %{ready: 5, busy: 3, hibernating: 2}
+      assert metadata.by_state == %{running: 5, warm: 3, cold: 2}
     end
 
     test "emit_fleet_summary handles empty summary", %{ref: ref} do

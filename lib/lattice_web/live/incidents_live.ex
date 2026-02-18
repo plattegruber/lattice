@@ -353,21 +353,6 @@ defmodule LatticeWeb.IncidentsLive do
     |> maybe_add_backoff_incident(sprite_id, state)
   end
 
-  defp maybe_add_error_state_incident(incidents, sprite_id, %{observed_state: :error} = state) do
-    incident = %{
-      id: "error-#{sprite_id}",
-      type: :error_state,
-      severity: :critical,
-      sprite_id: sprite_id,
-      title: "Sprite #{sprite_id} in error state",
-      description: "Sprite is in :error observed state and needs attention.",
-      started_at: state.updated_at,
-      failure_count: state.failure_count
-    }
-
-    [incident | incidents]
-  end
-
   defp maybe_add_error_state_incident(incidents, _sprite_id, _state), do: incidents
 
   defp maybe_add_backoff_incident(incidents, sprite_id, %{failure_count: fc} = state)
