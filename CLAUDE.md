@@ -221,6 +221,9 @@ The `/api` scope is protected by bearer token auth (`Authorization: Bearer <toke
 | `POST` | `/api/intents/:id/cancel` | Cancel an intent |
 | `GET` | `/api/runs` | List runs (filter: intent_id, sprite_name, status) |
 | `GET` | `/api/runs/:id` | Run detail |
+| `POST` | `/api/runs/:id/answer` | Answer a blocked run's question |
+| `GET` | `/api/sprites/:name/skills` | List available skills for a sprite |
+| `GET` | `/api/sprites/:name/skills/:skill_name` | Skill detail with manifest |
 
 `GET /health` is unauthenticated.
 
