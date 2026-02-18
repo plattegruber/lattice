@@ -6,7 +6,6 @@ defmodule Lattice.Events.TelemetryHandlerTest do
   @moduletag :unit
 
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Events.TelemetryHandler
@@ -36,7 +35,6 @@ defmodule Lattice.Events.TelemetryHandlerTest do
 
       assert [:lattice, :sprite, :state_change] in events
       assert [:lattice, :sprite, :reconciliation] in events
-      assert [:lattice, :sprite, :health_update] in events
       assert [:lattice, :sprite, :approval_needed] in events
       assert [:lattice, :capability, :call] in events
       assert [:lattice, :fleet, :summary] in events
@@ -45,7 +43,7 @@ defmodule Lattice.Events.TelemetryHandlerTest do
       assert [:lattice, :intent, :created] in events
       assert [:lattice, :intent, :transitioned] in events
       assert [:lattice, :intent, :artifact_added] in events
-      assert length(events) == 11
+      assert length(events) == 10
     end
   end
 
@@ -73,7 +71,7 @@ defmodule Lattice.Events.TelemetryHandlerTest do
 
     test "logs state change events" do
       {:ok, event} =
-        StateChange.new("sprite-log-1", :hibernating, :waking, reason: "scheduled wake")
+        StateChange.new("sprite-log-1", :cold, :warm, reason: "scheduled wake")
 
       log =
         capture_log(fn ->
@@ -116,22 +114,6 @@ defmodule Lattice.Events.TelemetryHandlerTest do
         end)
 
       assert log =~ "reconciliation failure"
-    end
-
-    test "logs unhealthy health updates at error level" do
-      {:ok, event} =
-        HealthUpdate.new("sprite-log-4", :unhealthy, 5000, message: "unreachable")
-
-      log =
-        capture_log(fn ->
-          :telemetry.execute(
-            [:lattice, :sprite, :health_update],
-            %{system_time: System.system_time()},
-            %{sprite_id: "sprite-log-4", event: event}
-          )
-        end)
-
-      assert log =~ "health: unhealthy"
     end
 
     test "logs approval needed events at warning level" do
@@ -194,7 +176,7 @@ defmodule Lattice.Events.TelemetryHandlerTest do
             [:lattice, :fleet, :summary],
             %{total: 10},
             %{
-              by_state: %{ready: 5, busy: 3, hibernating: 2},
+              by_state: %{running: 5, warm: 3, cold: 2},
               timestamp: DateTime.utc_now()
             }
           )

@@ -4,10 +4,9 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   Displays:
 
-  - **State comparison panel** -- observed vs desired state, drift highlighting,
-    last reconciliation timestamp
+  - **Status panel** -- current API status (cold/warm/running)
   - **Event timeline** -- last N events streamed via PubSub
-  - **Health & backoff info** -- health status, failure count, backoff duration
+  - **Observation & backoff info** -- failure count, backoff duration
   - **Tasks section** -- active/recent tasks for this sprite with links to
     intent detail view
   - **Assign Task form** -- quick action to assign a task to this sprite
@@ -21,7 +20,6 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   alias Lattice.Events
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.Intent
@@ -128,15 +126,6 @@ defmodule LatticeWeb.SpriteLive.Show do
       |> refresh_sprite_state()
       |> prepend_event(event)
       |> assign(:last_reconciliation, event)
-
-    {:noreply, socket}
-  end
-
-  def handle_info(%HealthUpdate{} = event, socket) do
-    socket =
-      socket
-      |> refresh_sprite_state()
-      |> prepend_event(event)
 
     {:noreply, socket}
   end
@@ -419,8 +408,8 @@ defmodule LatticeWeb.SpriteLive.Show do
         </.header>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.state_comparison_panel sprite_state={@sprite_state} />
-          <.health_backoff_panel
+          <.status_panel sprite_state={@sprite_state} />
+          <.observation_panel
             sprite_state={@sprite_state}
             last_reconciliation={@last_reconciliation}
           />
@@ -490,47 +479,24 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   attr :sprite_state, State, required: true
 
-  defp state_comparison_panel(assigns) do
+  defp status_panel(assigns) do
     ~H"""
     <div class="card bg-base-200 shadow-sm">
       <div class="card-body">
         <h2 class="card-title text-base">
-          <.icon name="hero-arrows-right-left" class="size-5" /> State Comparison
+          <.icon name="hero-signal" class="size-5" /> Status
         </h2>
 
-        <div class="grid grid-cols-2 gap-4 mt-2">
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Observed
-            </div>
-            <div class="mt-1">
-              <.state_badge state={@sprite_state.observed_state} />
-            </div>
+        <div class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+            Current Status
           </div>
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Desired
-            </div>
-            <div class="mt-1">
-              <.state_badge state={@sprite_state.desired_state} />
-            </div>
+          <div class="mt-1">
+            <.state_badge state={@sprite_state.status} />
           </div>
         </div>
 
-        <div :if={has_drift?(@sprite_state)} class="alert alert-warning mt-4">
-          <.icon name="hero-exclamation-triangle" class="size-5" />
-          <span>
-            Drift detected: observed <.state_badge state={@sprite_state.observed_state} />
-            differs from desired <.state_badge state={@sprite_state.desired_state} />
-          </span>
-        </div>
-
-        <div :if={!has_drift?(@sprite_state)} class="alert alert-success mt-4">
-          <.icon name="hero-check-circle" class="size-5" />
-          <span>States are in sync.</span>
-        </div>
-
-        <div class="text-xs text-base-content/50 mt-2">
+        <div class="text-xs text-base-content/50 mt-4">
           Last updated: <.relative_time datetime={@sprite_state.updated_at} />
         </div>
       </div>
@@ -541,23 +507,15 @@ defmodule LatticeWeb.SpriteLive.Show do
   attr :sprite_state, State, required: true
   attr :last_reconciliation, ReconciliationResult, default: nil
 
-  defp health_backoff_panel(assigns) do
+  defp observation_panel(assigns) do
     ~H"""
     <div class="card bg-base-200 shadow-sm">
       <div class="card-body">
         <h2 class="card-title text-base">
-          <.icon name="hero-heart" class="size-5" /> Health & Backoff
+          <.icon name="hero-eye" class="size-5" /> Observation
         </h2>
 
         <div class="grid grid-cols-2 gap-4 mt-2">
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Health
-            </div>
-            <div class="mt-1">
-              <.health_badge health={@sprite_state.health} />
-            </div>
-          </div>
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Failures
@@ -571,9 +529,6 @@ defmodule LatticeWeb.SpriteLive.Show do
               </span>
             </div>
           </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4 mt-4">
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Backoff
@@ -582,6 +537,9 @@ defmodule LatticeWeb.SpriteLive.Show do
               {format_duration(@sprite_state.backoff_ms)}
             </div>
           </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mt-4">
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Max Backoff
@@ -590,12 +548,23 @@ defmodule LatticeWeb.SpriteLive.Show do
               {format_duration(@sprite_state.max_backoff_ms)}
             </div>
           </div>
+          <div>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Last Observed
+            </div>
+            <div class="mt-1 text-sm">
+              <span :if={@sprite_state.last_observed_at}>
+                <.relative_time datetime={@sprite_state.last_observed_at} />
+              </span>
+              <span :if={!@sprite_state.last_observed_at} class="text-base-content/40">never</span>
+            </div>
+          </div>
         </div>
 
         <div :if={@last_reconciliation} class="divider my-2"></div>
         <div :if={@last_reconciliation} class="text-sm">
           <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
-            Last Reconciliation
+            Last Observation Cycle
           </div>
           <div class="flex items-center gap-2">
             <.outcome_badge outcome={@last_reconciliation.outcome} />
@@ -1173,16 +1142,6 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
-  attr :health, :atom, required: true
-
-  defp health_badge(assigns) do
-    ~H"""
-    <span class={["badge badge-sm", health_color(@health)]}>
-      {@health}
-    </span>
-    """
-  end
-
   attr :outcome, :atom, required: true
 
   defp outcome_badge(assigns) do
@@ -1369,7 +1328,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp log_source_class(:exec), do: "text-info"
   defp log_source_class(:reconciliation), do: "text-accent"
   defp log_source_class(:state_change), do: "text-primary"
-  defp log_source_class(:health), do: "text-success"
   defp log_source_class(:service), do: "text-base-content/60"
   defp log_source_class(_), do: "text-base-content/60"
 
@@ -1377,7 +1335,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp format_log_source(:exec), do: "exec"
   defp format_log_source(:reconciliation), do: "recon"
   defp format_log_source(:state_change), do: "state"
-  defp format_log_source(:health), do: "health"
   defp format_log_source(:service), do: "svc"
   defp format_log_source(_), do: "sys"
 
@@ -1385,15 +1342,10 @@ defmodule LatticeWeb.SpriteLive.Show do
     Calendar.strftime(datetime, "%H:%M:%S")
   end
 
-  defp has_drift?(%State{observed_state: same, desired_state: same}), do: false
-  defp has_drift?(%State{}), do: true
-
-  # State colors (matching FleetLive)
-  defp state_color(:hibernating), do: "badge-ghost"
-  defp state_color(:waking), do: "badge-info"
-  defp state_color(:ready), do: "badge-success"
-  defp state_color(:busy), do: "badge-warning"
-  defp state_color(:error), do: "badge-error"
+  # State colors
+  defp state_color(:cold), do: "badge-ghost"
+  defp state_color(:warm), do: "badge-info"
+  defp state_color(:running), do: "badge-success"
   defp state_color(_), do: "badge-ghost"
 
   # Task state colors
@@ -1407,13 +1359,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp task_state_color(:rejected), do: "badge-error"
   defp task_state_color(:canceled), do: "badge-ghost"
   defp task_state_color(_), do: "badge-ghost"
-
-  # Health colors (matching FleetLive)
-  defp health_color(:healthy), do: "badge-success"
-  defp health_color(:degraded), do: "badge-warning"
-  defp health_color(:unhealthy), do: "badge-error"
-  defp health_color(:unknown), do: "badge-ghost"
-  defp health_color(_), do: "badge-ghost"
 
   # Outcome colors
   defp outcome_color(:success), do: "badge-success"
@@ -1431,7 +1376,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp event_type_color(%ReconciliationResult{outcome: :success}), do: "badge-success"
   defp event_type_color(%ReconciliationResult{outcome: :failure}), do: "badge-error"
   defp event_type_color(%ReconciliationResult{}), do: "badge-ghost"
-  defp event_type_color(%HealthUpdate{}), do: "badge-accent"
   defp event_type_color(%ApprovalNeeded{}), do: "badge-warning"
   defp event_type_color(%{type: "progress"}), do: "badge-info"
   defp event_type_color(%{type: "warning"}), do: "badge-warning"
@@ -1441,7 +1385,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   # Event type labels
   defp event_type_label(%StateChange{}), do: "state_change"
   defp event_type_label(%ReconciliationResult{}), do: "reconciliation"
-  defp event_type_label(%HealthUpdate{}), do: "health"
   defp event_type_label(%ApprovalNeeded{}), do: "approval"
   defp event_type_label(%{type: type}) when type in ~w(progress warning checkpoint), do: type
   defp event_type_label(_), do: "unknown"
@@ -1454,11 +1397,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp format_event_details(%ReconciliationResult{} = e) do
     base = "#{e.outcome} in #{format_duration(e.duration_ms)}"
     if e.details, do: "#{base}: #{e.details}", else: base
-  end
-
-  defp format_event_details(%HealthUpdate{} = e) do
-    base = "#{e.status} (#{format_duration(e.check_duration_ms)})"
-    if e.message, do: "#{base}: #{e.message}", else: base
   end
 
   defp format_event_details(%ApprovalNeeded{} = e) do

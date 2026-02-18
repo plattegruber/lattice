@@ -12,7 +12,6 @@ defmodule Lattice.Events.TelemetryHandler do
 
   - `[:lattice, :sprite, :state_change]` — Sprite state transitions
   - `[:lattice, :sprite, :reconciliation]` — Reconciliation cycle results
-  - `[:lattice, :sprite, :health_update]` — Health check results
   - `[:lattice, :sprite, :approval_needed]` — Actions requiring approval
   - `[:lattice, :capability, :call]` — Capability module API calls
   - `[:lattice, :fleet, :summary]` — Fleet-level aggregate metrics
@@ -36,7 +35,6 @@ defmodule Lattice.Events.TelemetryHandler do
   @events [
     [:lattice, :sprite, :state_change],
     [:lattice, :sprite, :reconciliation],
-    [:lattice, :sprite, :health_update],
     [:lattice, :sprite, :approval_needed],
     [:lattice, :capability, :call],
     [:lattice, :fleet, :summary],
@@ -112,29 +110,6 @@ defmodule Lattice.Events.TelemetryHandler do
       outcome: event.outcome,
       duration_ms: event.duration_ms,
       details: event.details
-    )
-  end
-
-  def handle_event(
-        [:lattice, :sprite, :health_update],
-        _measurements,
-        %{sprite_id: sprite_id, event: event},
-        _config
-      ) do
-    log_level =
-      case event.status do
-        :healthy -> :info
-        :degraded -> :warning
-        :unhealthy -> :error
-      end
-
-    Logger.log(
-      log_level,
-      "Sprite health: #{event.status}",
-      sprite_id: sprite_id,
-      status: event.status,
-      check_duration_ms: event.check_duration_ms,
-      message: event.message
     )
   end
 

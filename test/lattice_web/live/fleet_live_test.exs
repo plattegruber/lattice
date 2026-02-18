@@ -40,8 +40,7 @@ defmodule LatticeWeb.FleetLiveTest do
       {:ok, _view, html} = live(conn, ~p"/sprites")
 
       assert html =~ "Sprite"
-      assert html =~ "State"
-      assert html =~ "Health"
+      assert html =~ "Status"
       assert html =~ "Last Update"
     end
   end
@@ -55,7 +54,7 @@ defmodule LatticeWeb.FleetLiveTest do
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
         Events.fleet_topic(),
-        {:fleet_summary, %{total: 5, by_state: %{ready: 3, hibernating: 2}}}
+        {:fleet_summary, %{total: 5, by_state: %{running: 3, cold: 2}}}
       )
 
       # The view should process the message and still be alive
@@ -68,7 +67,7 @@ defmodule LatticeWeb.FleetLiveTest do
       {:ok, view, _html} = live(conn, ~p"/sprites")
 
       {:ok, event} =
-        StateChange.new("some-sprite", :hibernating, :waking, reason: "test")
+        StateChange.new("some-sprite", :cold, :warm, reason: "test")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,

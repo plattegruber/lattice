@@ -5,35 +5,26 @@ defmodule Lattice.Sprites.Sprite do
   Each Sprite gets its own GenServer that:
 
   - Owns the Sprite's internal state (`%Lattice.Sprites.State{}`)
-  - Runs a periodic reconciliation loop comparing desired vs. observed state
-  - Fetches real observed state from the SpritesCapability API each cycle
-  - Emits Telemetry events and PubSub broadcasts on state transitions
-  - Implements exponential backoff with jitter on reconciliation failures
-  - Computes and broadcasts health assessments after each reconciliation
+  - Runs a periodic observation loop fetching status from the Sprites API
+  - Emits Telemetry events and PubSub broadcasts on status changes
+  - Implements exponential backoff with jitter on observation failures
   - Handles API edge cases: timeouts, not-found, concurrent changes
 
   ## Starting a Sprite
 
-      Lattice.Sprites.Sprite.start_link(sprite_id: "sprite-001", desired_state: :ready)
+      Lattice.Sprites.Sprite.start_link(sprite_id: "sprite-001")
 
   ## Querying State
 
       {:ok, state} = Lattice.Sprites.Sprite.get_state(pid)
 
-  ## Changing Desired State
+  ## Observation Loop
 
-      :ok = Lattice.Sprites.Sprite.set_desired_state(pid, :ready)
+  The observation loop runs on a timer (default: 5 seconds). Each cycle:
 
-  ## Reconciliation
-
-  The reconciliation loop runs on a timer (default: 5 seconds). Each cycle:
-
-  1. Calls `SpritesCapability.get_sprite/1` to fetch the real observed state
-  2. Compares observed state against desired state
-  3. If they differ, calls the appropriate capability to drive the transition
-  4. Emits a `ReconciliationResult` event with the outcome
-  5. Computes and broadcasts a health assessment
-  6. On success, resets the backoff; on failure, applies exponential backoff with jitter
+  1. Calls `SpritesCapability.get_sprite/1` to fetch the real status
+  2. Emits a `StateChange` event if the status changed
+  3. On success, resets the backoff; on failure, applies exponential backoff with jitter
   """
 
   use GenServer
@@ -41,7 +32,6 @@ defmodule Lattice.Sprites.Sprite do
   require Logger
 
   alias Lattice.Events
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.IntentGenerator
@@ -59,12 +49,11 @@ defmodule Lattice.Sprites.Sprite do
   ## Options
 
   - `:sprite_id` (required) -- unique identifier for this Sprite
-  - `:desired_state` -- initial desired state (default: `:hibernating`)
-  - `:observed_state` -- initial observed state (default: `:hibernating`)
-  - `:reconcile_interval_ms` -- reconciliation loop interval (default: 5000)
+  - `:status` -- initial status (default: `:cold`)
+  - `:reconcile_interval_ms` -- observation loop interval (default: 5000)
   - `:base_backoff_ms` -- base backoff for retries (default: 1000)
   - `:max_backoff_ms` -- max backoff cap (default: 60000)
-  - `:max_retries` -- max consecutive failures before health is `:error` (default: 10)
+  - `:max_retries` -- max consecutive failures (default: 10)
   - `:name` -- GenServer name registration (optional; when omitted and the
     `Lattice.Sprites.Registry` is running, the process registers itself via
     the Registry under `sprite_id`)
@@ -99,17 +88,6 @@ defmodule Lattice.Sprites.Sprite do
   end
 
   @doc """
-  Set the desired state for a Sprite.
-
-  Triggers reconciliation on the next cycle. Returns `:ok` on success or
-  `{:error, reason}` if the desired state is invalid.
-  """
-  @spec set_desired_state(GenServer.server(), State.lifecycle()) :: :ok | {:error, term()}
-  def set_desired_state(server, desired_state) do
-    GenServer.call(server, {:set_desired_state, desired_state})
-  end
-
-  @doc """
   Set the tags map for a Sprite, replacing the current tags.
 
   Tags are Lattice-local metadata (not part of the Sprites API).
@@ -121,9 +99,9 @@ defmodule Lattice.Sprites.Sprite do
   end
 
   @doc """
-  Trigger an immediate reconciliation cycle.
+  Trigger an immediate observation cycle.
 
-  Useful for testing or when an operator wants to force a reconciliation
+  Useful for testing or when an operator wants to force an observation
   without waiting for the next scheduled cycle.
   """
   @spec reconcile_now(GenServer.server()) :: :ok
@@ -164,8 +142,7 @@ defmodule Lattice.Sprites.Sprite do
   def init({sprite_id, opts}) do
     state_opts = [
       name: Keyword.get(opts, :sprite_name),
-      desired_state: Keyword.get(opts, :desired_state, :hibernating),
-      observed_state: Keyword.get(opts, :observed_state, :hibernating),
+      status: Keyword.get(opts, :status, :cold),
       base_backoff_ms: Keyword.get(opts, :base_backoff_ms, 1_000),
       max_backoff_ms: Keyword.get(opts, :max_backoff_ms, 60_000),
       max_retries: Keyword.get(opts, :max_retries, 10),
@@ -187,16 +164,6 @@ defmodule Lattice.Sprites.Sprite do
   @impl true
   def handle_call(:get_state, _from, {state, _interval} = server_state) do
     {:reply, {:ok, state}, server_state}
-  end
-
-  def handle_call({:set_desired_state, desired}, _from, {state, interval}) do
-    case State.set_desired(state, desired) do
-      {:ok, new_state} ->
-        {:reply, :ok, {new_state, interval}}
-
-      {:error, _reason} = error ->
-        {:reply, error, {state, interval}}
-    end
   end
 
   def handle_call({:set_tags, tags}, _from, {state, interval}) do
@@ -261,15 +228,14 @@ defmodule Lattice.Sprites.Sprite do
     end
   end
 
-  # ── Reconciliation Logic ────────────────────────────────────────────
+  # ── Observation Logic ────────────────────────────────────────────
 
   defp do_reconcile(%State{} = state) do
     start_time = System.monotonic_time(:millisecond)
 
-    case fetch_observed_state(state) do
-      {:ok, api_observed} ->
-        state = update_from_observation(state, api_observed)
-        reconcile_with_observation(state, start_time)
+    case fetch_observed_status(state) do
+      {:ok, api_status} ->
+        handle_observation(state, api_status, start_time)
 
       {:error, :not_found} ->
         handle_not_found(state, start_time)
@@ -279,8 +245,7 @@ defmodule Lattice.Sprites.Sprite do
     end
   end
 
-  # Fetch the real observed state from the SpritesCapability API.
-  defp fetch_observed_state(%State{sprite_id: sprite_id}) do
+  defp fetch_observed_status(%State{sprite_id: sprite_id}) do
     case sprites_capability().get_sprite(sprite_id) do
       {:ok, %{status: status}} when is_atom(status) ->
         {:ok, status}
@@ -289,98 +254,39 @@ defmodule Lattice.Sprites.Sprite do
         {:ok, parse_api_status(status)}
 
       {:ok, _sprite_data} ->
-        {:ok, :error}
+        {:ok, :cold}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  # Map API string statuses to internal lifecycle atoms.
-  defp parse_api_status("running"), do: :ready
-  defp parse_api_status("cold"), do: :hibernating
-  defp parse_api_status("warm"), do: :waking
-  defp parse_api_status("sleeping"), do: :hibernating
-  defp parse_api_status(_other), do: :error
+  defp parse_api_status("running"), do: :running
+  defp parse_api_status("cold"), do: :cold
+  defp parse_api_status("warm"), do: :warm
+  defp parse_api_status("sleeping"), do: :cold
+  defp parse_api_status(_other), do: :cold
 
-  # Update internal state with the observed API snapshot.
-  defp update_from_observation(%State{} = state, api_observed) do
-    old_observed = state.observed_state
+  defp handle_observation(%State{} = state, api_status, start_time) do
+    old_status = state.status
+    duration = System.monotonic_time(:millisecond) - start_time
 
-    case State.transition(state, api_observed) do
+    case State.update_status(state, api_status) do
       {:ok, new_state} ->
         new_state = State.record_observation(new_state)
-
-        if old_observed != api_observed do
-          emit_state_change(
-            state.sprite_id,
-            old_observed,
-            api_observed,
-            "API observation"
-          )
-        end
-
-        new_state
-
-      {:error, _} ->
-        state
-    end
-  end
-
-  # After updating observed from the API, decide what action to take.
-  defp reconcile_with_observation(%State{} = state, start_time) do
-    if State.needs_reconciliation?(state) do
-      reconcile_transition(state, start_time)
-    else
-      duration = System.monotonic_time(:millisecond) - start_time
-      new_state = State.reset_backoff(state)
-      new_state = %{new_state | not_found_count: 0}
-      emit_reconciliation_result(new_state, :no_change, duration)
-      new_state = update_and_emit_health(new_state, duration)
-      {new_state, :no_change}
-    end
-  end
-
-  defp reconcile_transition(%State{} = state, start_time) do
-    case attempt_transition(state) do
-      {:ok, new_observed} ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        old_observed = state.observed_state
-
-        {:ok, new_state} = State.transition(state, new_observed)
         new_state = State.reset_backoff(new_state)
         new_state = %{new_state | not_found_count: 0}
-        new_state = State.record_observation(new_state)
 
-        emit_state_change(state.sprite_id, old_observed, new_observed, "reconciliation")
+        if old_status != api_status do
+          emit_state_change(state.sprite_id, old_status, api_status, "API observation")
+        end
 
-        emit_reconciliation_result(
-          new_state,
-          :success,
-          duration,
-          "transitioned to #{new_observed}"
-        )
+        emit_reconciliation_result(new_state, :no_change, duration)
 
-        new_state = update_and_emit_health(new_state, duration)
+        {new_state, :no_change}
 
-        {new_state, :success}
-
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        new_state = State.record_failure(state)
-
-        new_state = maybe_transition_to_error(new_state, state.observed_state)
-
-        emit_reconciliation_result(
-          new_state,
-          :failure,
-          duration,
-          "reconciliation failed: #{inspect(reason)}"
-        )
-
-        new_state = update_and_emit_health(new_state, duration)
-
-        {new_state, :failure}
+      {:error, _} ->
+        {state, :failure}
     end
   end
 
@@ -399,7 +305,7 @@ defmodule Lattice.Sprites.Sprite do
       :telemetry.execute(
         [:lattice, :sprite, :externally_deleted],
         %{count: 1},
-        %{sprite_id: state.sprite_id, last_state: state.observed_state}
+        %{sprite_id: state.sprite_id, last_state: state.status}
       )
 
       Phoenix.PubSub.broadcast(
@@ -424,16 +330,13 @@ defmodule Lattice.Sprites.Sprite do
   # Handle API fetch failure (timeout, network error, etc.) as a transient failure.
   defp handle_fetch_failure(%State{} = state, reason, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
-    old_observed = state.observed_state
     new_state = State.record_failure(state)
     new_state = %{new_state | not_found_count: 0}
 
-    Logger.warning("Sprite reconciliation failure",
+    Logger.warning("Sprite observation failure",
       sprite_id: state.sprite_id,
       reason: inspect(reason)
     )
-
-    new_state = maybe_transition_to_error(new_state, old_observed)
 
     emit_reconciliation_result(
       new_state,
@@ -442,145 +345,7 @@ defmodule Lattice.Sprites.Sprite do
       "API fetch failed: #{inspect(reason)}"
     )
 
-    new_state = update_and_emit_health(new_state, duration)
-
     {new_state, :failure}
-  end
-
-  defp maybe_transition_to_error(%State{} = state, previous_observed) do
-    if previous_observed != :error do
-      case State.transition(state, :error) do
-        {:ok, error_state} ->
-          emit_state_change(
-            state.sprite_id,
-            previous_observed,
-            :error,
-            "reconciliation failure"
-          )
-
-          error_state
-
-        {:error, _} ->
-          state
-      end
-    else
-      state
-    end
-  end
-
-  # Determine what transition to attempt based on current and desired state.
-  # Calls the real SpritesCapability with the actual sprite_id.
-  defp attempt_transition(%State{
-         sprite_id: id,
-         observed_state: :hibernating,
-         desired_state: desired
-       })
-       when desired in [:waking, :ready, :busy] do
-    case sprites_capability().wake(id) do
-      {:ok, _} -> {:ok, :waking}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{sprite_id: id, observed_state: :waking, desired_state: desired})
-       when desired in [:ready, :busy] do
-    # Check if waking has completed
-    case sprites_capability().get_sprite(id) do
-      {:ok, %{status: status}} -> {:ok, resolve_observed(status)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{
-         sprite_id: id,
-         observed_state: :waking,
-         desired_state: :hibernating
-       }) do
-    case sprites_capability().sleep(id) do
-      {:ok, _} -> {:ok, :hibernating}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{sprite_id: id, observed_state: :ready, desired_state: :busy}) do
-    case sprites_capability().exec(id, "start-task") do
-      {:ok, _} -> {:ok, :busy}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{
-         sprite_id: id,
-         observed_state: :ready,
-         desired_state: :hibernating
-       }) do
-    case sprites_capability().sleep(id) do
-      {:ok, _} -> {:ok, :hibernating}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{sprite_id: id, observed_state: :busy, desired_state: :ready}) do
-    # Busy -> ready happens when the task completes; check the API
-    case sprites_capability().get_sprite(id) do
-      {:ok, %{status: status}} -> {:ok, resolve_observed(status)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{
-         sprite_id: id,
-         observed_state: :busy,
-         desired_state: :hibernating
-       }) do
-    case sprites_capability().sleep(id) do
-      {:ok, _} -> {:ok, :ready}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{
-         sprite_id: id,
-         observed_state: :error,
-         desired_state: :hibernating
-       }) do
-    # Recovery to hibernating: sleep the sprite
-    case sprites_capability().sleep(id) do
-      {:ok, _} -> {:ok, :hibernating}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{sprite_id: id, observed_state: :error, desired_state: desired})
-       when desired in [:waking, :ready] do
-    # Recovery from error: wake the sprite
-    case sprites_capability().wake(id) do
-      {:ok, _} -> {:ok, :waking}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp attempt_transition(%State{observed_state: observed, desired_state: desired}) do
-    {:error, {:no_transition_path, from: observed, to: desired}}
-  end
-
-  # Resolve a status value (atom or string) from the API response to a lifecycle atom.
-  defp resolve_observed(status) when is_atom(status), do: status
-  defp resolve_observed(status) when is_binary(status), do: parse_api_status(status)
-
-  # ── Health Assessment ─────────────────────────────────────────────
-
-  defp update_and_emit_health(%State{} = state, duration_ms) do
-    new_health = State.compute_health(state)
-    old_health = state.health
-
-    new_state = %{state | health: new_health}
-
-    if old_health != new_health do
-      emit_health_update(new_state, new_health, duration_ms)
-    end
-
-    new_state
   end
 
   # ── Event Emission ──────────────────────────────────────────────────
@@ -612,36 +377,6 @@ defmodule Lattice.Sprites.Sprite do
 
     Events.broadcast_sprite_log(state.sprite_id, log_line)
   end
-
-  defp emit_health_update(%State{} = state, health_status, duration_ms) do
-    # Map internal health atoms to HealthUpdate-compatible statuses
-    status = health_to_event_status(health_status)
-    message = health_message(health_status, state)
-
-    case HealthUpdate.new(state.sprite_id, status, duration_ms, message: message) do
-      {:ok, event} -> Events.broadcast_health_update(event)
-      {:error, _} -> :ok
-    end
-
-    log_line =
-      Logs.from_event(:health, state.sprite_id, %{status: status, message: message})
-
-    Events.broadcast_sprite_log(state.sprite_id, log_line)
-  end
-
-  defp health_to_event_status(:ok), do: :healthy
-  defp health_to_event_status(:converging), do: :healthy
-  defp health_to_event_status(:degraded), do: :degraded
-  defp health_to_event_status(:error), do: :unhealthy
-
-  defp health_message(:ok, _state), do: "observed matches desired"
-  defp health_message(:converging, _state), do: "action taken, waiting for effect"
-
-  defp health_message(:degraded, %State{failure_count: count}),
-    do: "retrying after #{count} consecutive failure(s)"
-
-  defp health_message(:error, %State{failure_count: count, max_retries: max}),
-    do: "max retries exceeded (#{count}/#{max})"
 
   # ── Scheduling ──────────────────────────────────────────────────────
 

@@ -20,13 +20,7 @@ defmodule Lattice.Sprites.FleetManager do
 
   ## Configuration
 
-  Sprite discovery reads from application config:
-
-      config :lattice, :fleet,
-        sprites: [
-          %{id: "sprite-001", desired_state: :hibernating},
-          %{id: "sprite-002", desired_state: :ready}
-        ]
+  Sprite discovery reads from the Sprites API or application config.
 
   ## Events
 
@@ -97,12 +91,12 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
-  Return a summary of the fleet: total count and breakdown by observed state.
+  Return a summary of the fleet: total count and breakdown by status.
 
   ## Example
 
       FleetManager.fleet_summary()
-      #=> %{total: 3, by_state: %{hibernating: 2, ready: 1}}
+      #=> %{total: 3, by_state: %{cold: 2, running: 1}}
   """
   @spec fleet_summary(GenServer.server()) :: map()
   def fleet_summary(server \\ __MODULE__) do
@@ -110,7 +104,7 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
-  Set the desired state to `:ready` for the given sprite IDs (wake them up).
+  Wake the given sprites by calling the Sprites API directly.
 
   Returns a map of `%{sprite_id => :ok | {:error, reason}}`.
   """
@@ -120,7 +114,7 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
-  Set the desired state to `:hibernating` for the given sprite IDs (put them to sleep).
+  Sleep the given sprites by calling the Sprites API directly.
 
   Returns a map of `%{sprite_id => :ok | {:error, reason}}`.
   """
@@ -163,7 +157,7 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @doc """
-  Trigger an immediate reconciliation cycle on all managed sprites.
+  Trigger an immediate observation cycle on all managed sprites.
 
   Returns `:ok` after sending reconcile commands to all sprites.
   """
@@ -227,13 +221,13 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   def handle_call({:wake_sprites, sprite_ids}, _from, %FleetState{} = state) do
-    results = set_desired_states(sprite_ids, :ready)
+    results = call_capability_for_sprites(sprite_ids, :wake)
     broadcast_fleet_summary(state)
     {:reply, results, state}
   end
 
   def handle_call({:sleep_sprites, sprite_ids}, _from, %FleetState{} = state) do
-    results = set_desired_states(sprite_ids, :hibernating)
+    results = call_capability_for_sprites(sprite_ids, :sleep)
     broadcast_fleet_summary(state)
     {:reply, results, state}
   end
@@ -242,9 +236,8 @@ defmodule Lattice.Sprites.FleetManager do
     if sprite_id in state.sprite_ids do
       {:reply, {:error, :already_exists}, state}
     else
-      desired = Keyword.get(opts, :desired_state, :hibernating)
       sprite_name = Keyword.get(opts, :sprite_name)
-      config = %{id: sprite_id, name: sprite_name, desired_state: desired}
+      config = %{id: sprite_id, name: sprite_name}
 
       case start_sprite(config, state.supervisor) do
         {:ok, ^sprite_id} ->
@@ -304,7 +297,7 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   # Ignore other PubSub messages on the fleet topic (state changes,
-  # reconciliation results, health updates, etc.) — only externally-deleted
+  # reconciliation results, etc.) — only externally-deleted
   # messages need fleet-manager-level handling.
   @impl true
   def handle_info(_msg, state) do
@@ -339,16 +332,13 @@ defmodule Lattice.Sprites.FleetManager do
 
     base = %{
       id: sprite_id,
-      name: sprite[:name] || sprite["name"],
-      desired_state: :hibernating
+      name: sprite[:name] || sprite["name"]
     }
 
-    # Restore persisted metadata (tags, desired_state) from the store
+    # Restore persisted metadata (tags) from the store
     case Lattice.Store.get(:sprite_metadata, sprite_id) do
       {:ok, metadata} ->
-        base
-        |> maybe_restore_tags(metadata)
-        |> maybe_restore_desired_state(metadata)
+        maybe_restore_tags(base, metadata)
 
       {:error, :not_found} ->
         base
@@ -358,13 +348,6 @@ defmodule Lattice.Sprites.FleetManager do
   defp maybe_restore_tags(config, metadata) do
     case Map.get(metadata, :tags) do
       tags when is_map(tags) and tags != %{} -> Map.put(config, :tags, tags)
-      _ -> config
-    end
-  end
-
-  defp maybe_restore_desired_state(config, metadata) do
-    case Map.get(metadata, :desired_state) do
-      desired when is_atom(desired) and desired != nil -> Map.put(config, :desired_state, desired)
       _ -> config
     end
   end
@@ -380,7 +363,6 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   defp start_sprite(%{id: sprite_id} = config, supervisor) do
-    desired = Map.get(config, :desired_state, :hibernating)
     sprite_name = Map.get(config, :name)
     tags = Map.get(config, :tags, %{})
 
@@ -389,7 +371,6 @@ defmodule Lattice.Sprites.FleetManager do
        [
          sprite_id: sprite_id,
          sprite_name: sprite_name,
-         desired_state: desired,
          tags: tags,
          name: Sprite.via(sprite_id)
        ]}
@@ -416,31 +397,18 @@ defmodule Lattice.Sprites.FleetManager do
     end
   end
 
-  defp set_desired_states(sprite_ids, desired_state) do
+  defp call_capability_for_sprites(sprite_ids, action) do
+    capability = sprites_capability()
+
     Map.new(sprite_ids, fn id ->
-      {id, set_desired_state_for_sprite(id, desired_state)}
+      result =
+        case apply(capability, action, [id]) do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {id, result}
     end)
-  end
-
-  defp set_desired_state_for_sprite(sprite_id, desired_state) do
-    with {:ok, pid} <- get_sprite_pid(sprite_id),
-         :ok <- Sprite.set_desired_state(pid, desired_state) do
-      persist_sprite_metadata(sprite_id, pid)
-      :ok
-    end
-  end
-
-  defp persist_sprite_metadata(sprite_id, pid) do
-    case Sprite.get_state(pid) do
-      {:ok, sprite_state} ->
-        Lattice.Store.put(:sprite_metadata, sprite_id, %{
-          tags: sprite_state.tags,
-          desired_state: sprite_state.desired_state
-        })
-
-      _ ->
-        :ok
-    end
   end
 
   defp compute_fleet_summary(%FleetState{} = state) do
@@ -452,7 +420,7 @@ defmodule Lattice.Sprites.FleetManager do
 
     by_state =
       sprites
-      |> Enum.group_by(& &1.observed_state)
+      |> Enum.group_by(& &1.status)
       |> Map.new(fn {state_name, group} -> {state_name, length(group)} end)
 
     %{

@@ -23,7 +23,7 @@ defmodule Lattice.Capabilities.Sprites.LiveTest do
 
       assert result.id == "my-sprite"
       assert result.name == "my-sprite"
-      assert result.status == :ready
+      assert result.status == :running
       assert result.organization == "plattegruber"
       assert result.url == "https://my-sprite.sprites.dev"
       assert result.created_at == "2026-02-16T08:00:00Z"
@@ -60,7 +60,7 @@ defmodule Lattice.Capabilities.Sprites.LiveTest do
       result = Live.parse_sprite(api_response)
 
       assert result.id == "my-sprite"
-      assert result.status == :waking
+      assert result.status == :warm
       assert result.organization == nil
     end
   end
@@ -68,38 +68,29 @@ defmodule Lattice.Capabilities.Sprites.LiveTest do
   describe "delete_sprite/1 response handling" do
     @tag :unit
     test "delete_sprite/1 maps {:ok, _} to :ok" do
-      # The Live module's delete_sprite/1 receives results from the HTTP layer:
-      #   - HTTP 204 -> {:ok, :no_content} -> :ok
-      #   - HTTP 200 -> {:ok, %{...}}      -> :ok
-      #   - HTTP 404 -> {:error, :not_found} -> :ok (idempotent)
-      #   - Other errors propagate as {:error, reason}
-      #
-      # Since the HTTP helpers are private, we verify the branch logic
-      # by testing that the function signature matches the behaviour callback
-      # (returns :ok | {:error, term()}).
       assert function_exported?(Lattice.Capabilities.Sprites.Live, :delete_sprite, 1)
     end
   end
 
   describe "parse_status/1" do
-    test "maps 'cold' to :hibernating" do
-      assert Live.parse_status("cold") == :hibernating
+    test "maps 'cold' to :cold" do
+      assert Live.parse_status("cold") == :cold
     end
 
-    test "maps 'warm' to :waking" do
-      assert Live.parse_status("warm") == :waking
+    test "maps 'warm' to :warm" do
+      assert Live.parse_status("warm") == :warm
     end
 
-    test "maps 'running' to :ready" do
-      assert Live.parse_status("running") == :ready
+    test "maps 'running' to :running" do
+      assert Live.parse_status("running") == :running
     end
 
-    test "maps nil to :error" do
-      assert Live.parse_status(nil) == :error
+    test "maps nil to :cold" do
+      assert Live.parse_status(nil) == :cold
     end
 
-    test "maps unknown status to :error" do
-      assert Live.parse_status("unknown") == :error
+    test "maps unknown status to :cold" do
+      assert Live.parse_status("unknown") == :cold
     end
   end
 end

@@ -18,16 +18,13 @@ defmodule LatticeWeb.Api.TaskControllerTest do
     put_req_header(conn, "authorization", "Bearer test-token")
   end
 
-  defp start_sprite(sprite_id, opts \\ []) do
-    desired = Keyword.get(opts, :desired_state, :hibernating)
-
+  defp start_sprite(sprite_id, _opts \\ []) do
     {:ok, _pid} =
       DynamicSupervisor.start_child(
         Lattice.Sprites.DynamicSupervisor,
         {Sprite,
          [
            sprite_id: sprite_id,
-           desired_state: desired,
            name: Sprite.via(sprite_id),
            reconcile_interval_ms: 600_000
          ]}

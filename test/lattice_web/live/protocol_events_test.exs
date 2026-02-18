@@ -35,8 +35,6 @@ defmodule LatticeWeb.SpriteLive.ProtocolEventsTest do
     {:ok, _pid} =
       Sprite.start_link(
         sprite_id: sprite_id,
-        desired_state: :hibernating,
-        observed_state: :hibernating,
         reconcile_interval_ms: 60_000,
         name: Sprite.via(sprite_id)
       )

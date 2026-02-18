@@ -30,7 +30,7 @@ defmodule Lattice.Capabilities.Sprites.LiveIntegrationTest do
         assert Map.has_key?(sprite, :id)
         assert Map.has_key?(sprite, :name)
         assert Map.has_key?(sprite, :status)
-        assert sprite.status in [:hibernating, :waking, :ready, :busy, :error]
+        assert sprite.status in [:cold, :warm, :running]
       end
     end
   end
@@ -43,7 +43,7 @@ defmodule Lattice.Capabilities.Sprites.LiveIntegrationTest do
         [first | _] ->
           assert {:ok, sprite} = Live.get_sprite(first.name)
           assert sprite.name == first.name
-          assert sprite.status in [:hibernating, :waking, :ready, :busy, :error]
+          assert sprite.status in [:cold, :warm, :running]
 
         [] ->
           # No sprites available — skip gracefully

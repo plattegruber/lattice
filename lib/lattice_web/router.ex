@@ -74,8 +74,9 @@ defmodule LatticeWeb.Router do
     get "/sprites", SpriteController, :index
     post "/sprites", SpriteController, :create
     get "/sprites/:id", SpriteController, :show
-    put "/sprites/:id/desired", SpriteController, :update_desired
     put "/sprites/:id/tags", SpriteController, :update_tags
+    post "/sprites/:id/wake", SpriteController, :wake
+    post "/sprites/:id/sleep", SpriteController, :sleep
     post "/sprites/:id/reconcile", SpriteController, :reconcile
     delete "/sprites/:id", SpriteController, :delete
     post "/sprites/:name/tasks", TaskController, :create

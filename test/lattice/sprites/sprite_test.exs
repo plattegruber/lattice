@@ -6,7 +6,6 @@ defmodule Lattice.Sprites.SpriteTest do
   import Mox
 
   alias Lattice.Events
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Sprites.Sprite
@@ -39,7 +38,7 @@ defmodule Lattice.Sprites.SpriteTest do
     {pid, sprite_id}
   end
 
-  # Stub get_sprite to return a specific observed status (atom).
+  # Stub get_sprite to return a specific status (atom).
   # This is the observation call that happens at the start of every reconciliation cycle.
   defp stub_observation(status) when is_atom(status) do
     Lattice.Capabilities.MockSprites
@@ -50,7 +49,7 @@ defmodule Lattice.Sprites.SpriteTest do
 
   describe "start_link/1" do
     test "starts a Sprite GenServer" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
       {pid, _id} = start_sprite()
       assert Process.alive?(pid)
     end
@@ -62,7 +61,7 @@ defmodule Lattice.Sprites.SpriteTest do
     end
 
     test "accepts a name option" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
       name = :"sprite-named-#{System.unique_integer([:positive])}"
 
       {:ok, pid} =
@@ -76,26 +75,11 @@ defmodule Lattice.Sprites.SpriteTest do
       assert GenServer.whereis(name) == pid
     end
 
-    test "initializes with default hibernating state" do
-      stub_observation(:hibernating)
+    test "initializes with default cold status" do
+      stub_observation(:cold)
       {pid, _id} = start_sprite()
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :hibernating
-      assert state.desired_state == :hibernating
-    end
-
-    test "initializes with custom desired state" do
-      stub_observation(:hibernating)
-      {pid, _id} = start_sprite(desired_state: :ready)
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.desired_state == :ready
-    end
-
-    test "initializes with custom observed state" do
-      stub_observation(:ready)
-      {pid, _id} = start_sprite(observed_state: :ready)
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :ready
+      assert state.status == :cold
     end
   end
 
@@ -103,7 +87,7 @@ defmodule Lattice.Sprites.SpriteTest do
 
   describe "get_state/1" do
     test "returns the current state struct" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
       {pid, sprite_id} = start_sprite()
       {:ok, state} = Sprite.get_state(pid)
 
@@ -112,40 +96,12 @@ defmodule Lattice.Sprites.SpriteTest do
     end
   end
 
-  # ── set_desired_state ───────────────────────────────────────────────
-
-  describe "set_desired_state/2" do
-    test "updates the desired state" do
-      stub_observation(:hibernating)
-      {pid, _id} = start_sprite()
-      assert :ok = Sprite.set_desired_state(pid, :ready)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.desired_state == :ready
-    end
-
-    test "rejects invalid desired state" do
-      stub_observation(:hibernating)
-      {pid, _id} = start_sprite()
-      assert {:error, {:invalid_lifecycle, :bogus}} = Sprite.set_desired_state(pid, :bogus)
-    end
-
-    test "preserves state on error" do
-      stub_observation(:hibernating)
-      {pid, _id} = start_sprite()
-      Sprite.set_desired_state(pid, :bogus)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.desired_state == :hibernating
-    end
-  end
-
   # ── Reconciliation: No Change ───────────────────────────────────────
 
   describe "reconciliation with no change needed" do
-    test "emits no_change reconciliation result when states match" do
-      # API says hibernating, desired is hibernating -> no change
-      stub_observation(:hibernating)
+    test "emits no_change reconciliation result when status unchanged" do
+      # API says cold, sprite starts as cold -> no change
+      stub_observation(:cold)
 
       {pid, sprite_id} = start_sprite()
 
@@ -162,7 +118,7 @@ defmodule Lattice.Sprites.SpriteTest do
     end
 
     test "resets backoff on no-change reconciliation" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, _id} = start_sprite()
 
@@ -174,26 +130,25 @@ defmodule Lattice.Sprites.SpriteTest do
     end
   end
 
-  # ── Reconciliation: Observation Updates Observed State ──────────────
+  # ── Reconciliation: Observation Updates Status ──────────────────────
 
   describe "reconciliation observation from API" do
-    test "updates observed state from API response" do
-      # Sprite was initialized as hibernating but API says it is ready
+    test "updates status from API response" do
+      # Sprite starts as cold but API says it is running
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :running}} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :ready)
+      {pid, sprite_id} = start_sprite()
 
       :ok = Events.subscribe_sprite(sprite_id)
 
       Sprite.reconcile_now(pid)
 
-      # The API says ready, desired is ready, so we should see
-      # an observation state change and a no_change reconciliation
+      # The API says running, so we should see a state change from cold to running
       assert_receive %StateChange{
                        sprite_id: ^sprite_id,
-                       from_state: :hibernating,
-                       to_state: :ready
+                       from_state: :cold,
+                       to_state: :running
                      },
                      1_000
 
@@ -204,25 +159,24 @@ defmodule Lattice.Sprites.SpriteTest do
                      1_000
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :ready
+      assert state.status == :running
       assert state.failure_count == 0
     end
 
-    test "handles string status from API response" do
-      # API returns string "running" which should be parsed to :ready
+    test "handles string 'running' status from API response" do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: "running"}} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :ready
+      assert state.status == :running
     end
 
-    test "handles 'cold' API status as hibernating" do
+    test "handles string 'cold' status from API response" do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: "cold"}} end)
 
@@ -232,153 +186,20 @@ defmodule Lattice.Sprites.SpriteTest do
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :hibernating
+      assert state.status == :cold
     end
 
-    test "handles 'warm' API status as waking" do
+    test "handles string 'warm' status from API response" do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: "warm"}} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      # API says waking, but desired is ready, so attempt_transition may change it
-      # The key thing is the API observation was parsed correctly
-      assert state.observed_state in [:waking, :ready]
-    end
-
-    test "concurrent state change from another actor is detected" do
-      # Sprite thinks it is :ready but API reports :hibernating (someone else stopped it)
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: :waking}} end)
-
-      {pid, sprite_id} = start_sprite(observed_state: :ready, desired_state: :ready)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      # Should detect the external change: ready -> hibernating
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :ready,
-                       to_state: :hibernating
-                     },
-                     1_000
-
-      # Then attempt reconciliation since desired is :ready but observed is :hibernating
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :hibernating,
-                       to_state: :waking
-                     },
-                     1_000
-    end
-  end
-
-  # ── Reconciliation: Successful Transition ───────────────────────────
-
-  describe "reconciliation with transition" do
-    test "transitions hibernating -> waking when desired is ready" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
-
-      {pid, sprite_id} = start_sprite(desired_state: :ready)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :hibernating,
-                       to_state: :waking
-                     },
-                     1_000
-
-      assert_receive %ReconciliationResult{
-                       sprite_id: ^sprite_id,
-                       outcome: :success
-                     },
-                     1_000
-    end
-
-    test "transitions waking -> ready on next reconciliation" do
-      # API says still waking, but get_sprite in attempt_transition returns ready
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
-
-      {pid, sprite_id} = start_sprite(observed_state: :waking, desired_state: :ready)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      # The API observation says ready, which matches desired -> no transition needed
-      # (observation itself triggers the state change from waking to ready)
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :waking,
-                       to_state: :ready
-                     },
-                     1_000
-    end
-
-    test "transitions ready -> busy" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
-      |> stub(:exec, fn _id, _cmd -> {:ok, %{exit_code: 0}} end)
-
-      {pid, sprite_id} = start_sprite(observed_state: :ready, desired_state: :busy)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :ready,
-                       to_state: :busy
-                     },
-                     1_000
-    end
-
-    test "transitions ready -> hibernating" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
-      |> stub(:sleep, fn _id -> {:ok, %{id: "test", status: "sleeping"}} end)
-
-      {pid, sprite_id} = start_sprite(observed_state: :ready, desired_state: :hibernating)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :ready,
-                       to_state: :hibernating
-                     },
-                     1_000
-    end
-
-    test "resets backoff on successful reconciliation" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
-
-      {pid, _id} = start_sprite(desired_state: :waking)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.failure_count == 0
+      assert state.status == :warm
     end
 
     test "uses real sprite_id in API calls" do
@@ -386,16 +207,12 @@ defmodule Lattice.Sprites.SpriteTest do
 
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn id ->
-        # Verify the real sprite_id is passed, not "synthetic"
+        # Verify the real sprite_id is passed
         assert id == test_sprite_id
-        {:ok, %{id: id, status: :hibernating}}
-      end)
-      |> stub(:wake, fn id ->
-        assert id == test_sprite_id
-        {:ok, %{id: id, status: :waking}}
+        {:ok, %{id: id, status: :cold}}
       end)
 
-      {pid, ^test_sprite_id} = start_sprite(sprite_id: test_sprite_id, desired_state: :ready)
+      {pid, ^test_sprite_id} = start_sprite(sprite_id: test_sprite_id)
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -412,7 +229,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
 
-      {pid, _id} = start_sprite(desired_state: :waking)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -421,68 +238,26 @@ defmodule Lattice.Sprites.SpriteTest do
       assert state.failure_count == 1
     end
 
-    test "increments failure count on transition failure" do
-      # Observation succeeds, but the wake call fails
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:error, :api_timeout} end)
-
-      {pid, _id} = start_sprite(desired_state: :ready)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.failure_count == 1
-    end
-
-    test "transitions to error state on fetch failure" do
+    test "status stays unchanged on API fetch failure" do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :waking)
+      {pid, sprite_id} = start_sprite()
 
       :ok = Events.subscribe_sprite(sprite_id)
 
       Sprite.reconcile_now(pid)
-
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :hibernating,
-                       to_state: :error
-                     },
-                     1_000
 
       assert_receive %ReconciliationResult{
                        sprite_id: ^sprite_id,
                        outcome: :failure
                      },
                      1_000
-    end
 
-    test "transitions to error state on transition failure" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:error, :api_timeout} end)
-
-      {pid, sprite_id} = start_sprite(desired_state: :waking)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %StateChange{
-                       sprite_id: ^sprite_id,
-                       from_state: :hibernating,
-                       to_state: :error
-                     },
-                     1_000
-
-      assert_receive %ReconciliationResult{
-                       sprite_id: ^sprite_id,
-                       outcome: :failure
-                     },
-                     1_000
+      {:ok, state} = Sprite.get_state(pid)
+      # Status remains cold -- no transition to :error
+      assert state.status == :cold
+      assert state.failure_count == 1
     end
 
     test "accumulates failures with exponential backoff" do
@@ -490,7 +265,7 @@ defmodule Lattice.Sprites.SpriteTest do
       |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
 
       {pid, _id} =
-        start_sprite(desired_state: :waking, base_backoff_ms: 100, max_backoff_ms: 10_000)
+        start_sprite(base_backoff_ms: 100, max_backoff_ms: 10_000)
 
       # First failure
       Sprite.reconcile_now(pid)
@@ -499,7 +274,7 @@ defmodule Lattice.Sprites.SpriteTest do
       assert state.failure_count == 1
       assert state.backoff_ms == 100
 
-      # Second failure (now in error state, trying to recover)
+      # Second failure
       Sprite.reconcile_now(pid)
       Process.sleep(50)
       {:ok, state} = Sprite.get_state(pid)
@@ -512,7 +287,7 @@ defmodule Lattice.Sprites.SpriteTest do
       |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
 
       {pid, _id} =
-        start_sprite(desired_state: :waking, base_backoff_ms: 100, max_backoff_ms: 200)
+        start_sprite(base_backoff_ms: 100, max_backoff_ms: 200)
 
       # Accumulate many failures
       for _ <- 1..10 do
@@ -524,30 +299,30 @@ defmodule Lattice.Sprites.SpriteTest do
       assert state.backoff_ms <= 200
     end
 
-    test "recovery from error state resets backoff" do
+    test "recovery after failures resets backoff" do
       # First, cause a failure
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :timeout} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :error
+      # Status stays as last known (cold), failure count incremented
+      assert state.status == :cold
       assert state.failure_count > 0
 
-      # Now succeed on next attempt: API returns healthy state and wake succeeds
+      # Now succeed on next attempt: API returns a valid status
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :error}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :running}} end)
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      assert state.observed_state == :waking
+      assert state.status == :running
       assert state.failure_count == 0
       assert state.backoff_ms == 100
     end
@@ -560,7 +335,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
 
-      {pid, _sprite_id} = start_sprite(desired_state: :ready)
+      {pid, _sprite_id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -575,7 +350,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :timeout} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :ready)
+      {pid, sprite_id} = start_sprite()
 
       :ok = Events.subscribe_sprite(sprite_id)
 
@@ -589,6 +364,8 @@ defmodule Lattice.Sprites.SpriteTest do
 
       {:ok, state} = Sprite.get_state(pid)
       assert state.failure_count == 1
+      # Status stays unchanged -- no transition to :error
+      assert state.status == :cold
       # Process should still be alive after timeout
       assert Process.alive?(pid)
     end
@@ -597,7 +374,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :rate_limited} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -611,7 +388,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, {:server_error, 500, "Internal Server Error"}} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -622,34 +399,33 @@ defmodule Lattice.Sprites.SpriteTest do
     end
 
     test "handles API returning unknown status" do
-      # API returns a status we do not recognize
+      # API returns a status we do not recognize -- maps to :cold
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: "unknown_status"}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: :waking}} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      # Unknown status maps to :error, then reconciliation attempts recovery
-      assert state.observed_state in [:error, :waking]
+      # Unknown string status maps to :cold
+      assert state.status == :cold
     end
 
     test "handles API response without status field" do
+      # Missing status field maps to :cold
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", name: "no-status"}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: :waking}} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
-      # Missing status maps to :error, then reconciliation attempts recovery
-      assert state.observed_state in [:error, :waking]
+      # nil status maps to :cold
+      assert state.status == :cold
     end
   end
 
@@ -660,7 +436,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -687,7 +463,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :ready)
+      {pid, sprite_id} = start_sprite()
 
       # Monitor the process to detect when it stops
       process_ref = Process.monitor(pid)
@@ -721,7 +497,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :not_found} end)
 
-      {pid, _id} = start_sprite(desired_state: :hibernating)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -731,165 +507,13 @@ defmodule Lattice.Sprites.SpriteTest do
 
       # Now make the API return success
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :cold}} end)
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
 
       {:ok, state} = Sprite.get_state(pid)
       assert state.not_found_count == 0
-    end
-  end
-
-  # ── Health Assessment ───────────────────────────────────────────────
-
-  describe "health assessment" do
-    test "health is :ok when observed matches desired" do
-      stub_observation(:hibernating)
-
-      {pid, _id} = start_sprite()
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.health == :ok
-    end
-
-    test "health is :converging when action taken" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: :waking}} end)
-
-      {pid, _id} = start_sprite(desired_state: :ready)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      # After wake, observed is :waking, desired is :ready -> converging
-      assert state.health == :converging
-    end
-
-    test "health is :degraded when retrying after failure" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
-
-      {pid, _id} = start_sprite(desired_state: :ready, max_retries: 10)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.health == :degraded
-    end
-
-    test "health is :error when max retries exceeded" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
-
-      {pid, _id} =
-        start_sprite(
-          desired_state: :ready,
-          max_retries: 2,
-          base_backoff_ms: 10,
-          max_backoff_ms: 50
-        )
-
-      # Exhaust retries
-      for _ <- 1..3 do
-        Sprite.reconcile_now(pid)
-        Process.sleep(20)
-      end
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.health == :error
-      assert state.failure_count >= 2
-    end
-
-    test "emits health update event on health change" do
-      stub_observation(:hibernating)
-
-      {pid, sprite_id} = start_sprite()
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      # Health changes from :unknown to :ok
-      assert_receive %HealthUpdate{
-                       sprite_id: ^sprite_id,
-                       status: :healthy
-                     },
-                     1_000
-    end
-
-    test "emits degraded health update on failure" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
-
-      {pid, sprite_id} = start_sprite(desired_state: :ready, max_retries: 10)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %HealthUpdate{
-                       sprite_id: ^sprite_id,
-                       status: :degraded
-                     },
-                     1_000
-    end
-
-    test "emits unhealthy health update when max retries exceeded" do
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
-
-      {pid, sprite_id} =
-        start_sprite(
-          desired_state: :ready,
-          max_retries: 1,
-          base_backoff_ms: 10,
-          max_backoff_ms: 50
-        )
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      # First failure -> degraded (failure_count=1, max_retries=1 -> error)
-      Sprite.reconcile_now(pid)
-
-      assert_receive %HealthUpdate{
-                       sprite_id: ^sprite_id,
-                       status: :unhealthy
-                     },
-                     1_000
-    end
-
-    test "health recovers after successful reconciliation" do
-      # Start with failure
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
-
-      {pid, sprite_id} = start_sprite(desired_state: :ready, max_retries: 10)
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.health == :degraded
-
-      # Now API recovers, returns desired state
-      Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
-
-      Sprite.reconcile_now(pid)
-      Process.sleep(50)
-
-      {:ok, state} = Sprite.get_state(pid)
-      assert state.health == :ok
-      assert state.failure_count == 0
     end
   end
 
@@ -901,7 +525,7 @@ defmodule Lattice.Sprites.SpriteTest do
       |> stub(:get_sprite, fn _id -> {:error, :api_timeout} end)
 
       {pid, _id} =
-        start_sprite(desired_state: :ready, base_backoff_ms: 1_000, max_backoff_ms: 10_000)
+        start_sprite(base_backoff_ms: 1_000, max_backoff_ms: 10_000)
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -918,7 +542,7 @@ defmodule Lattice.Sprites.SpriteTest do
 
   describe "observation tracking" do
     test "records last_observed_at on successful API fetch" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, _id} = start_sprite()
 
@@ -937,7 +561,7 @@ defmodule Lattice.Sprites.SpriteTest do
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:error, :timeout} end)
 
-      {pid, _id} = start_sprite(desired_state: :ready)
+      {pid, _id} = start_sprite()
 
       Sprite.reconcile_now(pid)
       Process.sleep(50)
@@ -952,20 +576,20 @@ defmodule Lattice.Sprites.SpriteTest do
   describe "PubSub broadcasting" do
     test "broadcasts state changes to fleet topic" do
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :running}} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :waking)
+      {pid, sprite_id} = start_sprite()
 
       :ok = Events.subscribe_fleet()
 
       Sprite.reconcile_now(pid)
 
-      assert_receive %StateChange{sprite_id: ^sprite_id}, 1_000
+      assert_receive %StateChange{sprite_id: ^sprite_id, from_state: :cold, to_state: :running},
+                     1_000
     end
 
     test "broadcasts reconciliation results to fleet topic" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, sprite_id} = start_sprite()
 
@@ -978,41 +602,18 @@ defmodule Lattice.Sprites.SpriteTest do
 
     test "broadcasts to per-sprite topic" do
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :running}} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :waking)
+      {pid, sprite_id} = start_sprite()
 
       :ok = Events.subscribe_sprite(sprite_id)
 
       Sprite.reconcile_now(pid)
 
-      assert_receive %StateChange{sprite_id: ^sprite_id}, 1_000
+      assert_receive %StateChange{sprite_id: ^sprite_id, from_state: :cold, to_state: :running},
+                     1_000
+
       assert_receive %ReconciliationResult{sprite_id: ^sprite_id}, 1_000
-    end
-
-    test "broadcasts health updates to sprite topic" do
-      stub_observation(:hibernating)
-
-      {pid, sprite_id} = start_sprite()
-
-      :ok = Events.subscribe_sprite(sprite_id)
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %HealthUpdate{sprite_id: ^sprite_id}, 1_000
-    end
-
-    test "broadcasts health updates to fleet topic" do
-      stub_observation(:hibernating)
-
-      {pid, sprite_id} = start_sprite()
-
-      :ok = Events.subscribe_fleet()
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive %HealthUpdate{sprite_id: ^sprite_id}, 1_000
     end
   end
 
@@ -1026,8 +627,7 @@ defmodule Lattice.Sprites.SpriteTest do
 
       events = [
         [:lattice, :sprite, :state_change],
-        [:lattice, :sprite, :reconciliation],
-        [:lattice, :sprite, :health_update]
+        [:lattice, :sprite, :reconciliation]
       ]
 
       :telemetry.attach_many(
@@ -1046,10 +646,9 @@ defmodule Lattice.Sprites.SpriteTest do
 
     test "emits telemetry on state change", %{ref: ref} do
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :hibernating}} end)
-      |> stub(:wake, fn _id -> {:ok, %{id: "test", status: "running"}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :running}} end)
 
-      {pid, sprite_id} = start_sprite(desired_state: :waking)
+      {pid, sprite_id} = start_sprite()
 
       Sprite.reconcile_now(pid)
 
@@ -1059,7 +658,7 @@ defmodule Lattice.Sprites.SpriteTest do
     end
 
     test "emits telemetry on reconciliation", %{ref: ref} do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, sprite_id} = start_sprite()
 
@@ -1069,25 +668,13 @@ defmodule Lattice.Sprites.SpriteTest do
                       %{sprite_id: ^sprite_id}},
                      1_000
     end
-
-    test "emits telemetry on health update", %{ref: ref} do
-      stub_observation(:hibernating)
-
-      {pid, sprite_id} = start_sprite()
-
-      Sprite.reconcile_now(pid)
-
-      assert_receive {:telemetry, ^ref, [:lattice, :sprite, :health_update], _measurements,
-                      %{sprite_id: ^sprite_id}},
-                     1_000
-    end
   end
 
   # ── Periodic Reconciliation ─────────────────────────────────────────
 
   describe "periodic reconciliation" do
     test "runs reconciliation on schedule" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, sprite_id} = start_sprite(reconcile_interval_ms: 50)
 
@@ -1105,7 +692,7 @@ defmodule Lattice.Sprites.SpriteTest do
 
   describe "max retries configuration" do
     test "accepts max_retries option" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, _id} = start_sprite(max_retries: 5)
 
@@ -1114,7 +701,7 @@ defmodule Lattice.Sprites.SpriteTest do
     end
 
     test "defaults max_retries to 10" do
-      stub_observation(:hibernating)
+      stub_observation(:cold)
 
       {pid, _id} = start_sprite()
 
