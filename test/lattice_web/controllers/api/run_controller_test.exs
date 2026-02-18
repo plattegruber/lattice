@@ -25,7 +25,7 @@ defmodule LatticeWeb.Api.RunControllerTest do
 
   defp create_run(attrs \\ []) do
     defaults = [sprite_name: "sprite-001", mode: :exec_ws]
-    run = Run.new(Keyword.merge(defaults, attrs))
+    {:ok, run} = Run.new(Keyword.merge(defaults, attrs))
     {:ok, run} = RunStore.create(run)
     run
   end
@@ -80,6 +80,7 @@ defmodule LatticeWeb.Api.RunControllerTest do
       assert data["exit_code"] == nil
       assert data["error"] == nil
       assert is_binary(data["inserted_at"])
+      assert is_binary(data["updated_at"])
     end
 
     test "filters by intent_id", %{conn: conn} do
@@ -115,7 +116,7 @@ defmodule LatticeWeb.Api.RunControllerTest do
     test "filters by status", %{conn: conn} do
       create_run(sprite_name: "s1")
 
-      run2 = Run.new(sprite_name: "s2", mode: :exec_ws)
+      {:ok, run2} = Run.new(sprite_name: "s2", mode: :exec_ws)
       {:ok, started} = Run.start(run2)
       {:ok, _} = RunStore.create(started)
 

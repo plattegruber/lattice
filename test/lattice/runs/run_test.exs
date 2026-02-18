@@ -9,7 +9,7 @@ defmodule Lattice.Runs.RunTest do
 
   describe "new/1" do
     test "creates a run with generated id and defaults" do
-      run = Run.new(sprite_name: "sprite-001", mode: :exec_ws)
+      assert {:ok, run} = Run.new(sprite_name: "sprite-001", mode: :exec_ws)
 
       assert String.starts_with?(run.id, "run_")
       assert run.sprite_name == "sprite-001"
@@ -23,17 +23,18 @@ defmodule Lattice.Runs.RunTest do
       assert run.exit_code == nil
       assert run.error == nil
       assert %DateTime{} = run.inserted_at
+      assert %DateTime{} = run.updated_at
     end
 
     test "accepts optional fields" do
-      run =
-        Run.new(
-          sprite_name: "sprite-002",
-          mode: :exec_post,
-          intent_id: "int_abc123",
-          command: "mix test",
-          artifacts: %{"log" => "output.txt"}
-        )
+      assert {:ok, run} =
+               Run.new(
+                 sprite_name: "sprite-002",
+                 mode: :exec_post,
+                 intent_id: "int_abc123",
+                 command: "mix test",
+                 artifacts: %{"log" => "output.txt"}
+               )
 
       assert run.intent_id == "int_abc123"
       assert run.command == "mix test"
@@ -42,27 +43,29 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "defaults mode to :exec_ws" do
-      run = Run.new(sprite_name: "sprite-001")
+      assert {:ok, run} = Run.new(sprite_name: "sprite-001")
 
       assert run.mode == :exec_ws
     end
 
-    test "raises when sprite_name is missing" do
-      assert_raise ArgumentError, "sprite_name is required", fn ->
-        Run.new(mode: :exec_ws)
-      end
+    test "returns error when sprite_name is missing" do
+      assert {:error, {:missing_field, :sprite_name}} = Run.new(mode: :exec_ws)
+    end
+
+    test "returns error for invalid mode" do
+      assert {:error, {:invalid_mode, :bogus}} = Run.new(sprite_name: "s1", mode: :bogus)
     end
 
     test "accepts a map of attrs" do
-      run = Run.new(%{sprite_name: "sprite-001", mode: :service})
+      assert {:ok, run} = Run.new(%{sprite_name: "sprite-001", mode: :service})
 
       assert run.sprite_name == "sprite-001"
       assert run.mode == :service
     end
 
     test "generates unique ids" do
-      run1 = Run.new(sprite_name: "s1")
-      run2 = Run.new(sprite_name: "s2")
+      {:ok, run1} = Run.new(sprite_name: "s1")
+      {:ok, run2} = Run.new(sprite_name: "s2")
 
       assert run1.id != run2.id
     end
@@ -72,16 +75,17 @@ defmodule Lattice.Runs.RunTest do
 
   describe "start/1" do
     test "transitions pending to running" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       assert run.status == :pending
 
       assert {:ok, started} = Run.start(run)
       assert started.status == :running
       assert %DateTime{} = started.started_at
+      assert %DateTime{} = started.updated_at
     end
 
     test "rejects transition from non-pending state" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:error, {:invalid_transition, :running, :running}} = Run.start(running)
@@ -92,7 +96,7 @@ defmodule Lattice.Runs.RunTest do
 
   describe "complete/2" do
     test "transitions running to succeeded" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:ok, completed} = Run.complete(running)
@@ -102,7 +106,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "merges artifacts on completion" do
-      run = Run.new(sprite_name: "sprite-001", artifacts: %{"initial" => "data"})
+      {:ok, run} = Run.new(sprite_name: "sprite-001", artifacts: %{"initial" => "data"})
       {:ok, running} = Run.start(run)
 
       assert {:ok, completed} =
@@ -115,7 +119,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "accepts custom exit_code" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:ok, completed} = Run.complete(running, %{exit_code: 42})
@@ -123,13 +127,13 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "rejects transition from pending" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
 
       assert {:error, {:invalid_transition, :pending, :succeeded}} = Run.complete(run)
     end
 
     test "rejects transition from succeeded" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
       {:ok, completed} = Run.complete(running)
 
@@ -141,7 +145,7 @@ defmodule Lattice.Runs.RunTest do
 
   describe "fail/2" do
     test "transitions running to failed" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:ok, failed} = Run.fail(running, %{error: "timeout", exit_code: 1})
@@ -152,7 +156,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "defaults to nil error and exit_code" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:ok, failed} = Run.fail(running)
@@ -161,13 +165,13 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "rejects transition from pending" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
 
       assert {:error, {:invalid_transition, :pending, :failed}} = Run.fail(run)
     end
 
     test "rejects transition from failed" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
       {:ok, failed} = Run.fail(running)
 
@@ -179,7 +183,7 @@ defmodule Lattice.Runs.RunTest do
 
   describe "cancel/1" do
     test "cancels a pending run" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
 
       assert {:ok, canceled} = Run.cancel(run)
       assert canceled.status == :canceled
@@ -187,7 +191,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "cancels a running run" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
 
       assert {:ok, canceled} = Run.cancel(running)
@@ -196,7 +200,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "rejects cancel from succeeded" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
       {:ok, completed} = Run.complete(running)
 
@@ -204,7 +208,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "rejects cancel from failed" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, running} = Run.start(run)
       {:ok, failed} = Run.fail(running)
 
@@ -212,7 +216,7 @@ defmodule Lattice.Runs.RunTest do
     end
 
     test "rejects cancel from canceled" do
-      run = Run.new(sprite_name: "sprite-001")
+      {:ok, run} = Run.new(sprite_name: "sprite-001")
       {:ok, canceled} = Run.cancel(run)
 
       assert {:error, {:invalid_transition, :canceled, :canceled}} = Run.cancel(canceled)
@@ -223,14 +227,14 @@ defmodule Lattice.Runs.RunTest do
 
   describe "add_artifacts/2" do
     test "merges new artifacts into existing ones" do
-      run = Run.new(sprite_name: "sprite-001", artifacts: %{"a" => 1})
+      {:ok, run} = Run.new(sprite_name: "sprite-001", artifacts: %{"a" => 1})
       updated = Run.add_artifacts(run, %{"b" => 2})
 
       assert updated.artifacts == %{"a" => 1, "b" => 2}
     end
 
     test "overwrites duplicate keys" do
-      run = Run.new(sprite_name: "sprite-001", artifacts: %{"a" => 1})
+      {:ok, run} = Run.new(sprite_name: "sprite-001", artifacts: %{"a" => 1})
       updated = Run.add_artifacts(run, %{"a" => 99})
 
       assert updated.artifacts == %{"a" => 99}

@@ -7,7 +7,7 @@ defmodule Lattice.Runs.StoreTest do
   alias Lattice.Runs.Store, as: RunStore
 
   setup do
-    # Clean up any runs from previous tests
+    # Clean up any runs from previous tests using the raw store
     {:ok, entries} = Lattice.Store.list(:runs)
 
     Enum.each(entries, fn entry ->
@@ -19,7 +19,8 @@ defmodule Lattice.Runs.StoreTest do
 
   defp build_run(attrs \\ []) do
     defaults = [sprite_name: "sprite-001", mode: :exec_ws]
-    Run.new(Keyword.merge(defaults, attrs))
+    {:ok, run} = Run.new(Keyword.merge(defaults, attrs))
+    run
   end
 
   # ── create/1 ─────────────────────────────────────────────────────────
@@ -49,6 +50,16 @@ defmodule Lattice.Runs.StoreTest do
     test "returns {:error, :not_found} for unknown ID" do
       assert {:error, :not_found} = RunStore.get("nonexistent")
     end
+
+    test "returns clean struct without store metadata" do
+      run = build_run()
+      {:ok, _} = RunStore.create(run)
+
+      {:ok, found} = RunStore.get(run.id)
+      refute Map.has_key?(found, :_key)
+      refute Map.has_key?(found, :_namespace)
+      refute Map.has_key?(found, :_updated_at)
+    end
   end
 
   # ── update/1 ─────────────────────────────────────────────────────────
@@ -73,12 +84,12 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(build_run(sprite_name: "s1"))
       {:ok, _} = RunStore.create(build_run(sprite_name: "s2"))
 
-      runs = RunStore.list()
+      assert {:ok, runs} = RunStore.list()
       assert length(runs) == 2
     end
 
     test "returns empty list when no runs exist" do
-      assert [] = RunStore.list()
+      assert {:ok, []} = RunStore.list()
     end
 
     test "filters by intent_id" do
@@ -86,7 +97,7 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(build_run(intent_id: "int_xyz"))
       {:ok, _} = RunStore.create(build_run())
 
-      runs = RunStore.list(%{intent_id: "int_abc"})
+      assert {:ok, runs} = RunStore.list(%{intent_id: "int_abc"})
       assert length(runs) == 1
       assert hd(runs).intent_id == "int_abc"
     end
@@ -95,7 +106,7 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(build_run(sprite_name: "alpha"))
       {:ok, _} = RunStore.create(build_run(sprite_name: "beta"))
 
-      runs = RunStore.list(%{sprite_name: "alpha"})
+      assert {:ok, runs} = RunStore.list(%{sprite_name: "alpha"})
       assert length(runs) == 1
       assert hd(runs).sprite_name == "alpha"
     end
@@ -108,7 +119,7 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, started} = Run.start(run2)
       {:ok, _} = RunStore.create(started)
 
-      runs = RunStore.list(%{status: :running})
+      assert {:ok, runs} = RunStore.list(%{status: :running})
       assert length(runs) == 1
       assert hd(runs).status == :running
     end
@@ -121,9 +132,17 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(run1)
       {:ok, _} = RunStore.create(run2)
 
-      [first, second] = RunStore.list()
+      assert {:ok, [first, second]} = RunStore.list()
       assert first.sprite_name == "second"
       assert second.sprite_name == "first"
+    end
+
+    test "returns clean structs without store metadata" do
+      {:ok, _} = RunStore.create(build_run())
+
+      {:ok, [run]} = RunStore.list()
+      refute Map.has_key?(run, :_key)
+      refute Map.has_key?(run, :_namespace)
     end
   end
 
@@ -135,7 +154,7 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(build_run(intent_id: "int_target"))
       {:ok, _} = RunStore.create(build_run(intent_id: "int_other"))
 
-      runs = RunStore.list_by_intent("int_target")
+      assert {:ok, runs} = RunStore.list_by_intent("int_target")
       assert length(runs) == 2
       assert Enum.all?(runs, &(&1.intent_id == "int_target"))
     end
@@ -149,7 +168,7 @@ defmodule Lattice.Runs.StoreTest do
       {:ok, _} = RunStore.create(build_run(sprite_name: "target-sprite"))
       {:ok, _} = RunStore.create(build_run(sprite_name: "other-sprite"))
 
-      runs = RunStore.list_by_sprite("target-sprite")
+      assert {:ok, runs} = RunStore.list_by_sprite("target-sprite")
       assert length(runs) == 2
       assert Enum.all?(runs, &(&1.sprite_name == "target-sprite"))
     end

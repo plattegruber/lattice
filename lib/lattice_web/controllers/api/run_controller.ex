@@ -58,7 +58,7 @@ defmodule LatticeWeb.Api.RunController do
   """
   def index(conn, params) do
     filters = build_filters(params)
-    runs = RunStore.list(filters)
+    {:ok, runs} = RunStore.list(filters)
 
     conn
     |> put_status(200)
@@ -134,7 +134,8 @@ defmodule LatticeWeb.Api.RunController do
       artifacts: run.artifacts,
       exit_code: run.exit_code,
       error: run.error,
-      inserted_at: run.inserted_at
+      inserted_at: run.inserted_at,
+      updated_at: run.updated_at
     }
   end
 end
