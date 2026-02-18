@@ -4,18 +4,67 @@ defmodule Lattice.Sprites.ExecSupervisorTest do
   @moduletag :unit
 
   alias Lattice.Sprites.ExecSession
-  alias Lattice.Sprites.ExecSession.Stub
   alias Lattice.Sprites.ExecSupervisor
+
+  # Minimal GenServer that registers in ExecRegistry like ExecSession does,
+  # for testing the supervisor's session tracking without needing an API token.
+  defmodule TestSession do
+    use GenServer
+
+    def start_link(args) do
+      GenServer.start_link(__MODULE__, args)
+    end
+
+    @impl true
+    def init(args) do
+      sprite_id = Keyword.fetch!(args, :sprite_id)
+      command = Keyword.fetch!(args, :command)
+
+      session_id =
+        "exec_test_" <> Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
+
+      {:ok, _} =
+        Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
+          sprite_id: sprite_id,
+          command: command
+        })
+
+      state = %{
+        session_id: session_id,
+        sprite_id: sprite_id,
+        command: command,
+        status: :running,
+        started_at: DateTime.utc_now(),
+        buffer_size: 0,
+        exit_code: nil
+      }
+
+      {:ok, state}
+    end
+
+    @impl true
+    def handle_call(:get_state, _from, state) do
+      {:reply, {:ok, state}, state}
+    end
+
+    def handle_call(:get_output, _from, state) do
+      {:reply, {:ok, []}, state}
+    end
+
+    def handle_call(:close, _from, state) do
+      {:stop, :normal, :ok, state}
+    end
+  end
 
   # ── Helpers ─────────────────────────────────────────────────────────
 
-  defp start_stub_session(sprite_id, command \\ "echo test") do
-    args = [sprite_id: sprite_id, command: command, idle_timeout: 60_000]
+  defp start_test_session(sprite_id, command \\ "echo test") do
+    args = [sprite_id: sprite_id, command: command]
 
     {:ok, pid} =
       DynamicSupervisor.start_child(
         Lattice.Sprites.ExecSupervisor,
-        {Stub, args}
+        {TestSession, args}
       )
 
     {:ok, state} = ExecSession.get_state(pid)
@@ -26,8 +75,8 @@ defmodule Lattice.Sprites.ExecSupervisorTest do
 
   describe "list_sessions/0" do
     test "returns all active sessions" do
-      {pid1, sid1} = start_stub_session("sprite-a", "ls")
-      {pid2, sid2} = start_stub_session("sprite-b", "whoami")
+      {pid1, sid1} = start_test_session("sprite-a", "ls")
+      {pid2, sid2} = start_test_session("sprite-b", "whoami")
 
       sessions = ExecSupervisor.list_sessions()
 
@@ -46,9 +95,9 @@ defmodule Lattice.Sprites.ExecSupervisorTest do
 
   describe "list_sessions_for_sprite/1" do
     test "filters sessions by sprite_id" do
-      {_pid1, sid1} = start_stub_session("sprite-x", "cmd1")
-      {_pid2, _sid2} = start_stub_session("sprite-y", "cmd2")
-      {_pid3, sid3} = start_stub_session("sprite-x", "cmd3")
+      {_pid1, sid1} = start_test_session("sprite-x", "cmd1")
+      {_pid2, _sid2} = start_test_session("sprite-y", "cmd2")
+      {_pid3, sid3} = start_test_session("sprite-x", "cmd3")
 
       sessions = ExecSupervisor.list_sessions_for_sprite("sprite-x")
 
@@ -65,7 +114,7 @@ defmodule Lattice.Sprites.ExecSupervisorTest do
 
   describe "get_session_pid/1" do
     test "returns pid for existing session" do
-      {pid, session_id} = start_stub_session("sprite-z")
+      {pid, session_id} = start_test_session("sprite-z")
 
       assert {:ok, ^pid} = ExecSupervisor.get_session_pid(session_id)
     end

@@ -7,6 +7,45 @@ defmodule LatticeWeb.Api.ExecControllerTest do
 
   @moduletag :unit
 
+  # Minimal GenServer that registers in ExecRegistry like ExecSession does,
+  # for testing session management endpoints without needing an API token.
+  defmodule TestSession do
+    use GenServer
+
+    def start_link(args), do: GenServer.start_link(__MODULE__, args)
+
+    @impl true
+    def init(args) do
+      sprite_id = Keyword.fetch!(args, :sprite_id)
+      command = Keyword.fetch!(args, :command)
+
+      session_id =
+        "exec_test_" <> Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
+
+      {:ok, _} =
+        Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
+          sprite_id: sprite_id,
+          command: command
+        })
+
+      {:ok,
+       %{
+         session_id: session_id,
+         sprite_id: sprite_id,
+         command: command,
+         status: :running,
+         started_at: DateTime.utc_now(),
+         buffer_size: 0,
+         exit_code: nil
+       }}
+    end
+
+    @impl true
+    def handle_call(:get_state, _from, state), do: {:reply, {:ok, state}, state}
+    def handle_call(:get_output, _from, state), do: {:reply, {:ok, []}, state}
+    def handle_call(:close, _from, state), do: {:stop, :normal, :ok, %{state | status: :closed}}
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp authenticated(conn) do
@@ -45,12 +84,12 @@ defmodule LatticeWeb.Api.ExecControllerTest do
   end
 
   defp start_stub_session(sprite_id, command \\ "echo test") do
-    args = [sprite_id: sprite_id, command: command, idle_timeout: 60_000]
+    args = [sprite_id: sprite_id, command: command]
 
     {:ok, pid} =
       DynamicSupervisor.start_child(
         Lattice.Sprites.ExecSupervisor,
-        {Lattice.Sprites.ExecSession.Stub, args}
+        {TestSession, args}
       )
 
     {:ok, state} = ExecSession.get_state(pid)

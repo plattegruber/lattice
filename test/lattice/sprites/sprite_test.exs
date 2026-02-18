@@ -348,10 +348,12 @@ defmodule Lattice.Sprites.SpriteTest do
                      1_000
     end
 
-    test "transitions ready -> hibernating" do
+    test "ready -> hibernating with noop sleep emits no_change" do
+      # Sleep returns :noop (API cannot force sleep), so no state transition occurs.
+      # The sprite stays ready and waits for the sprite to go cold naturally.
       Lattice.Capabilities.MockSprites
       |> stub(:get_sprite, fn _id -> {:ok, %{id: "test", status: :ready}} end)
-      |> stub(:sleep, fn _id -> {:ok, %{id: "test", status: "sleeping"}} end)
+      |> stub(:sleep, fn _id -> {:ok, :noop} end)
 
       {pid, sprite_id} = start_sprite(observed_state: :ready, desired_state: :hibernating)
 
@@ -359,12 +361,16 @@ defmodule Lattice.Sprites.SpriteTest do
 
       Sprite.reconcile_now(pid)
 
-      assert_receive %StateChange{
+      assert_receive %ReconciliationResult{
                        sprite_id: ^sprite_id,
-                       from_state: :ready,
-                       to_state: :hibernating
+                       outcome: :no_change
                      },
                      1_000
+
+      # No state change should have occurred
+      {:ok, state} = Sprite.get_state(pid)
+      assert state.observed_state == :ready
+      assert state.failure_count == 0
     end
 
     test "resets backoff on successful reconciliation" do

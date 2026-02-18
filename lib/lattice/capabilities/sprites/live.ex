@@ -1,10 +1,10 @@
 defmodule Lattice.Capabilities.Sprites.Live do
   @moduledoc """
-  Live implementation of the Sprites capability backed by the Sprites API.
+  Live implementation of the Sprites capability backed by the `sprites-ex` SDK.
 
-  Communicates with the Sprites REST API at `api.sprites.dev` using `:httpc`
-  (Erlang's built-in HTTP client). Auth is via a Bearer token read from the
-  `SPRITES_API_TOKEN` environment variable.
+  Communicates with the Sprites REST API at `api.sprites.dev` using the official
+  SDK. Auth is via a Bearer token read from the `SPRITES_API_TOKEN` environment
+  variable.
 
   ## Status Mapping
 
@@ -16,6 +16,14 @@ defmodule Lattice.Capabilities.Sprites.Live do
   | `"warm"`    | `:waking`       |
   | `"running"` | `:ready`        |
   | other       | `:error`        |
+
+  ## Wake / Sleep
+
+  The Sprites API has no explicit wake/sleep endpoints. Sprites auto-wake when
+  you run commands on them and go cold naturally after inactivity. Therefore:
+
+  - `wake/1` runs a no-op command (`true`) to trigger auto-wake
+  - `sleep/1` returns `{:ok, :noop}` — you cannot force a sprite to sleep
   """
 
   @behaviour Lattice.Capabilities.Sprites
@@ -25,95 +33,93 @@ defmodule Lattice.Capabilities.Sprites.Live do
   alias Lattice.Sprites.ExecSupervisor
 
   @default_base_url "https://api.sprites.dev"
-  @default_timeout 15_000
-  @api_version "v1"
 
   # ── Callbacks ──────────────────────────────────────────────────────────
 
   @impl true
   def create_sprite(name, _opts \\ []) do
-    body = %{"name" => name}
+    client = build_client()
 
-    case post("/#{@api_version}/sprites", body) do
-      {:ok, sprite} when is_map(sprite) ->
+    case Sprites.create(client, name) do
+      {:ok, sprite} ->
         {:ok, parse_sprite(sprite)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
   def list_sprites do
-    case get("/#{@api_version}/sprites") do
+    client = build_client()
+
+    case Sprites.list(client) do
       {:ok, sprites} when is_list(sprites) ->
-        {:ok, Enum.map(sprites, &parse_sprite/1)}
-
-      {:ok, %{"data" => sprites}} when is_list(sprites) ->
-        {:ok, Enum.map(sprites, &parse_sprite/1)}
-
-      {:ok, %{"sprites" => sprites}} when is_list(sprites) ->
         {:ok, Enum.map(sprites, &parse_sprite/1)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
   def get_sprite(id) do
-    case get("/#{@api_version}/sprites/#{URI.encode(id)}") do
-      {:ok, sprite} when is_map(sprite) ->
-        {:ok, parse_sprite(sprite)}
+    client = build_client()
+
+    case Sprites.get_sprite(client, id) do
+      {:ok, data} ->
+        {:ok, parse_sprite(data)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
   def wake(id) do
-    case put("/#{@api_version}/sprites/#{URI.encode(id)}", %{status: "running"}) do
-      {:ok, sprite} when is_map(sprite) ->
-        {:ok, parse_sprite(sprite)}
+    # The Sprites API has no wake endpoint. Running any command triggers auto-wake.
+    sprite = build_sprite(id)
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+    Logger.debug("Sprites API: waking #{id} via no-op command")
+    Sprites.cmd(sprite, "true", [])
+
+    # Fetch current state after the command triggers wake
+    get_sprite(id)
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
-  def sleep(id) do
-    case put("/#{@api_version}/sprites/#{URI.encode(id)}", %{status: "cold"}) do
-      {:ok, sprite} when is_map(sprite) ->
-        {:ok, parse_sprite(sprite)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+  def sleep(_id) do
+    # The Sprites API has no sleep endpoint. Sprites go cold naturally after inactivity.
+    {:ok, :noop}
   end
 
   @impl true
   def delete_sprite(id) do
-    case delete("/#{@api_version}/sprites/#{URI.encode(id)}") do
-      {:ok, _} -> :ok
-      {:error, :not_found} -> :ok
+    sprite = build_sprite(id)
+
+    case Sprites.destroy(sprite) do
+      :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
   def exec(id, command) do
-    query = URI.encode_query([{"cmd", command}])
-    path = "/#{@api_version}/sprites/#{URI.encode(id)}/exec?#{query}"
-
-    case post(path, nil) do
-      {:ok, result} when is_map(result) ->
-        {:ok, parse_exec_result(id, command, result)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    sprite = build_sprite(id)
+    {output, exit_code} = Sprites.cmd(sprite, command, [])
+    {:ok, %{sprite_id: id, command: command, output: output, exit_code: exit_code}}
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   @impl true
@@ -124,164 +130,60 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   @impl true
   def fetch_logs(id, opts) do
+    # The SDK doesn't wrap the services endpoint, so use Req directly
     query = build_log_query(opts)
-    path = "/#{@api_version}/sprites/#{URI.encode(id)}/services"
+    url = "#{base_url()}/v1/sprites/#{URI.encode(id)}/services#{query}"
+    token = auth_token()
 
-    case get(path <> query) do
-      {:ok, services} when is_list(services) ->
-        # Aggregate logs from all services
+    case Req.get(url, headers: [{"authorization", "Bearer #{token}"}]) do
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        services = normalize_services(body)
         logs = Enum.flat_map(services, fn svc -> Map.get(svc, "logs", []) end)
         {:ok, logs}
 
-      {:ok, %{"data" => services}} when is_list(services) ->
-        logs = Enum.flat_map(services, fn svc -> Map.get(svc, "logs", []) end)
-        {:ok, logs}
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
 
-      {:ok, _other} ->
-        {:ok, []}
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:api_error, status, body}}
 
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  # ── HTTP Helpers ───────────────────────────────────────────────────────
-
-  defp get(path) do
-    request(:get, path, nil)
-  end
-
-  defp post(path, body) do
-    request(:post, path, body)
-  end
-
-  defp put(path, body) do
-    request(:put, path, body)
-  end
-
-  defp delete(path) do
-    request(:delete, path, nil)
-  end
-
-  defp request(method, path, body) do
-    url = build_url(path)
-    headers = build_headers()
-
-    httpc_request = build_httpc_request(method, url, headers, body)
-
-    Logger.debug("Sprites API #{method |> to_string() |> String.upcase()} #{path}")
-
-    case :httpc.request(method, httpc_request, http_opts(), []) do
-      {:ok, {{_http_version, status, _reason}, _resp_headers, resp_body}} ->
-        handle_response(status, resp_body)
-
-      {:error, reason} ->
-        Logger.error("Sprites API request failed: #{inspect(reason)}")
-        {:error, {:request_failed, reason}}
-    end
-  end
-
-  defp build_httpc_request(:get, url, headers, _body) do
-    {url, headers}
-  end
-
-  defp build_httpc_request(:delete, url, headers, _body) do
-    {url, headers}
-  end
-
-  defp build_httpc_request(_method, url, headers, body) do
-    encoded_body = if body, do: Jason.encode!(body), else: ""
-    {url, headers, ~c"application/json", encoded_body}
-  end
-
-  defp build_url(path) do
-    base = base_url()
-    String.to_charlist(base <> path)
-  end
-
-  defp build_headers do
-    token = auth_token()
-    [{~c"authorization", String.to_charlist("Bearer #{token}")}]
-  end
-
-  defp http_opts do
-    [
-      timeout: timeout(),
-      connect_timeout: timeout(),
-      ssl: ssl_opts()
-    ]
-  end
-
-  defp ssl_opts do
-    [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      depth: 3,
-      customize_hostname_check: [
-        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-      ]
-    ]
-  end
-
-  # ── Response Handling ──────────────────────────────────────────────────
-
-  defp handle_response(status, _body) when status == 204 do
-    {:ok, :no_content}
-  end
-
-  defp handle_response(status, body) when status in 200..299 do
-    body
-    |> to_string()
-    |> decode_json()
-  end
-
-  defp handle_response(401, _body) do
-    Logger.error("Sprites API authentication failed (401)")
-    {:error, :unauthorized}
-  end
-
-  defp handle_response(404, _body) do
-    {:error, :not_found}
-  end
-
-  defp handle_response(429, _body) do
-    Logger.warning("Sprites API rate limited (429)")
-    {:error, :rate_limited}
-  end
-
-  defp handle_response(status, body) when status in 400..499 do
-    Logger.warning("Sprites API client error (#{status}): #{to_string(body)}")
-    {:error, {:client_error, status, to_string(body)}}
-  end
-
-  defp handle_response(status, body) when status >= 500 do
-    Logger.error("Sprites API server error (#{status}): #{to_string(body)}")
-    {:error, {:server_error, status, to_string(body)}}
-  end
-
-  defp decode_json(""), do: {:ok, %{}}
-
-  defp decode_json(body) do
-    case Jason.decode(body) do
-      {:ok, parsed} -> {:ok, parsed}
-      {:error, _} -> {:error, {:invalid_json, body}}
-    end
+  rescue
+    e -> {:error, normalize_error(e)}
   end
 
   # ── Parsing ────────────────────────────────────────────────────────────
 
   @doc false
-  def parse_sprite(data) when is_map(data) do
+  def parse_sprite(%Sprites.Sprite{} = sprite) do
     %{
-      id: data["name"] || data["id"],
-      name: data["name"],
-      status: parse_status(data["status"]),
-      organization: data["organization"],
-      url: data["url"],
-      created_at: data["created_at"],
-      updated_at: data["updated_at"],
-      last_started_at: data["last_started_at"],
-      last_active_at: data["last_active_at"]
+      id: sprite.name,
+      name: sprite.name,
+      status: parse_status(sprite.status),
+      organization: nil,
+      url: nil,
+      created_at: nil,
+      updated_at: nil,
+      last_started_at: nil,
+      last_active_at: nil
+    }
+  end
+
+  def parse_sprite(data) when is_map(data) do
+    name = field(data, "name")
+
+    %{
+      id: name || field(data, "id"),
+      name: name,
+      status: parse_status(field(data, "status")),
+      organization: field(data, "organization"),
+      url: field(data, "url"),
+      created_at: field(data, "created_at"),
+      updated_at: field(data, "updated_at"),
+      last_started_at: field(data, "last_started_at"),
+      last_active_at: field(data, "last_active_at")
     }
   end
 
@@ -292,14 +194,50 @@ defmodule Lattice.Capabilities.Sprites.Live do
   def parse_status(nil), do: :error
   def parse_status(_other), do: :error
 
-  defp parse_exec_result(id, command, result) do
-    %{
-      sprite_id: id,
-      command: command,
-      output: result["stdout"] || result["output"] || "",
-      exit_code: result["exit_code"] || result["exitCode"] || 0
-    }
+  # Look up a field by string key, falling back to atom key.
+  # All keys passed here are hardcoded literals with existing atoms.
+  defp field(data, key) when is_binary(key), do: data[key] || data[String.to_existing_atom(key)]
+
+  # ── Private ────────────────────────────────────────────────────────────
+
+  defp build_client do
+    Sprites.new(auth_token(), base_url: base_url())
   end
+
+  defp build_sprite(name) do
+    client = build_client()
+    Sprites.sprite(client, name)
+  end
+
+  defp normalize_services(body) when is_list(body), do: body
+  defp normalize_services(%{"data" => services}) when is_list(services), do: services
+  defp normalize_services(_), do: []
+
+  defp normalize_error(%Sprites.Error.APIError{status: 404}), do: :not_found
+  defp normalize_error(%Sprites.Error.APIError{status: 401}), do: :unauthorized
+  defp normalize_error(%Sprites.Error.APIError{status: 429}), do: :rate_limited
+
+  defp normalize_error(%Sprites.Error.APIError{status: status, message: message})
+       when status in 400..499 do
+    {:client_error, status, message || ""}
+  end
+
+  defp normalize_error(%Sprites.Error.APIError{status: status, message: message})
+       when status >= 500 do
+    {:server_error, status, message || ""}
+  end
+
+  defp normalize_error(%Sprites.Error.ConnectionError{reason: reason}) do
+    {:connection_error, reason}
+  end
+
+  defp normalize_error(%Sprites.Error.TimeoutError{}), do: :timeout
+
+  defp normalize_error(%Sprites.Error.CommandError{exit_code: code}) do
+    {:command_error, code}
+  end
+
+  defp normalize_error(other), do: {:request_failed, other}
 
   defp build_log_query(opts) do
     params =
@@ -325,9 +263,5 @@ defmodule Lattice.Capabilities.Sprites.Live do
   defp auth_token do
     System.get_env("SPRITES_API_TOKEN") ||
       raise "SPRITES_API_TOKEN environment variable is not set"
-  end
-
-  defp timeout do
-    Application.get_env(:lattice, :sprites_api_timeout, @default_timeout)
   end
 end
