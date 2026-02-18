@@ -93,6 +93,10 @@ defmodule Lattice.Events do
   @spec intents_all_topic() :: String.t()
   def intents_all_topic, do: "intents:all"
 
+  @doc "Returns the PubSub topic for run lifecycle events."
+  @spec runs_topic() :: String.t()
+  def runs_topic, do: "runs"
+
   # ── Subscribe ──────────────────────────────────────────────────────
 
   @doc "Subscribe the calling process to events for a specific Sprite."
@@ -147,6 +151,12 @@ defmodule Lattice.Events do
   @spec subscribe_all_intents() :: :ok | {:error, term()}
   def subscribe_all_intents do
     Phoenix.PubSub.subscribe(pubsub(), intents_all_topic())
+  end
+
+  @doc "Subscribe the calling process to run lifecycle events."
+  @spec subscribe_runs() :: :ok | {:error, term()}
+  def subscribe_runs do
+    Phoenix.PubSub.subscribe(pubsub(), runs_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────
@@ -245,6 +255,59 @@ defmodule Lattice.Events do
 
     Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent_id), message)
     Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), message)
+  end
+
+  # ── Run Events ──────────────────────────────────────────────────────
+
+  @doc """
+  Emit a run started event.
+
+  Fires a `[:lattice, :run, :started]` Telemetry event and broadcasts
+  `{:run_started, run}` on the runs topic.
+  """
+  @spec emit_run_started(Lattice.Runs.Run.t()) :: :ok
+  def emit_run_started(%Lattice.Runs.Run{} = run) do
+    :telemetry.execute(
+      [:lattice, :run, :started],
+      %{system_time: System.system_time()},
+      %{run: run}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_started, run})
+  end
+
+  @doc """
+  Emit a run completed event.
+
+  Fires a `[:lattice, :run, :completed]` Telemetry event and broadcasts
+  `{:run_completed, run}` on the runs topic.
+  """
+  @spec emit_run_completed(Lattice.Runs.Run.t()) :: :ok
+  def emit_run_completed(%Lattice.Runs.Run{} = run) do
+    :telemetry.execute(
+      [:lattice, :run, :completed],
+      %{system_time: System.system_time()},
+      %{run: run}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_completed, run})
+  end
+
+  @doc """
+  Emit a run failed event.
+
+  Fires a `[:lattice, :run, :failed]` Telemetry event and broadcasts
+  `{:run_failed, run}` on the runs topic.
+  """
+  @spec emit_run_failed(Lattice.Runs.Run.t()) :: :ok
+  def emit_run_failed(%Lattice.Runs.Run{} = run) do
+    :telemetry.execute(
+      [:lattice, :run, :failed],
+      %{system_time: System.system_time()},
+      %{run: run}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_failed, run})
   end
 
   # ── Telemetry ──────────────────────────────────────────────────────
