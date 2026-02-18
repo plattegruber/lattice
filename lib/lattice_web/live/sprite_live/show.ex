@@ -1311,14 +1311,20 @@ defmodule LatticeWeb.SpriteLive.Show do
     else
       _ -> []
     end
+  catch
+    :exit, _ -> []
   end
 
   defp load_exec_sessions(sprite_id) do
     ExecSupervisor.list_sessions_for_sprite(sprite_id)
     |> Enum.map(fn {_session_id, pid, _meta} ->
-      case ExecSession.get_state(pid) do
-        {:ok, state} -> state
-        _ -> nil
+      try do
+        case ExecSession.get_state(pid) do
+          {:ok, state} -> state
+          _ -> nil
+        end
+      catch
+        :exit, _ -> nil
       end
     end)
     |> Enum.reject(&is_nil/1)
