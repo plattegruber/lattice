@@ -14,7 +14,7 @@ config :lattice,
 config :lattice, :capabilities,
   sprites: Lattice.Capabilities.Sprites.Live,
   github: Lattice.Capabilities.GitHub.Stub,
-  fly: Lattice.Capabilities.Fly.Stub,
+  fly: Lattice.Capabilities.Fly.Live,
   secret_store: Lattice.Capabilities.SecretStore.Env
 
 # Fleet configuration — sprites to discover and manage at boot

@@ -3,7 +3,6 @@ defmodule Lattice.Capabilities.Fly do
   Behaviour for interacting with the Fly.io Machines API.
 
   This capability manages deployment and monitoring of Fly Machines.
-  It is a stub-only capability for now — real implementation comes in Step 4.
 
   All callbacks return tagged tuples (`{:ok, result}` / `{:error, reason}`).
   """

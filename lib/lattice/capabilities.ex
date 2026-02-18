@@ -18,7 +18,7 @@ defmodule Lattice.Capabilities do
   2. The behaviour module exposes proxy functions that delegate to the
      configured implementation
   3. Configuration selects the active implementation per environment
-  4. Stub implementations provide canned responses for development and testing
+  4. Mox mocks or stub implementations provide test doubles
 
   ## Configuration
 
@@ -27,7 +27,7 @@ defmodule Lattice.Capabilities do
       config :lattice, :capabilities,
         sprites: Lattice.Capabilities.Sprites.Live,
         github: Lattice.Capabilities.GitHub.Stub,
-        fly: Lattice.Capabilities.Fly.Stub,
+        fly: Lattice.Capabilities.Fly.Live,
         secret_store: Lattice.Capabilities.SecretStore.Env
 
   ## Adding a New Capability
