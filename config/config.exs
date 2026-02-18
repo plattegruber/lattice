@@ -20,8 +20,8 @@ config :lattice, :capabilities,
 # Fleet configuration — sprites to discover and manage at boot
 config :lattice, :fleet, sprites: []
 
-# Auth provider — stub for dev, Clerk for production
-config :lattice, :auth, provider: Lattice.Auth.Stub
+# Auth provider — Clerk for production, must be explicitly configured
+config :lattice, :auth, provider: Lattice.Auth.Clerk
 
 # Safety guardrails — action gating and approval requirements
 config :lattice, :guardrails,

@@ -1,6 +1,7 @@
 defmodule LatticeWeb.Plugs.AuthTest do
   use ExUnit.Case
 
+  import Mox
   import Plug.Conn
   import Plug.Test
 
@@ -8,7 +9,15 @@ defmodule LatticeWeb.Plugs.AuthTest do
 
   alias LatticeWeb.Plugs.Auth
 
-  # In test env, the stub provider always succeeds
+  setup :verify_on_exit!
+
+  setup do
+    stub(Lattice.MockAuth, :verify_token, fn _token ->
+      {:ok, %Lattice.Auth.Operator{id: "dev-operator", name: "Dev Operator", role: :admin}}
+    end)
+
+    :ok
+  end
 
   describe "call/2 with valid authorization header" do
     test "assigns current_operator from bearer token" do

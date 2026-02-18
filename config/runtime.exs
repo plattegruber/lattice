@@ -53,9 +53,9 @@ capabilities =
 
 config :lattice, :capabilities, capabilities
 
-# Auth provider: use Clerk when secret key is configured, otherwise stub
-if System.get_env("CLERK_SECRET_KEY") do
-  config :lattice, :auth, provider: Lattice.Auth.Clerk
+# Auth provider: Clerk is the default; key must be set in production
+if config_env() == :prod and is_nil(System.get_env("CLERK_SECRET_KEY")) do
+  raise "CLERK_SECRET_KEY is required in production"
 end
 
 if config_env() == :prod do

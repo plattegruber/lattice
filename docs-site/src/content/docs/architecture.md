@@ -154,12 +154,11 @@ See the [Intents](/lattice/concepts/intents/) concept page for full details.
 
 ## Authentication
 
-Lattice supports two authentication providers:
+Lattice uses Clerk for authentication:
 
-- **Clerk** (`Lattice.Auth.Clerk`) -- production auth via Clerk's JWKS verification
-- **Stub** (`Lattice.Auth.Stub`) -- development mode, allows all access
+- **Clerk** (`Lattice.Auth.Clerk`) -- verifies Clerk JWTs via JWKS
 
-The provider is selected based on the `CLERK_SECRET_KEY` environment variable.
+In production, the `CLERK_SECRET_KEY` environment variable must be set.
 
 For the REST API, authentication uses bearer tokens via the `Authorization: Bearer <token>` header, validated by the `LatticeWeb.Plugs.Auth` plug.
 

@@ -4,5 +4,6 @@ Mox.defmock(Lattice.Capabilities.MockSprites, for: Lattice.Capabilities.Sprites)
 Mox.defmock(Lattice.Capabilities.MockGitHub, for: Lattice.Capabilities.GitHub)
 Mox.defmock(Lattice.Capabilities.MockFly, for: Lattice.Capabilities.Fly)
 Mox.defmock(Lattice.Capabilities.MockSecretStore, for: Lattice.Capabilities.SecretStore)
+Mox.defmock(Lattice.MockAuth, for: Lattice.Auth)
 
 ExUnit.start(exclude: [:integration])

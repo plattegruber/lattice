@@ -32,6 +32,13 @@ defmodule LatticeWeb.ConnCase do
   end
 
   setup _tags do
+    # Allow auth mock to be called from any process (e.g. LiveView processes).
+    Mox.set_mox_global(Lattice.MockAuth)
+
+    Mox.stub(Lattice.MockAuth, :verify_token, fn _token ->
+      {:ok, %Lattice.Auth.Operator{id: "dev-operator", name: "Dev Operator", role: :admin}}
+    end)
+
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end
