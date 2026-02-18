@@ -9,6 +9,9 @@ defmodule Lattice.Sprites.ExecSession do
 
   require Logger
 
+  alias Lattice.Events
+  alias Lattice.Sprites.Logs
+
   @default_idle_timeout 300_000
   @max_buffer_lines 1000
 
@@ -313,6 +316,16 @@ defmodule Lattice.Sprites.ExecSession do
          timestamp: DateTime.utc_now()
        }}
     )
+
+    # Also broadcast to unified sprite logs topic
+    log_line =
+      Logs.from_exec_output(%{
+        session_id: state.session_id,
+        stream: stream,
+        chunk: chunk
+      })
+
+    Events.broadcast_sprite_log(state.sprite_id, log_line)
 
     :telemetry.execute(
       [:lattice, :exec, :output],
