@@ -365,6 +365,24 @@ defmodule Lattice.Sprites.Sprite do
 
         {new_state, :success}
 
+      {:noop, _observed} ->
+        # Can't force this transition (e.g. sleep) — treat as no_change, not failure.
+        # The sprite will converge naturally when it goes cold on its own.
+        duration = System.monotonic_time(:millisecond) - start_time
+        new_state = State.reset_backoff(state)
+        new_state = %{new_state | not_found_count: 0}
+
+        emit_reconciliation_result(
+          new_state,
+          :no_change,
+          duration,
+          "waiting for natural transition"
+        )
+
+        new_state = update_and_emit_health(new_state, duration)
+
+        {new_state, :no_change}
+
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - start_time
         new_state = State.record_failure(state)
@@ -497,6 +515,7 @@ defmodule Lattice.Sprites.Sprite do
          desired_state: :hibernating
        }) do
     case sprites_capability().sleep(id) do
+      {:ok, :noop} -> {:noop, :waking}
       {:ok, _} -> {:ok, :hibernating}
       {:error, reason} -> {:error, reason}
     end
@@ -515,6 +534,7 @@ defmodule Lattice.Sprites.Sprite do
          desired_state: :hibernating
        }) do
     case sprites_capability().sleep(id) do
+      {:ok, :noop} -> {:noop, :ready}
       {:ok, _} -> {:ok, :hibernating}
       {:error, reason} -> {:error, reason}
     end
@@ -534,6 +554,7 @@ defmodule Lattice.Sprites.Sprite do
          desired_state: :hibernating
        }) do
     case sprites_capability().sleep(id) do
+      {:ok, :noop} -> {:noop, :busy}
       {:ok, _} -> {:ok, :ready}
       {:error, reason} -> {:error, reason}
     end
@@ -546,6 +567,7 @@ defmodule Lattice.Sprites.Sprite do
        }) do
     # Recovery to hibernating: sleep the sprite
     case sprites_capability().sleep(id) do
+      {:ok, :noop} -> {:noop, :error}
       {:ok, _} -> {:ok, :hibernating}
       {:error, reason} -> {:error, reason}
     end

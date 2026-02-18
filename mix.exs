@@ -87,7 +87,6 @@ defmodule Lattice.MixProject do
           Lattice.Capabilities.Fly.Stub,
           Lattice.Capabilities.Sprites,
           Lattice.Capabilities.Sprites.Live,
-          Lattice.Capabilities.Sprites.Stub,
           Lattice.Capabilities.SecretStore,
           Lattice.Capabilities.SecretStore.Env,
           Lattice.Capabilities.SecretStore.Stub
@@ -187,7 +186,7 @@ defmodule Lattice.MixProject do
       {:mox, "~> 1.1", only: :test},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:open_api_spex, "~> 3.21"},
-      {:gun, "~> 2.1"}
+      {:sprites, git: "https://github.com/superfly/sprites-ex.git"}
     ]
   end
 

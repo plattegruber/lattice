@@ -30,8 +30,13 @@ defmodule Lattice.Capabilities.Sprites do
   @doc "Wake (start) a sleeping Sprite."
   @callback wake(sprite_id()) :: {:ok, sprite()} | {:error, term()}
 
-  @doc "Put a Sprite to sleep (stop)."
-  @callback sleep(sprite_id()) :: {:ok, sprite()} | {:error, term()}
+  @doc """
+  Put a Sprite to sleep (stop).
+
+  Returns `{:ok, :noop}` when the API does not support forcing sleep (sprites
+  go cold naturally after inactivity).
+  """
+  @callback sleep(sprite_id()) :: {:ok, sprite() | :noop} | {:error, term()}
 
   @doc "Execute a command on a Sprite."
   @callback exec(sprite_id(), command()) :: {:ok, map()} | {:error, term()}
