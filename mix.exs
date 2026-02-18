@@ -88,8 +88,7 @@ defmodule Lattice.MixProject do
           Lattice.Capabilities.Sprites,
           Lattice.Capabilities.Sprites.Live,
           Lattice.Capabilities.SecretStore,
-          Lattice.Capabilities.SecretStore.Env,
-          Lattice.Capabilities.SecretStore.Stub
+          Lattice.Capabilities.SecretStore.Env
         ],
         Safety: [
           Lattice.Safety.Action,
