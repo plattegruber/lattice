@@ -52,6 +52,16 @@ defmodule Lattice.Sprites.ExecSession do
 
   @impl true
   def init(args) do
+    case sprites_api_token_safe() do
+      nil ->
+        {:stop, :missing_sprites_api_token}
+
+      _token ->
+        do_init(args)
+    end
+  end
+
+  defp do_init(args) do
     session_id = generate_session_id()
     sprite_id = Keyword.fetch!(args, :sprite_id)
     command = Keyword.fetch!(args, :command)
@@ -193,14 +203,10 @@ defmodule Lattice.Sprites.ExecSession do
   end
 
   # Gun upgrade success (WebSocket handshake completed)
+  # Command is already passed via the `cmd` query parameter on the upgrade URL,
+  # so no need to send it again via stdin frame.
   def handle_info({:gun_upgrade, _conn_pid, _stream_ref, ["websocket"], _headers}, state) do
     Logger.debug("Exec session #{state.session_id} WebSocket upgrade successful")
-
-    if state.command && state.conn_pid do
-      cmd_frame = Jason.encode!(%{type: "stdin", data: state.command <> "\n"})
-      :gun.ws_send(state.conn_pid, state.stream_ref, {:text, cmd_frame})
-    end
-
     {:noreply, state}
   end
 
@@ -267,7 +273,7 @@ defmodule Lattice.Sprites.ExecSession do
             path = "/v1/sprites/#{URI.encode(sprite_id)}/exec?#{query}"
 
             headers = [
-              {<<"authorization">>, <<"Bearer #{token}">>}
+              {"authorization", "Bearer #{token}"}
             ]
 
             stream_ref = :gun.ws_upgrade(conn_pid, String.to_charlist(path), headers)
@@ -347,7 +353,7 @@ defmodule Lattice.Sprites.ExecSession do
     end
 
     state = cancel_idle_timer(state)
-    %{state | status: :closed}
+    %{state | status: :closed, conn_pid: nil}
   end
 
   defp generate_session_id do
@@ -360,5 +366,9 @@ defmodule Lattice.Sprites.ExecSession do
 
   defp sprites_api_token do
     System.get_env("SPRITES_API_TOKEN") || raise "SPRITES_API_TOKEN not set"
+  end
+
+  defp sprites_api_token_safe do
+    System.get_env("SPRITES_API_TOKEN")
   end
 end
