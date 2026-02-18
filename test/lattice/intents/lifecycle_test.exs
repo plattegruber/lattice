@@ -82,6 +82,54 @@ defmodule Lattice.Intents.LifecycleTest do
       assert {:ok, updated} = Lifecycle.transition(intent, :failed)
       assert updated.state == :failed
     end
+
+    test "running → blocked" do
+      intent = new_intent(:running)
+      assert {:ok, updated} = Lifecycle.transition(intent, :blocked)
+      assert updated.state == :blocked
+    end
+
+    test "running → waiting_for_input" do
+      intent = new_intent(:running)
+      assert {:ok, updated} = Lifecycle.transition(intent, :waiting_for_input)
+      assert updated.state == :waiting_for_input
+    end
+
+    test "blocked → running (resume)" do
+      intent = new_intent(:blocked)
+      assert {:ok, updated} = Lifecycle.transition(intent, :running)
+      assert updated.state == :running
+    end
+
+    test "waiting_for_input → running (resume)" do
+      intent = new_intent(:waiting_for_input)
+      assert {:ok, updated} = Lifecycle.transition(intent, :running)
+      assert updated.state == :running
+    end
+
+    test "blocked → canceled" do
+      intent = new_intent(:blocked)
+      assert {:ok, updated} = Lifecycle.transition(intent, :canceled)
+      assert updated.state == :canceled
+    end
+
+    test "waiting_for_input → canceled" do
+      intent = new_intent(:waiting_for_input)
+      assert {:ok, updated} = Lifecycle.transition(intent, :canceled)
+      assert updated.state == :canceled
+    end
+
+    test "blocked → failed" do
+      intent = new_intent(:blocked)
+      assert {:ok, updated} = Lifecycle.transition(intent, :failed)
+      assert updated.state == :failed
+    end
+
+    test "waiting_for_input → failed" do
+      intent = new_intent(:waiting_for_input)
+      assert {:ok, updated} = Lifecycle.transition(intent, :failed)
+      assert updated.state == :failed
+    end
   end
 
   # ── Invalid Transitions ──────────────────────────────────────────────
@@ -179,6 +227,30 @@ defmodule Lattice.Intents.LifecycleTest do
       assert %DateTime{} = updated.completed_at
     end
 
+    test "blocked sets blocked_at" do
+      intent = new_intent(:running)
+      {:ok, updated} = Lifecycle.transition(intent, :blocked)
+      assert %DateTime{} = updated.blocked_at
+    end
+
+    test "waiting_for_input sets blocked_at" do
+      intent = new_intent(:running)
+      {:ok, updated} = Lifecycle.transition(intent, :waiting_for_input)
+      assert %DateTime{} = updated.blocked_at
+    end
+
+    test "resuming from blocked sets resumed_at" do
+      intent = new_intent(:blocked)
+      {:ok, updated} = Lifecycle.transition(intent, :running)
+      assert %DateTime{} = updated.resumed_at
+    end
+
+    test "resuming from waiting_for_input sets resumed_at" do
+      intent = new_intent(:waiting_for_input)
+      {:ok, updated} = Lifecycle.transition(intent, :running)
+      assert %DateTime{} = updated.resumed_at
+    end
+
     test "updated_at is refreshed on transition" do
       intent = new_intent(:proposed)
       {:ok, updated} = Lifecycle.transition(intent, :classified)
@@ -235,6 +307,22 @@ defmodule Lattice.Intents.LifecycleTest do
       assert Lifecycle.valid_transitions(:classified) == [:awaiting_approval, :approved]
     end
 
+    test "returns valid targets for running including blocked states" do
+      targets = Lifecycle.valid_transitions(:running)
+      assert :blocked in targets
+      assert :waiting_for_input in targets
+      assert :completed in targets
+      assert :failed in targets
+    end
+
+    test "returns valid targets for blocked" do
+      assert Lifecycle.valid_transitions(:blocked) == [:running, :failed, :canceled]
+    end
+
+    test "returns valid targets for waiting_for_input" do
+      assert Lifecycle.valid_transitions(:waiting_for_input) == [:running, :failed, :canceled]
+    end
+
     test "returns empty list for terminal states" do
       assert Lifecycle.valid_transitions(:completed) == []
       assert Lifecycle.valid_transitions(:failed) == []
@@ -277,19 +365,29 @@ defmodule Lattice.Intents.LifecycleTest do
     test "approved is not terminal" do
       refute Lifecycle.terminal?(:approved)
     end
+
+    test "blocked is not terminal" do
+      refute Lifecycle.terminal?(:blocked)
+    end
+
+    test "waiting_for_input is not terminal" do
+      refute Lifecycle.terminal?(:waiting_for_input)
+    end
   end
 
   # ── valid_states/0 ──────────────────────────────────────────────────
 
   describe "valid_states/0" do
-    test "returns all 9 states" do
+    test "returns all 11 states" do
       states = Lifecycle.valid_states()
-      assert length(states) == 9
+      assert length(states) == 11
       assert :proposed in states
       assert :classified in states
       assert :awaiting_approval in states
       assert :approved in states
       assert :running in states
+      assert :blocked in states
+      assert :waiting_for_input in states
       assert :completed in states
       assert :failed in states
       assert :rejected in states

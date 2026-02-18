@@ -31,6 +31,8 @@ defmodule Lattice.Intents.Intent do
           | :awaiting_approval
           | :approved
           | :running
+          | :blocked
+          | :waiting_for_input
           | :completed
           | :failed
           | :rejected
@@ -64,7 +66,11 @@ defmodule Lattice.Intents.Intent do
           classified_at: DateTime.t() | nil,
           approved_at: DateTime.t() | nil,
           started_at: DateTime.t() | nil,
-          completed_at: DateTime.t() | nil
+          completed_at: DateTime.t() | nil,
+          blocked_at: DateTime.t() | nil,
+          resumed_at: DateTime.t() | nil,
+          blocked_reason: String.t() | nil,
+          pending_question: map() | nil
         }
 
   @enforce_keys [:id, :kind, :state, :source, :summary, :payload, :inserted_at, :updated_at]
@@ -80,6 +86,10 @@ defmodule Lattice.Intents.Intent do
     :approved_at,
     :started_at,
     :completed_at,
+    :blocked_at,
+    :resumed_at,
+    :blocked_reason,
+    :pending_question,
     :inserted_at,
     :updated_at,
     classification: nil,

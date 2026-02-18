@@ -79,6 +79,14 @@ defmodule LatticeWeb.IntentsLive do
     {:noreply, assign_intents(socket)}
   end
 
+  def handle_info({:intent_blocked, _intent}, socket) do
+    {:noreply, assign_intents(socket)}
+  end
+
+  def handle_info({:intent_resumed, _intent}, socket) do
+    {:noreply, assign_intents(socket)}
+  end
+
   def handle_info(:refresh, socket) do
     schedule_refresh()
     {:noreply, assign_intents(socket)}
@@ -521,6 +529,8 @@ defmodule LatticeWeb.IntentsLive do
   defp intent_state_color(:awaiting_approval), do: "badge-warning"
   defp intent_state_color(:approved), do: "badge-success"
   defp intent_state_color(:running), do: "badge-info"
+  defp intent_state_color(:blocked), do: "badge-warning"
+  defp intent_state_color(:waiting_for_input), do: "badge-error"
   defp intent_state_color(:completed), do: "badge-success"
   defp intent_state_color(:failed), do: "badge-error"
   defp intent_state_color(:rejected), do: "badge-error"
@@ -539,6 +549,8 @@ defmodule LatticeWeb.IntentsLive do
 
   defp sorted_state_counts(by_state) do
     order = [
+      :waiting_for_input,
+      :blocked,
       :awaiting_approval,
       :running,
       :approved,

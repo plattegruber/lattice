@@ -18,7 +18,7 @@ defmodule LatticeWeb.Api.IntentController do
   security([%{"BearerAuth" => []}])
 
   @valid_kinds ~w(action inquiry maintenance)
-  @valid_filter_states ~w(proposed classified awaiting_approval approved running completed failed rejected canceled)
+  @valid_filter_states ~w(proposed classified awaiting_approval approved running blocked waiting_for_input completed failed rejected canceled)
   @valid_source_types ~w(sprite agent cron operator)
 
   # ── GET /api/intents ───────────────────────────────────────────────
@@ -46,6 +46,8 @@ defmodule LatticeWeb.Api.IntentController do
             "awaiting_approval",
             "approved",
             "running",
+            "blocked",
+            "waiting_for_input",
             "completed",
             "failed",
             "rejected",
@@ -521,7 +523,11 @@ defmodule LatticeWeb.Api.IntentController do
       classified_at: intent.classified_at,
       approved_at: intent.approved_at,
       started_at: intent.started_at,
-      completed_at: intent.completed_at
+      completed_at: intent.completed_at,
+      blocked_at: intent.blocked_at,
+      resumed_at: intent.resumed_at,
+      blocked_reason: intent.blocked_reason,
+      pending_question: intent.pending_question
     }
   end
 

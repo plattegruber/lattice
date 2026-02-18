@@ -320,6 +320,42 @@ defmodule Lattice.Events do
     Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_failed, run})
   end
 
+  @doc """
+  Emit an intent blocked event.
+
+  Fires a `[:lattice, :intent, :blocked]` Telemetry event and broadcasts
+  `{:intent_blocked, intent}` on the intent-specific and all-intents topics.
+  """
+  @spec emit_intent_blocked(Lattice.Intents.Intent.t()) :: :ok
+  def emit_intent_blocked(%Lattice.Intents.Intent{} = intent) do
+    :telemetry.execute(
+      [:lattice, :intent, :blocked],
+      %{system_time: System.system_time()},
+      %{intent: intent, blocked_reason: intent.blocked_reason}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent.id), {:intent_blocked, intent})
+    Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), {:intent_blocked, intent})
+  end
+
+  @doc """
+  Emit an intent resumed event.
+
+  Fires a `[:lattice, :intent, :resumed]` Telemetry event and broadcasts
+  `{:intent_resumed, intent}` on the intent-specific and all-intents topics.
+  """
+  @spec emit_intent_resumed(Lattice.Intents.Intent.t()) :: :ok
+  def emit_intent_resumed(%Lattice.Intents.Intent{} = intent) do
+    :telemetry.execute(
+      [:lattice, :intent, :resumed],
+      %{system_time: System.system_time()},
+      %{intent: intent}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent.id), {:intent_resumed, intent})
+    Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), {:intent_resumed, intent})
+  end
+
   @doc "Broadcast a log line to a sprite's logs topic."
   @spec broadcast_sprite_log(String.t(), map()) :: :ok
   def broadcast_sprite_log(sprite_id, log_line) when is_binary(sprite_id) and is_map(log_line) do

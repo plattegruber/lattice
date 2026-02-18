@@ -30,7 +30,16 @@ defmodule Lattice.Intents.Store.ETS do
 
   @table_name :lattice_intents
   @frozen_fields [:payload, :affected_resources, :expected_side_effects, :rollback_strategy]
-  @post_approval_states [:approved, :running, :completed, :failed, :rejected, :canceled]
+  @post_approval_states [
+    :approved,
+    :running,
+    :blocked,
+    :waiting_for_input,
+    :completed,
+    :failed,
+    :rejected,
+    :canceled
+  ]
 
   # ── Client API ──────────────────────────────────────────────────────
 
@@ -255,6 +264,8 @@ defmodule Lattice.Intents.Store.ETS do
         {:affected_resources, value}, acc -> %{acc | affected_resources: value}
         {:expected_side_effects, value}, acc -> %{acc | expected_side_effects: value}
         {:rollback_strategy, value}, acc -> %{acc | rollback_strategy: value}
+        {:blocked_reason, value}, acc -> %{acc | blocked_reason: value}
+        {:pending_question, value}, acc -> %{acc | pending_question: value}
         _unknown, acc -> acc
       end)
       |> Map.put(:updated_at, now)
