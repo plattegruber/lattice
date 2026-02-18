@@ -13,7 +13,7 @@ config :lattice,
 # Capability module implementations — swap per environment
 config :lattice, :capabilities,
   sprites: Lattice.Capabilities.Sprites.Live,
-  github: Lattice.Capabilities.GitHub.Stub,
+  github: Lattice.Capabilities.GitHub.Live,
   fly: Lattice.Capabilities.Fly.Live,
   secret_store: Lattice.Capabilities.SecretStore.Env
 

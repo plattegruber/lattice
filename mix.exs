@@ -79,7 +79,6 @@ defmodule Lattice.MixProject do
           Lattice.Capabilities,
           Lattice.Capabilities.GitHub,
           Lattice.Capabilities.GitHub.Live,
-          Lattice.Capabilities.GitHub.Stub,
           Lattice.Capabilities.GitHub.Labels,
           Lattice.Capabilities.GitHub.WorkProposal,
           Lattice.Capabilities.Fly,
