@@ -103,6 +103,12 @@ defmodule Lattice.Events do
   @spec runs_topic() :: String.t()
   def runs_topic, do: "runs"
 
+  @doc "Returns the PubSub topic for exec session protocol events."
+  @spec exec_events_topic(String.t()) :: String.t()
+  def exec_events_topic(session_id) when is_binary(session_id) do
+    "exec:#{session_id}:events"
+  end
+
   # ── Subscribe ──────────────────────────────────────────────────────
 
   @doc "Subscribe the calling process to events for a specific Sprite."
@@ -169,6 +175,12 @@ defmodule Lattice.Events do
   @spec subscribe_runs() :: :ok | {:error, term()}
   def subscribe_runs do
     Phoenix.PubSub.subscribe(pubsub(), runs_topic())
+  end
+
+  @doc "Subscribe the calling process to protocol events for an exec session."
+  @spec subscribe_exec_events(String.t()) :: :ok | {:error, term()}
+  def subscribe_exec_events(session_id) do
+    Phoenix.PubSub.subscribe(pubsub(), exec_events_topic(session_id))
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────

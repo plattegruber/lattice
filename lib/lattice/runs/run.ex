@@ -4,7 +4,8 @@ defmodule Lattice.Runs.Run do
 
   It bridges the "why" (intent) to the "how" (sprite execution). Runs track
   the full lifecycle of sprite work: pending, running, succeeded, failed, or
-  canceled.
+  canceled. Runs can also be blocked (waiting for external resolution) or
+  blocked_waiting_for_user (waiting for human input via a question).
 
   ## Lifecycle
 
@@ -12,9 +13,22 @@ defmodule Lattice.Runs.Run do
                        ↘ failed
       pending → canceled
       running → canceled
+      running → blocked → running (resume)
+      running → blocked_waiting_for_user → running (resume with answer)
+      blocked → canceled
+      blocked_waiting_for_user → canceled
+      blocked → failed
+      blocked_waiting_for_user → failed
   """
 
-  @type status :: :pending | :running | :succeeded | :failed | :canceled
+  @type status ::
+          :pending
+          | :running
+          | :succeeded
+          | :failed
+          | :canceled
+          | :blocked
+          | :blocked_waiting_for_user
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -25,9 +39,13 @@ defmodule Lattice.Runs.Run do
           status: status(),
           started_at: DateTime.t() | nil,
           finished_at: DateTime.t() | nil,
-          artifacts: map(),
+          artifacts: [map()],
+          assumptions: [map()],
           exit_code: integer() | nil,
           error: String.t() | nil,
+          blocked_reason: String.t() | nil,
+          question: map() | nil,
+          answer: map() | nil,
           inserted_at: DateTime.t(),
           updated_at: DateTime.t()
         }
@@ -43,8 +61,12 @@ defmodule Lattice.Runs.Run do
     :finished_at,
     :exit_code,
     :error,
+    :blocked_reason,
+    :question,
+    :answer,
     status: :pending,
-    artifacts: %{},
+    artifacts: [],
+    assumptions: [],
     inserted_at: nil,
     updated_at: nil
   ]
@@ -81,7 +103,7 @@ defmodule Lattice.Runs.Run do
            intent_id: Map.get(attrs, :intent_id),
            command: Map.get(attrs, :command),
            status: :pending,
-           artifacts: Map.get(attrs, :artifacts, %{}),
+           artifacts: Map.get(attrs, :artifacts, []),
            inserted_at: now,
            updated_at: now
          }}
@@ -113,7 +135,7 @@ defmodule Lattice.Runs.Run do
          finished_at: now,
          updated_at: now,
          exit_code: Map.get(attrs, :exit_code, 0),
-         artifacts: Map.merge(run.artifacts, Map.get(attrs, :artifacts, %{}))
+         artifacts: run.artifacts ++ List.wrap(Map.get(attrs, :artifacts, []))
      }}
   end
 
@@ -124,7 +146,8 @@ defmodule Lattice.Runs.Run do
   @spec fail(t(), map()) :: {:ok, t()} | {:error, {:invalid_transition, status(), :failed}}
   def fail(run, attrs \\ %{})
 
-  def fail(%__MODULE__{status: :running} = run, attrs) do
+  def fail(%__MODULE__{status: s} = run, attrs)
+      when s in [:running, :blocked, :blocked_waiting_for_user] do
     now = DateTime.utc_now()
 
     {:ok,
@@ -143,7 +166,8 @@ defmodule Lattice.Runs.Run do
 
   @doc "Mark run as canceled."
   @spec cancel(t()) :: {:ok, t()} | {:error, {:invalid_transition, status(), :canceled}}
-  def cancel(%__MODULE__{status: s} = run) when s in [:pending, :running] do
+  def cancel(%__MODULE__{status: s} = run)
+      when s in [:pending, :running, :blocked, :blocked_waiting_for_user] do
     now = DateTime.utc_now()
     {:ok, %{run | status: :canceled, finished_at: now, updated_at: now}}
   end
@@ -151,12 +175,68 @@ defmodule Lattice.Runs.Run do
   def cancel(%__MODULE__{status: status}),
     do: {:error, {:invalid_transition, status, :canceled}}
 
+  @doc "Block a running run."
+  @spec block(t(), String.t()) :: {:ok, t()} | {:error, {:invalid_transition, status(), :blocked}}
+  def block(%__MODULE__{status: :running} = run, reason) do
+    {:ok, %{run | status: :blocked, blocked_reason: reason, updated_at: DateTime.utc_now()}}
+  end
+
+  def block(%__MODULE__{status: status}, _),
+    do: {:error, {:invalid_transition, status, :blocked}}
+
+  @doc "Block a running run for user input."
+  @spec block_for_input(t(), map()) ::
+          {:ok, t()} | {:error, {:invalid_transition, status(), :blocked_waiting_for_user}}
+  def block_for_input(%__MODULE__{status: :running} = run, question) do
+    {:ok,
+     %{
+       run
+       | status: :blocked_waiting_for_user,
+         question: question,
+         updated_at: DateTime.utc_now()
+     }}
+  end
+
+  def block_for_input(%__MODULE__{status: status}, _),
+    do: {:error, {:invalid_transition, status, :blocked_waiting_for_user}}
+
+  @doc "Resume a blocked run."
+  @spec resume(t(), map() | nil) ::
+          {:ok, t()} | {:error, {:invalid_transition, status(), :running}}
+  def resume(run, answer \\ nil)
+
+  def resume(%__MODULE__{status: s} = run, answer)
+      when s in [:blocked, :blocked_waiting_for_user] do
+    {:ok, %{run | status: :running, answer: answer, updated_at: DateTime.utc_now()}}
+  end
+
+  def resume(%__MODULE__{status: status}, _),
+    do: {:error, {:invalid_transition, status, :running}}
+
   # ── Helpers ──────────────────────────────────────────────────────────
 
+  @doc "Add a single artifact to the run's artifacts list."
+  @spec add_artifact(t(), map()) :: t()
+  def add_artifact(%__MODULE__{} = run, artifact) when is_map(artifact) do
+    %{run | artifacts: run.artifacts ++ [artifact], updated_at: DateTime.utc_now()}
+  end
+
   @doc "Add artifacts to the run."
-  @spec add_artifacts(t(), map()) :: t()
+  @spec add_artifacts(t(), [map()] | map()) :: t()
+  def add_artifacts(%__MODULE__{} = run, new_artifacts) when is_list(new_artifacts) do
+    %{run | artifacts: run.artifacts ++ new_artifacts, updated_at: DateTime.utc_now()}
+  end
+
   def add_artifacts(%__MODULE__{} = run, new_artifacts) when is_map(new_artifacts) do
-    %{run | artifacts: Map.merge(run.artifacts, new_artifacts), updated_at: DateTime.utc_now()}
+    # Backwards compat: merge map artifacts
+    add_artifact(run, new_artifacts)
+  end
+
+  @doc "Add an assumption to the run."
+  @spec add_assumption(t(), map()) :: t()
+  def add_assumption(%__MODULE__{} = run, assumption) when is_map(assumption) do
+    assumption = Map.put_new(assumption, :timestamp, DateTime.utc_now())
+    %{run | assumptions: run.assumptions ++ [assumption], updated_at: DateTime.utc_now()}
   end
 
   # ── Private ──────────────────────────────────────────────────────────
