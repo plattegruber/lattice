@@ -48,9 +48,6 @@ defmodule Lattice.Sprites.ExecSession do
   @doc "Returns the PubSub topic for a given session ID."
   def exec_topic(session_id), do: "exec:#{session_id}"
 
-  @doc "Returns a via-tuple for looking up a session by ID in the ExecRegistry."
-  def via(session_id), do: {:via, Registry, {Lattice.Sprites.ExecRegistry, session_id}}
-
   # ── GenServer callbacks ─────────────────────────────────────────────
 
   @impl true
@@ -70,10 +67,11 @@ defmodule Lattice.Sprites.ExecSession do
     command = Keyword.fetch!(args, :command)
     idle_timeout = Keyword.get(args, :idle_timeout, @default_idle_timeout)
 
-    Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
-      sprite_id: sprite_id,
-      command: command
-    })
+    {:ok, _} =
+      Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
+        sprite_id: sprite_id,
+        command: command
+      })
 
     state = %__MODULE__{
       session_id: session_id,

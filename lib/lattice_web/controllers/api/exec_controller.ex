@@ -23,7 +23,8 @@ defmodule LatticeWeb.Api.ExecController do
 
   Body: `{ "command": "echo hello" }`
   """
-  def create(conn, %{"id" => sprite_id, "command" => command}) do
+  def create(conn, %{"id" => sprite_id, "command" => command})
+      when is_binary(command) and command != "" do
     case FleetManager.get_sprite_pid(sprite_id) do
       {:ok, _pid} ->
         case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
@@ -48,6 +49,12 @@ defmodule LatticeWeb.Api.ExecController do
         |> put_status(404)
         |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
     end
+  end
+
+  def create(conn, %{"id" => _id, "command" => ""}) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "Missing required field: command", code: "MISSING_FIELD"})
   end
 
   def create(conn, %{"id" => _id}) do
@@ -84,10 +91,11 @@ defmodule LatticeWeb.Api.ExecController do
   @doc """
   Get session details with buffered output.
   """
-  def show(conn, %{"id" => _sprite_id, "session_id" => session_id}) do
+  def show(conn, %{"id" => sprite_id, "session_id" => session_id}) do
     case ExecSupervisor.get_session_pid(session_id) do
       {:ok, pid} ->
         with {:ok, state} <- ExecSession.get_state(pid),
+             true <- state.sprite_id == sprite_id,
              {:ok, output} <- ExecSession.get_output(pid) do
           conn
           |> put_status(200)
@@ -95,6 +103,11 @@ defmodule LatticeWeb.Api.ExecController do
             data: Map.merge(serialize_session(state), %{output: serialize_output(output)}),
             timestamp: DateTime.utc_now()
           })
+        else
+          _ ->
+            conn
+            |> put_status(404)
+            |> json(%{error: "Session not found", code: "SESSION_NOT_FOUND"})
         end
 
       {:error, :not_found} ->
@@ -109,19 +122,24 @@ defmodule LatticeWeb.Api.ExecController do
   @doc """
   Terminate an exec session.
   """
-  def delete(conn, %{"id" => _sprite_id, "session_id" => session_id}) do
-    case ExecSupervisor.get_session_pid(session_id) do
-      {:ok, pid} ->
+  def delete(conn, %{"id" => sprite_id, "session_id" => session_id}) do
+    with {:ok, pid} <- ExecSupervisor.get_session_pid(session_id),
+         {:ok, state} <- ExecSession.get_state(pid),
+         true <- state.sprite_id == sprite_id do
+      try do
         ExecSession.close(pid)
+      catch
+        :exit, _ -> :ok
+      end
 
-        conn
-        |> put_status(200)
-        |> json(%{
-          data: %{session_id: session_id, status: "closed"},
-          timestamp: DateTime.utc_now()
-        })
-
-      {:error, :not_found} ->
+      conn
+      |> put_status(200)
+      |> json(%{
+        data: %{session_id: session_id, status: "closed"},
+        timestamp: DateTime.utc_now()
+      })
+    else
+      _ ->
         conn
         |> put_status(404)
         |> json(%{error: "Session not found", code: "SESSION_NOT_FOUND"})

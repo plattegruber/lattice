@@ -147,7 +147,8 @@ defmodule LatticeWeb.SpriteLive.Show do
     {:noreply,
      socket
      |> refresh_sprite_state()
-     |> assign_sprite_tasks()}
+     |> assign_sprite_tasks()
+     |> assign(:exec_sessions, load_exec_sessions(socket.assigns.sprite_id))}
   end
 
   # Exec session output via PubSub

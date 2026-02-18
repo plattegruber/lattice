@@ -23,10 +23,11 @@ defmodule Lattice.Sprites.ExecSession.Stub do
     session_id =
       "exec_stub_" <> Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
 
-    Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
-      sprite_id: sprite_id,
-      command: command
-    })
+    {:ok, _} =
+      Registry.register(Lattice.Sprites.ExecRegistry, session_id, %{
+        sprite_id: sprite_id,
+        command: command
+      })
 
     Process.send_after(self(), :simulate_output, 100)
 

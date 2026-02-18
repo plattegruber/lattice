@@ -1,5 +1,5 @@
 defmodule Lattice.Sprites.ExecSupervisorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag :unit
 
