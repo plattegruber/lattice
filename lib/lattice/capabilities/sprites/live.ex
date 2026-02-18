@@ -103,16 +103,15 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   @impl true
   def exec(id, command) do
-    query = URI.encode_query([{"cmd", command}])
-    path = "/#{@api_version}/sprites/#{URI.encode(id)}/exec?#{query}"
+    client = Sprites.new(auth_token(), base_url: base_url())
+    sprite = Sprites.sprite(client, id)
 
-    case post(path, nil) do
-      {:ok, result} when is_map(result) ->
-        {:ok, parse_exec_result(id, command, result)}
-
-      {:error, reason} ->
-        {:error, reason}
+    case Sprites.cmd(sprite, "sh", ["-c", command]) do
+      {output, exit_code} ->
+        {:ok, %{sprite_id: id, command: command, output: output, exit_code: exit_code}}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   @impl true
@@ -290,15 +289,6 @@ defmodule Lattice.Capabilities.Sprites.Live do
   def parse_status("running"), do: :running
   def parse_status(nil), do: :cold
   def parse_status(_other), do: :cold
-
-  defp parse_exec_result(id, command, result) do
-    %{
-      sprite_id: id,
-      command: command,
-      output: result["stdout"] || result["output"] || "",
-      exit_code: result["exit_code"] || result["exitCode"] || 0
-    }
-  end
 
   defp build_log_query(opts) do
     params =
