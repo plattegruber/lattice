@@ -8,7 +8,7 @@ defmodule Lattice.Sprites.Logs do
   - Reconciliation and state transition events (via PubSub from Sprite GenServer)
 
   All sources feed into a single PubSub topic per sprite:
-  `"sprite:<sprite_id>:logs"`.
+  `"sprites:<sprite_id>:logs"`.
   """
 
   alias Lattice.Capabilities.Sprites, as: SpritesCapability
@@ -54,12 +54,13 @@ defmodule Lattice.Sprites.Logs do
   Build a log_line from a Sprite GenServer event.
   """
   @spec from_event(atom(), String.t(), map()) :: log_line()
-  def from_event(event_type, _sprite_id, data) do
+  def from_event(event_type, sprite_id, data) do
     {level, message} = format_event(event_type, data)
 
     %{
       id: System.unique_integer([:positive, :monotonic]),
       source: event_type,
+      sprite_id: sprite_id,
       level: level,
       message: message,
       timestamp: DateTime.utc_now()
@@ -87,7 +88,7 @@ defmodule Lattice.Sprites.Logs do
   """
   @spec strip_ansi(String.t()) :: String.t()
   def strip_ansi(text) when is_binary(text) do
-    Regex.replace(~r/\x1b\[[0-9;]*[a-zA-Z]/, text, "")
+    Regex.replace(~r/\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|\([A-Z])/, text, "")
   end
 
   def strip_ansi(text), do: to_string(text)

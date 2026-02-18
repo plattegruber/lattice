@@ -14,6 +14,14 @@ defmodule Lattice.Sprites.LogsTest do
       assert Logs.strip_ansi("\e[1;32mSuccess\e[0m") == "Success"
     end
 
+    test "strips OSC sequences" do
+      assert Logs.strip_ansi("\e]0;window title\atesting") == "testing"
+    end
+
+    test "strips CSI sequences with ? prefix" do
+      assert Logs.strip_ansi("\e[?25hvisible") == "visible"
+    end
+
     test "returns plain text unchanged" do
       assert Logs.strip_ansi("no codes here") == "no codes here"
     end
@@ -37,6 +45,7 @@ defmodule Lattice.Sprites.LogsTest do
         })
 
       assert line.source == :state_change
+      assert line.sprite_id == "sprite-1"
       assert line.level == :info
       assert line.message =~ "hibernating -> waking"
       assert line.message =~ "operator request"

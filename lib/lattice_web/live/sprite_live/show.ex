@@ -43,15 +43,17 @@ defmodule LatticeWeb.SpriteLive.Show do
   def mount(%{"id" => sprite_id}, _session, socket) do
     case fetch_sprite_state(sprite_id) do
       {:ok, sprite_state} ->
-        if connected?(socket) do
-          Events.subscribe_sprite(sprite_id)
-          Events.subscribe_fleet()
-          Events.subscribe_intents()
-          Events.subscribe_sprite_logs(sprite_id)
-          schedule_refresh()
-        end
-
-        historical = Logs.fetch_historical(sprite_id)
+        historical =
+          if connected?(socket) do
+            Events.subscribe_sprite(sprite_id)
+            Events.subscribe_fleet()
+            Events.subscribe_intents()
+            Events.subscribe_sprite_logs(sprite_id)
+            schedule_refresh()
+            Logs.fetch_historical(sprite_id)
+          else
+            []
+          end
 
         {:ok,
          socket

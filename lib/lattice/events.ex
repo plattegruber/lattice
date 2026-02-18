@@ -96,7 +96,7 @@ defmodule Lattice.Events do
   @doc "Returns the PubSub topic for a specific Sprite's unified log stream."
   @spec sprite_logs_topic(String.t()) :: String.t()
   def sprite_logs_topic(sprite_id) when is_binary(sprite_id) do
-    "sprite:#{sprite_id}:logs"
+    "sprites:#{sprite_id}:logs"
   end
 
   @doc "Returns the PubSub topic for run lifecycle events."

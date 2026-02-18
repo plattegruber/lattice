@@ -120,7 +120,7 @@ defmodule Lattice.EventsTest do
 
   describe "sprite logs" do
     test "sprite_logs_topic/1 returns correct topic string" do
-      assert Events.sprite_logs_topic("sprite-001") == "sprite:sprite-001:logs"
+      assert Events.sprite_logs_topic("sprite-001") == "sprites:sprite-001:logs"
     end
 
     test "subscribe and broadcast round-trip" do
