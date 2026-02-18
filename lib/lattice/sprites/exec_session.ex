@@ -225,9 +225,11 @@ defmodule Lattice.Sprites.ExecSession do
   @impl true
   def terminate(_reason, state) do
     if cmd = state.sprites_command do
-      if Process.alive?(cmd.pid) do
+      try do
         Process.unlink(cmd.pid)
         GenServer.stop(cmd.pid, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
       end
     end
 
@@ -356,9 +358,11 @@ defmodule Lattice.Sprites.ExecSession do
 
   defp do_close(state) do
     if cmd = state.sprites_command do
-      if Process.alive?(cmd.pid) do
+      try do
         Process.unlink(cmd.pid)
         GenServer.stop(cmd.pid, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
       end
     end
 

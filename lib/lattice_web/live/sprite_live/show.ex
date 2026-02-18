@@ -284,6 +284,17 @@ defmodule LatticeWeb.SpriteLive.Show do
   end
 
   def handle_event("start_exec", %{"command" => command}, socket) do
+    now = System.monotonic_time(:millisecond)
+    last = socket.assigns[:last_exec_at] || 0
+
+    if now - last < 2_000 do
+      {:noreply, socket}
+    else
+      do_start_exec(command, assign(socket, :last_exec_at, now))
+    end
+  end
+
+  defp do_start_exec(command, socket) do
     sprite_id = socket.assigns.sprite_id
 
     case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
@@ -1022,7 +1033,7 @@ defmodule LatticeWeb.SpriteLive.Show do
             class="input input-bordered input-sm flex-1"
             required
           />
-          <button type="submit" class="btn btn-primary btn-sm">
+          <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Running...">
             <.icon name="hero-play" class="size-4" /> Run
           </button>
         </form>
