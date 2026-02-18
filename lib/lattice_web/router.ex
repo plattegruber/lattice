@@ -80,6 +80,11 @@ defmodule LatticeWeb.Router do
     delete "/sprites/:id", SpriteController, :delete
     post "/sprites/:name/tasks", TaskController, :create
 
+    post "/sprites/:id/exec", ExecController, :create
+    get "/sprites/:id/sessions", ExecController, :index
+    get "/sprites/:id/sessions/:session_id", ExecController, :show
+    delete "/sprites/:id/sessions/:session_id", ExecController, :delete
+
     get "/intents", IntentController, :index
     get "/intents/:id", IntentController, :show
     post "/intents", IntentController, :create

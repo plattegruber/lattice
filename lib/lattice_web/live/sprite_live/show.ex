@@ -27,6 +27,8 @@ defmodule LatticeWeb.SpriteLive.Show do
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
   alias Lattice.Intents.Store, as: IntentStore
+  alias Lattice.Sprites.ExecSession
+  alias Lattice.Sprites.ExecSupervisor
   alias Lattice.Sprites.FleetManager
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
@@ -57,6 +59,10 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:not_found, false)
          |> assign(:show_task_form, false)
          |> assign(:task_form, default_task_form())
+         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
+         |> assign(:active_session_id, nil)
+         |> assign(:exec_command, "")
+         |> stream(:log_lines, [])
          |> assign_sprite_tasks()}
 
       {:error, :not_found} ->
@@ -70,6 +76,10 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:not_found, true)
          |> assign(:show_task_form, false)
          |> assign(:task_form, default_task_form())
+         |> assign(:exec_sessions, [])
+         |> assign(:active_session_id, nil)
+         |> assign(:exec_command, "")
+         |> stream(:log_lines, [])
          |> assign(:sprite_tasks, [])}
     end
   end
@@ -140,6 +150,22 @@ defmodule LatticeWeb.SpriteLive.Show do
      |> assign_sprite_tasks()}
   end
 
+  # Exec session output via PubSub
+  def handle_info({:exec_output, %{session_id: sid, stream: stream, chunk: chunk}}, socket) do
+    if socket.assigns[:active_session_id] == sid do
+      line = %{
+        id: System.unique_integer([:positive]),
+        stream: stream,
+        data: chunk,
+        timestamp: DateTime.utc_now()
+      }
+
+      {:noreply, stream_insert(socket, :log_lines, line)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # Catch-all for unexpected PubSub messages
   def handle_info(_event, socket) do
     {:noreply, refresh_sprite_state(socket)}
@@ -159,6 +185,82 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   def handle_event("validate_task", %{"task" => params}, socket) do
     {:noreply, assign(socket, :task_form, params)}
+  end
+
+  def handle_event("validate_exec_command", %{"command" => command}, socket) do
+    {:noreply, assign(socket, :exec_command, command)}
+  end
+
+  def handle_event("start_exec", %{"command" => command}, socket) do
+    sprite_id = socket.assigns.sprite_id
+
+    case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
+      {:ok, session_pid} ->
+        {:ok, state} = ExecSession.get_state(session_pid)
+
+        Phoenix.PubSub.subscribe(
+          Lattice.PubSub,
+          ExecSession.exec_topic(state.session_id)
+        )
+
+        {:noreply,
+         socket
+         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
+         |> assign(:active_session_id, state.session_id)
+         |> assign(:exec_command, "")
+         |> stream(:log_lines, [], reset: true)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to start session: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("view_session", %{"session-id" => session_id}, socket) do
+    # Unsubscribe from old session if any
+    if old_sid = socket.assigns[:active_session_id] do
+      Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(old_sid))
+    end
+
+    # Subscribe to new session
+    Phoenix.PubSub.subscribe(Lattice.PubSub, ExecSession.exec_topic(session_id))
+
+    log_lines = load_session_output(session_id)
+
+    {:noreply,
+     socket
+     |> assign(:active_session_id, session_id)
+     |> stream(:log_lines, log_lines, reset: true)}
+  end
+
+  def handle_event("close_session", %{"session-id" => session_id}, socket) do
+    case ExecSupervisor.get_session_pid(session_id) do
+      {:ok, pid} -> ExecSession.close(pid)
+      _ -> :ok
+    end
+
+    Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(session_id))
+
+    new_active =
+      if socket.assigns[:active_session_id] == session_id,
+        do: nil,
+        else: socket.assigns[:active_session_id]
+
+    {:noreply,
+     socket
+     |> assign(:exec_sessions, load_exec_sessions(socket.assigns.sprite_id))
+     |> assign(:active_session_id, new_active)
+     |> stream(:log_lines, [], reset: true)}
+  end
+
+  def handle_event("detach_session", _params, socket) do
+    if sid = socket.assigns[:active_session_id] do
+      Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(sid))
+    end
+
+    {:noreply,
+     socket
+     |> assign(:active_session_id, nil)
+     |> stream(:log_lines, [], reset: true)}
   end
 
   def handle_event("submit_task", %{"task" => params}, socket) do
@@ -231,7 +333,12 @@ defmodule LatticeWeb.SpriteLive.Show do
         <.event_timeline events={@events} />
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.log_lines_placeholder />
+          <.exec_sessions_panel
+            exec_sessions={@exec_sessions}
+            active_session_id={@active_session_id}
+            exec_command={@exec_command}
+            log_lines={@streams.log_lines}
+          />
           <.approval_queue_placeholder />
         </div>
       </div>
@@ -670,16 +777,101 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
-  defp log_lines_placeholder(assigns) do
+  attr :exec_sessions, :list, required: true
+  attr :active_session_id, :string, default: nil
+  attr :exec_command, :string, default: ""
+  attr :log_lines, :list, required: true
+
+  defp exec_sessions_panel(assigns) do
     ~H"""
     <div class="card bg-base-200 shadow-sm">
       <div class="card-body">
         <h2 class="card-title text-base">
-          <.icon name="hero-document-text" class="size-5" /> Log Lines
+          <.icon name="hero-command-line" class="size-5" /> Exec Sessions
         </h2>
-        <div class="text-center py-6 text-base-content/50">
-          <.icon name="hero-wrench-screwdriver" class="size-8 mx-auto mb-2" />
-          <p class="text-sm">Log streaming will be available in a future release.</p>
+
+        <form phx-submit="start_exec" phx-change="validate_exec_command" class="flex gap-2 mt-2">
+          <input
+            type="text"
+            name="command"
+            value={@exec_command}
+            placeholder="Enter command..."
+            class="input input-bordered input-sm flex-1"
+            required
+          />
+          <button type="submit" class="btn btn-primary btn-sm">
+            <.icon name="hero-play" class="size-4" /> Run
+          </button>
+        </form>
+
+        <div :if={@exec_sessions == []} class="text-center py-4 text-base-content/50">
+          <p class="text-sm">No active exec sessions.</p>
+        </div>
+
+        <div :if={@exec_sessions != []} class="overflow-x-auto mt-2">
+          <table class="table table-xs table-zebra">
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Command</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={session <- @exec_sessions} id={"session-#{session.session_id}"}>
+                <td class="font-mono text-xs">{String.slice(session.session_id, 0, 16)}</td>
+                <td class="text-xs font-mono">{session.command}</td>
+                <td>
+                  <span class={["badge badge-xs", exec_status_color(session.status)]}>
+                    {session.status}
+                  </span>
+                </td>
+                <td class="flex gap-1">
+                  <button
+                    phx-click="view_session"
+                    phx-value-session-id={session.session_id}
+                    class={[
+                      "btn btn-xs",
+                      if(@active_session_id == session.session_id,
+                        do: "btn-primary",
+                        else: "btn-ghost"
+                      )
+                    ]}
+                  >
+                    View
+                  </button>
+                  <button
+                    phx-click="close_session"
+                    phx-value-session-id={session.session_id}
+                    class="btn btn-xs btn-ghost text-error"
+                  >
+                    Close
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div :if={@active_session_id} class="mt-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-base-content/60">
+              Viewing: {String.slice(@active_session_id, 0, 16)}
+            </span>
+            <button phx-click="detach_session" class="btn btn-xs btn-ghost">
+              Detach
+            </button>
+          </div>
+          <div
+            id="exec-output"
+            phx-update="stream"
+            class="bg-base-300 rounded p-2 font-mono text-xs max-h-60 overflow-y-auto"
+          >
+            <div :for={{dom_id, line} <- @log_lines} id={dom_id} class={exec_line_class(line.stream)}>
+              {line.data}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -854,6 +1046,44 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   defp truncate_id("int_" <> rest), do: "int_" <> String.slice(rest, 0, 8) <> "..."
   defp truncate_id(id), do: String.slice(id, 0, 16) <> "..."
+
+  defp load_session_output(session_id) do
+    with {:ok, pid} <- ExecSupervisor.get_session_pid(session_id),
+         {:ok, output} <- ExecSession.get_output(pid) do
+      Enum.map(output, fn entry ->
+        %{
+          id: System.unique_integer([:positive]),
+          stream: entry.stream,
+          data: entry.data,
+          timestamp: entry.timestamp
+        }
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  defp load_exec_sessions(sprite_id) do
+    ExecSupervisor.list_sessions_for_sprite(sprite_id)
+    |> Enum.map(fn {_session_id, pid, _meta} ->
+      case ExecSession.get_state(pid) do
+        {:ok, state} -> state
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Exec session status colors
+  defp exec_status_color(:running), do: "badge-success"
+  defp exec_status_color(:connecting), do: "badge-info"
+  defp exec_status_color(:closed), do: "badge-ghost"
+  defp exec_status_color(_), do: "badge-ghost"
+
+  # Exec output line styling
+  defp exec_line_class(:stderr), do: "text-error"
+  defp exec_line_class(:exit), do: "text-warning italic"
+  defp exec_line_class(_), do: ""
 
   defp has_drift?(%State{observed_state: same, desired_state: same}), do: false
   defp has_drift?(%State{}), do: true

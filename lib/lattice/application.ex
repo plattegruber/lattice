@@ -31,7 +31,8 @@ defmodule Lattice.Application do
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
       Lattice.Sprites.FleetManager,
-      # Exec session supervisor for WebSocket exec connections
+      # Exec session registry and supervisor for WebSocket exec connections
+      {Registry, keys: :unique, name: Lattice.Sprites.ExecRegistry},
       Lattice.Sprites.ExecSupervisor,
       # Start to serve requests, typically the last entry
       LatticeWeb.Endpoint

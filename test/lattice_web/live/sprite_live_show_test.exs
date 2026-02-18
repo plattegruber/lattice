@@ -105,7 +105,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     test "renders placeholder sections", %{conn: conn, sprite_id: sprite_id} do
       {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
 
-      assert html =~ "Log Lines"
+      assert html =~ "Exec Sessions"
       assert html =~ "Approval Queue"
     end
 
