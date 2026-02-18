@@ -40,6 +40,7 @@ defmodule Lattice.Intents.Executor.Task do
   alias Lattice.Capabilities.Sprites
   alias Lattice.Intents.ExecutionResult
   alias Lattice.Intents.Intent
+  alias Lattice.Protocol.TaskPayload
 
   @pr_url_pattern ~r{https://github\.com/[^\s"']+/pull/\d+}
 
@@ -56,7 +57,10 @@ defmodule Lattice.Intents.Executor.Task do
     start_mono = System.monotonic_time(:millisecond)
 
     sprite_name = Map.fetch!(intent.payload, "sprite_name")
-    script = build_script(intent.payload)
+
+    # Build structured task payload
+    task_payload = build_task_payload(intent)
+    script = build_script(intent.payload, task_payload)
 
     case Sprites.exec(sprite_name, script) do
       {:ok, %{output: output, exit_code: exit_code} = exec_result} ->
@@ -97,14 +101,15 @@ defmodule Lattice.Intents.Executor.Task do
   @doc """
   Build the bash script to execute on the sprite from task payload fields.
 
-  The script clones the repo, creates a branch, applies the requested change,
+  The script writes a structured task payload to `/workspace/.lattice/task.json`,
+  clones the repo, creates a branch, applies the requested change,
   commits, pushes, and opens a PR. Returns the script as a string.
 
   User-supplied values (instructions, PR title, PR body) are written via
   heredocs or single-quoted strings to prevent shell injection.
   """
-  @spec build_script(map()) :: String.t()
-  def build_script(payload) when is_map(payload) do
+  @spec build_script(map(), TaskPayload.t()) :: String.t()
+  def build_script(payload, %TaskPayload{} = task_payload) when is_map(payload) do
     repo = Map.fetch!(payload, "repo")
     task_kind = Map.fetch!(payload, "task_kind")
     instructions = Map.fetch!(payload, "instructions")
@@ -116,9 +121,17 @@ defmodule Lattice.Intents.Executor.Task do
     # Use a unique heredoc delimiter to avoid collisions with user content
     heredoc_delim = "LATTICE_EOF_#{:erlang.phash2(instructions)}"
 
+    {:ok, payload_json} = TaskPayload.serialize(task_payload)
+
     """
     set -euo pipefail
     cd /workspace
+
+    # Write structured task payload
+    mkdir -p .lattice
+    cat > .lattice/task.json <<'LATTICE_PAYLOAD_EOF'
+    #{payload_json}
+    LATTICE_PAYLOAD_EOF
 
     # Clean up any previous run
     rm -rf task-repo
@@ -169,6 +182,28 @@ defmodule Lattice.Intents.Executor.Task do
   end
 
   def parse_pr_url(_), do: nil
+
+  # ── Task Payload ──────────────────────────────────────────────────
+
+  defp build_task_payload(%Intent{} = intent) do
+    payload = intent.payload
+
+    {:ok, tp} =
+      TaskPayload.new(%{
+        run_id: intent.id,
+        goal: Map.get(payload, "instructions", ""),
+        repo: Map.get(payload, "repo"),
+        skill: Map.get(payload, "task_kind"),
+        constraints: %{
+          base_branch: Map.get(payload, "base_branch", "main")
+        },
+        acceptance: Map.get(payload, "pr_title"),
+        answers: %{},
+        env: %{}
+      })
+
+    tp
+  end
 
   # ── Private ────────────────────────────────────────────────────────
 

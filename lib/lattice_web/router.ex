@@ -80,6 +80,9 @@ defmodule LatticeWeb.Router do
     delete "/sprites/:id", SpriteController, :delete
     post "/sprites/:name/tasks", TaskController, :create
 
+    get "/sprites/:name/skills", SkillController, :index
+    get "/sprites/:name/skills/:skill_name", SkillController, :show
+
     post "/sprites/:id/exec", ExecController, :create
     get "/sprites/:id/sessions", ExecController, :index
     get "/sprites/:id/sessions/:session_id", ExecController, :show
@@ -94,6 +97,7 @@ defmodule LatticeWeb.Router do
 
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show
+    post "/runs/:id/answer", RunController, :answer
   end
 
   # Authenticated LiveView routes

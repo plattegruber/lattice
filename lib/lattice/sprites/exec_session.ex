@@ -10,6 +10,8 @@ defmodule Lattice.Sprites.ExecSession do
   require Logger
 
   alias Lattice.Events
+  alias Lattice.Protocol.Event
+  alias Lattice.Protocol.Parser
   alias Lattice.Sprites.Logs
 
   @default_idle_timeout 300_000
@@ -27,7 +29,8 @@ defmodule Lattice.Sprites.ExecSession do
     idle_timeout: @default_idle_timeout,
     output_buffer: [],
     buffer_size: 0,
-    exit_code: nil
+    exit_code: nil,
+    events: []
   ]
 
   # ── Public API ──────────────────────────────────────────────────────
@@ -46,6 +49,10 @@ defmodule Lattice.Sprites.ExecSession do
 
   def close(pid) do
     GenServer.call(pid, :close)
+  end
+
+  def get_events(pid) do
+    GenServer.call(pid, :get_events)
   end
 
   @doc "Returns the PubSub topic for a given session ID."
@@ -132,7 +139,8 @@ defmodule Lattice.Sprites.ExecSession do
       status: state.status,
       started_at: state.started_at,
       buffer_size: state.buffer_size,
-      exit_code: state.exit_code
+      exit_code: state.exit_code,
+      event_count: length(state.events)
     }
 
     {:reply, {:ok, reply}, state}
@@ -140,6 +148,10 @@ defmodule Lattice.Sprites.ExecSession do
 
   def handle_call(:get_output, _from, state) do
     {:reply, {:ok, Enum.reverse(state.output_buffer)}, state}
+  end
+
+  def handle_call(:get_events, _from, state) do
+    {:reply, {:ok, Enum.reverse(state.events)}, state}
   end
 
   def handle_call(:close, _from, state) do
@@ -300,7 +312,47 @@ defmodule Lattice.Sprites.ExecSession do
 
   defp handle_output_chunk(state, stream, chunk) do
     broadcast_output(state, stream, chunk)
-    add_to_buffer(state, stream, chunk)
+    state = add_to_buffer(state, stream, chunk)
+
+    # Parse lines for LATTICE_EVENT protocol events
+    if stream == :stdout do
+      parse_and_broadcast_events(state, chunk)
+    else
+      state
+    end
+  end
+
+  defp parse_and_broadcast_events(state, chunk) do
+    lines = String.split(to_string(chunk), "\n", trim: true)
+
+    Enum.reduce(lines, state, fn line, acc ->
+      case Parser.parse_line(line) do
+        {:event, event} ->
+          broadcast_event(acc, event)
+          add_event_to_buffer(acc, event)
+
+        {:text, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp broadcast_event(state, %Event{} = event) do
+    Phoenix.PubSub.broadcast(
+      Lattice.PubSub,
+      "exec:#{state.session_id}:events",
+      {:protocol_event, event}
+    )
+
+    :telemetry.execute(
+      [:lattice, :protocol, :event_received],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, event_type: event.type}
+    )
+  end
+
+  defp add_event_to_buffer(state, event) do
+    %{state | events: [event | state.events]}
   end
 
   defp broadcast_output(state, stream, chunk) do

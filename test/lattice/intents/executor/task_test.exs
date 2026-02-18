@@ -12,6 +12,7 @@ defmodule Lattice.Intents.Executor.TaskTest do
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Store
   alias Lattice.Intents.Store.ETS, as: StoreETS
+  alias Lattice.Protocol.TaskPayload
 
   setup :verify_on_exit!
 
@@ -109,6 +110,24 @@ defmodule Lattice.Intents.Executor.TaskTest do
     )
   end
 
+  defp default_task_payload_struct(payload) do
+    {:ok, tp} =
+      TaskPayload.new(%{
+        run_id: "test_run_id",
+        goal: Map.get(payload, "instructions", ""),
+        repo: Map.get(payload, "repo"),
+        skill: Map.get(payload, "task_kind"),
+        constraints: %{
+          base_branch: Map.get(payload, "base_branch", "main")
+        },
+        acceptance: Map.get(payload, "pr_title"),
+        answers: %{},
+        env: %{}
+      })
+
+    tp
+  end
+
   defp exec_result_with_pr_url(sprite_name \\ "atlas") do
     output =
       "Cloning into 'task-repo'...\nLATTICE_PR_URL=https://github.com/plattegruber/webapp/pull/42\n{\"pr_url\": \"https://github.com/plattegruber/webapp/pull/42\"}"
@@ -185,12 +204,12 @@ defmodule Lattice.Intents.Executor.TaskTest do
     end
   end
 
-  # ── build_script/1 ──────────────────────────────────────────────────
+  # ── build_script/2 ──────────────────────────────────────────────────
 
-  describe "build_script/1" do
+  describe "build_script/2" do
     test "builds script with required payload fields" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "git clone"
       assert script =~ "plattegruber/webapp"
@@ -202,9 +221,19 @@ defmodule Lattice.Intents.Executor.TaskTest do
       assert script =~ "set -euo pipefail"
     end
 
+    test "writes task.json payload to .lattice directory" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      assert script =~ "mkdir -p .lattice"
+      assert script =~ "cat > .lattice/task.json <<'LATTICE_PAYLOAD_EOF'"
+      assert script =~ "LATTICE_PAYLOAD_EOF"
+      assert script =~ "test_run_id"
+    end
+
     test "uses custom base_branch" do
       payload = task_payload(%{"base_branch" => "develop"})
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "origin/develop"
       assert script =~ "--base 'develop'"
@@ -212,42 +241,42 @@ defmodule Lattice.Intents.Executor.TaskTest do
 
     test "uses custom pr_title" do
       payload = task_payload(%{"pr_title" => "My Custom Title"})
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "My Custom Title"
     end
 
     test "uses custom pr_body" do
       payload = task_payload(%{"pr_body" => "Custom PR body text"})
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "Custom PR body text"
     end
 
     test "defaults pr_title when not provided" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "Task: open_pr_trivial_change"
     end
 
     test "defaults pr_body when not provided" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "Automated task: open_pr_trivial_change"
     end
 
     test "generates branch name with task_kind prefix" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "lattice/open_pr_trivial_change-"
     end
 
     test "writes instructions via heredoc instead of echo" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "cat > .lattice-task <<'"
       # The instructions should not be written via echo, but via a heredoc.
@@ -257,21 +286,21 @@ defmodule Lattice.Intents.Executor.TaskTest do
 
     test "cleans up previous task-repo directory" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "rm -rf task-repo"
     end
 
     test "passes --repo flag to gh pr create" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "--repo 'plattegruber/webapp'"
     end
 
     test "validates PR URL was captured" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ ~s(if [ -z "${PR_URL}" ])
       assert script =~ "exit 1"
@@ -279,14 +308,14 @@ defmodule Lattice.Intents.Executor.TaskTest do
 
     test "escapes single quotes in pr_title" do
       payload = task_payload(%{"pr_title" => "It's a test"})
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "It'\\''s a test"
     end
 
     test "escapes single quotes in pr_body" do
       payload = task_payload(%{"pr_body" => "Body with 'quotes'"})
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ "'\\''quotes'\\''", "Expected escaped single quotes in pr_body"
     end
@@ -297,7 +326,7 @@ defmodule Lattice.Intents.Executor.TaskTest do
           "instructions" => "Run $(dangerous-command) and `backtick` and $VARIABLE"
         })
 
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       # Instructions should be inside a heredoc with single-quoted delimiter,
       # which prevents shell expansion
@@ -311,7 +340,7 @@ defmodule Lattice.Intents.Executor.TaskTest do
           "instructions" => "Line one\nLine two\nLine three"
         })
 
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       # Should contain the multiline instructions within the heredoc
       assert script =~ "Line one\nLine two\nLine three"
@@ -319,7 +348,7 @@ defmodule Lattice.Intents.Executor.TaskTest do
 
     test "outputs JSON with pr_url on stdout" do
       payload = task_payload()
-      script = TaskExecutor.build_script(payload)
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
 
       assert script =~ ~s(echo '{"pr_url": "'"${PR_URL}"'"}')
     end

@@ -990,4 +990,186 @@ defmodule LatticeWeb.Schemas do
       required: [:data, :timestamp]
     })
   end
+
+  # ── Skills ─────────────────────────────────────────────────────────
+
+  defmodule SkillInputSchema do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillInput",
+      description: "Descriptor for a skill input parameter.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Parameter name"},
+        type: %Schema{
+          type: :string,
+          description: "Data type",
+          enum: ["string", "integer", "boolean", "map"]
+        },
+        required: %Schema{type: :boolean, description: "Whether the input is required"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        default: %Schema{description: "Default value when not provided", nullable: true}
+      },
+      required: [:name, :type, :required],
+      example: %{
+        "name" => "repo",
+        "type" => "string",
+        "required" => true,
+        "description" => "Target repository in owner/repo format",
+        "default" => nil
+      }
+    })
+  end
+
+  defmodule SkillOutputSchema do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillOutput",
+      description: "Descriptor for a skill output.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Output name"},
+        type: %Schema{type: :string, description: "Data type"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        }
+      },
+      required: [:name, :type],
+      example: %{
+        "name" => "pr_url",
+        "type" => "string",
+        "description" => "URL of the created pull request"
+      }
+    })
+  end
+
+  defmodule SkillSummary do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillSummary",
+      description: "Abbreviated skill manifest used in list responses.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Skill name"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        input_count: %Schema{type: :integer, description: "Number of input parameters"},
+        output_count: %Schema{type: :integer, description: "Number of outputs"},
+        permissions: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description: "Required permissions"
+        },
+        produces_events: %Schema{
+          type: :boolean,
+          description: "Whether the skill emits protocol events"
+        }
+      },
+      required: [:name, :input_count, :output_count, :permissions, :produces_events],
+      example: %{
+        "name" => "open_pr",
+        "description" => "Opens a pull request on a GitHub repository",
+        "input_count" => 3,
+        "output_count" => 1,
+        "permissions" => ["github:write"],
+        "produces_events" => true
+      }
+    })
+  end
+
+  defmodule SkillDetail do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillDetail",
+      description: "Full skill manifest with inputs, outputs, and permissions.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Skill name"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        inputs: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillInputSchema,
+          description: "Input parameter descriptors"
+        },
+        outputs: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillOutputSchema,
+          description: "Output descriptors"
+        },
+        permissions: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description: "Required permissions"
+        },
+        produces_events: %Schema{
+          type: :boolean,
+          description: "Whether the skill emits protocol events"
+        }
+      },
+      required: [:name, :inputs, :outputs, :permissions, :produces_events]
+    })
+  end
+
+  defmodule SkillListResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillListResponse",
+      description: "List of skill summaries response envelope.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillSummary,
+          description: "Array of skill summaries"
+        },
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp]
+    })
+  end
+
+  defmodule SkillDetailResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillDetailResponse",
+      description: "Single skill detail response envelope.",
+      type: :object,
+      properties: %{
+        data: LatticeWeb.Schemas.SkillDetail,
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp]
+    })
+  end
 end
