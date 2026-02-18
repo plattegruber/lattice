@@ -106,23 +106,22 @@ defmodule Lattice.Protocol.SkillDiscovery do
     # We split on `}{` boundaries and try to parse each one.
     output
     |> split_json_objects()
-    |> Enum.flat_map(fn json_str ->
-      case Jason.decode(json_str) do
-        {:ok, map} ->
-          case SkillManifest.from_map(map) do
-            {:ok, manifest} ->
-              [manifest]
+    |> Enum.flat_map(&parse_single_manifest/1)
+  end
 
-            {:error, reason} ->
-              Logger.warning("Invalid skill manifest: #{reason}")
-              []
-          end
+  defp parse_single_manifest(json_str) do
+    with {:ok, map} <- Jason.decode(json_str),
+         {:ok, manifest} <- SkillManifest.from_map(map) do
+      [manifest]
+    else
+      {:error, %Jason.DecodeError{}} ->
+        Logger.warning("Failed to parse skill JSON: #{String.slice(json_str, 0, 100)}")
+        []
 
-        {:error, _} ->
-          Logger.warning("Failed to parse skill JSON: #{String.slice(json_str, 0, 100)}")
-          []
-      end
-    end)
+      {:error, reason} ->
+        Logger.warning("Invalid skill manifest: #{reason}")
+        []
+    end
   end
 
   # Split concatenated JSON objects. Handles both cases:
