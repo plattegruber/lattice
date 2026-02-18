@@ -94,40 +94,20 @@ defmodule Lattice.Sprites.ExecSession do
     {:ok, state, {:continue, :connect}}
   end
 
+  # Spawn the connection in a separate process so this GenServer remains
+  # responsive to get_state calls while the WebSocket handshake completes.
+  # Sprites.Command.init blocks synchronously during the full TCP + TLS +
+  # WS upgrade sequence, which would otherwise starve queued GenServer.calls.
   @impl true
   def handle_continue(:connect, state) do
-    case start_command(state.sprite_id, state.command) do
-      {:ok, cmd} ->
-        Process.link(cmd.pid)
+    me = self()
 
-        new_state = %{
-          state
-          | sprites_command: cmd,
-            status: :running,
-            idle_timer: schedule_idle_timeout(state.idle_timeout)
-        }
+    spawn(fn ->
+      result = start_command(state.sprite_id, state.command, me)
+      send(me, {:sprites_command_result, result})
+    end)
 
-        Logger.info("Exec session #{state.session_id} connected to sprite #{state.sprite_id}")
-
-        :telemetry.execute(
-          [:lattice, :exec, :started],
-          %{count: 1},
-          %{session_id: state.session_id, sprite_id: state.sprite_id, command: state.command}
-        )
-
-        {:noreply, new_state}
-
-      {:error, reason} ->
-        Logger.error("Exec session #{state.session_id} failed to connect: #{inspect(reason)}")
-
-        :telemetry.execute(
-          [:lattice, :exec, :failed],
-          %{count: 1},
-          %{session_id: state.session_id, sprite_id: state.sprite_id, reason: reason}
-        )
-
-        {:stop, {:shutdown, {:connection_failed, reason}}, state}
-    end
+    {:noreply, state}
   end
 
   @impl true
@@ -159,22 +139,58 @@ defmodule Lattice.Sprites.ExecSession do
     {:stop, :normal, :ok, new_state}
   end
 
-  # ── Sprites.Command message handlers ─────────────────────────────────
+  # ── Async connection result ──────────────────────────────────────────
 
   @impl true
-  def handle_info({:stdout, %{ref: ref}, data}, %{sprites_command: %{ref: ref}} = state) do
+  def handle_info({:sprites_command_result, {:ok, cmd}}, state) do
+    Process.link(cmd.pid)
+
+    new_state = %{
+      state
+      | sprites_command: cmd,
+        status: :running,
+        idle_timer: schedule_idle_timeout(state.idle_timeout)
+    }
+
+    Logger.info("Exec session #{state.session_id} connected to sprite #{state.sprite_id}")
+
+    :telemetry.execute(
+      [:lattice, :exec, :started],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, command: state.command}
+    )
+
+    {:noreply, new_state}
+  end
+
+  def handle_info({:sprites_command_result, {:error, reason}}, state) do
+    Logger.error("Exec session #{state.session_id} failed to connect: #{inspect(reason)}")
+
+    :telemetry.execute(
+      [:lattice, :exec, :failed],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, reason: reason}
+    )
+
+    broadcast_output(state, :stderr, "Connection failed: #{inspect(reason)}")
+    {:stop, {:shutdown, {:connection_failed, reason}}, state}
+  end
+
+  # ── Sprites.Command message handlers ─────────────────────────────────
+
+  def handle_info({:stdout, _cmd, data}, state) do
     state = cancel_idle_timer(state)
     new_state = handle_output_chunk(state, :stdout, data)
     {:noreply, reset_idle_timer(new_state)}
   end
 
-  def handle_info({:stderr, %{ref: ref}, data}, %{sprites_command: %{ref: ref}} = state) do
+  def handle_info({:stderr, _cmd, data}, state) do
     state = cancel_idle_timer(state)
     new_state = handle_output_chunk(state, :stderr, data)
     {:noreply, reset_idle_timer(new_state)}
   end
 
-  def handle_info({:exit, %{ref: ref}, code}, %{sprites_command: %{ref: ref}} = state) do
+  def handle_info({:exit, _cmd, code}, state) do
     new_state = %{state | exit_code: code, status: :closed}
 
     :telemetry.execute(
@@ -187,7 +203,7 @@ defmodule Lattice.Sprites.ExecSession do
     {:stop, :normal, new_state}
   end
 
-  def handle_info({:error, %{ref: ref}, reason}, %{sprites_command: %{ref: ref}} = state) do
+  def handle_info({:error, _cmd, reason}, state) do
     Logger.error("Exec session #{state.session_id} command error: #{inspect(reason)}")
     broadcast_output(state, :stderr, "Error: #{inspect(reason)}")
     {:stop, {:shutdown, reason}, %{state | status: :closed}}
@@ -220,14 +236,14 @@ defmodule Lattice.Sprites.ExecSession do
 
   # ── Private ─────────────────────────────────────────────────────────
 
-  defp start_command(sprite_id, command) do
+  defp start_command(sprite_id, command, owner) do
     token = sprites_api_token()
     base_url = sprites_api_base()
 
     client = Sprites.new(token, base_url: base_url)
     sprite = Sprites.sprite(client, sprite_id)
 
-    Sprites.spawn(sprite, "sh", ["-c", command], owner: self())
+    Sprites.spawn(sprite, "sh", ["-c", command], owner: owner)
   end
 
   defp handle_output_chunk(state, stream, chunk) do
