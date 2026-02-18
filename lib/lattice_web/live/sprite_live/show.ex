@@ -294,34 +294,6 @@ defmodule LatticeWeb.SpriteLive.Show do
     end
   end
 
-  defp do_start_exec(command, socket) do
-    sprite_id = socket.assigns.sprite_id
-
-    case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
-      {:ok, session_pid} ->
-        {:ok, state} = ExecSession.get_state(session_pid)
-        Process.monitor(session_pid)
-
-        Phoenix.PubSub.subscribe(
-          Lattice.PubSub,
-          ExecSession.exec_topic(state.session_id)
-        )
-
-        Events.subscribe_exec_events(state.session_id)
-
-        {:noreply,
-         socket
-         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
-         |> assign(:active_session_id, state.session_id)
-         |> assign(:exec_command, "")
-         |> assign(:current_progress, nil)
-         |> stream(:log_lines, [], reset: true)}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to start session: #{inspect(reason)}")}
-    end
-  end
-
   def handle_event("view_session", %{"session-id" => session_id}, socket) do
     # Unsubscribe from old session if any
     if old_sid = socket.assigns[:active_session_id] do
@@ -1209,6 +1181,34 @@ defmodule LatticeWeb.SpriteLive.Show do
   end
 
   # ── Private Helpers ────────────────────────────────────────────────
+
+  defp do_start_exec(command, socket) do
+    sprite_id = socket.assigns.sprite_id
+
+    case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
+      {:ok, session_pid} ->
+        {:ok, state} = ExecSession.get_state(session_pid)
+        Process.monitor(session_pid)
+
+        Phoenix.PubSub.subscribe(
+          Lattice.PubSub,
+          ExecSession.exec_topic(state.session_id)
+        )
+
+        Events.subscribe_exec_events(state.session_id)
+
+        {:noreply,
+         socket
+         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
+         |> assign(:active_session_id, state.session_id)
+         |> assign(:exec_command, "")
+         |> assign(:current_progress, nil)
+         |> stream(:log_lines, [], reset: true)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to start session: #{inspect(reason)}")}
+    end
+  end
 
   defp fetch_sprite_state(sprite_id) do
     case FleetManager.get_sprite_pid(sprite_id) do
