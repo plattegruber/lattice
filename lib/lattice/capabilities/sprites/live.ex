@@ -22,6 +22,8 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   require Logger
 
+  alias Lattice.Sprites.ExecSupervisor
+
   @default_base_url "https://api.sprites.dev"
   @default_timeout 15_000
   @api_version "v1"
@@ -112,6 +114,12 @@ defmodule Lattice.Capabilities.Sprites.Live do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @impl true
+  def exec_ws(sprite_id, command, opts \\ []) do
+    args = [sprite_id: sprite_id, command: command] ++ opts
+    ExecSupervisor.start_session(args)
   end
 
   @impl true

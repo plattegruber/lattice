@@ -46,6 +46,10 @@ defmodule Lattice.Capabilities.Sprites do
   @doc "Fetch logs for a Sprite. Options may include `:since`, `:limit`, etc."
   @callback fetch_logs(sprite_id(), log_opts()) :: {:ok, [String.t()]} | {:error, term()}
 
+  @doc "Start a WebSocket exec session on a Sprite for real-time command streaming."
+  @callback exec_ws(sprite_id(), command(), opts :: keyword()) ::
+              {:ok, pid()} | {:error, term()}
+
   @doc "List all Sprites visible to this Lattice instance."
   def list_sprites, do: impl().list_sprites()
 
@@ -69,6 +73,9 @@ defmodule Lattice.Capabilities.Sprites do
 
   @doc "Fetch logs for a Sprite."
   def fetch_logs(id, opts \\ []), do: impl().fetch_logs(id, opts)
+
+  @doc "Start a WebSocket exec session on a Sprite."
+  def exec_ws(sprite_id, command, opts \\ []), do: impl().exec_ws(sprite_id, command, opts)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:sprites]
 end

@@ -206,7 +206,7 @@ defmodule LatticeWeb.SpriteLive.Show do
         <.header>
           {State.display_name(@sprite_state)}
           <:subtitle>
-            <span :if={@sprite_state.name}>ID: {@sprite_id}  · </span>
+            <span :if={@sprite_state.name}>ID: {@sprite_id} &middot;</span>
             Real-time detail view for this Sprite process.
           </:subtitle>
         </.header>
