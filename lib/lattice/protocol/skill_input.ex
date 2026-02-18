@@ -51,7 +51,6 @@ defmodule Lattice.Protocol.SkillInput do
 
   def from_map(_), do: {:error, "Input must have 'name' and 'type' fields"}
 
-  @doc false
   defp parse_type(type_str) when is_binary(type_str) do
     atom = String.to_existing_atom(type_str)
 

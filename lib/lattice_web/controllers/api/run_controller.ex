@@ -40,7 +40,7 @@ defmodule LatticeWeb.Api.RunController do
         in: :query,
         schema: %OpenApiSpex.Schema{
           type: :string,
-          enum: ["pending", "running", "succeeded", "failed", "canceled"]
+          enum: ["pending", "running", "succeeded", "failed", "canceled", "blocked", "blocked_waiting_for_user"]
         },
         description: "Filter by run status",
         required: false
