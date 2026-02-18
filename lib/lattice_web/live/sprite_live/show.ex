@@ -285,9 +285,9 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   def handle_event("start_exec", %{"command" => command}, socket) do
     now = System.monotonic_time(:millisecond)
-    last = socket.assigns[:last_exec_at] || 0
+    last = socket.assigns[:last_exec_at]
 
-    if now - last < 2_000 do
+    if last && now - last < 2_000 do
       {:noreply, socket}
     else
       do_start_exec(command, assign(socket, :last_exec_at, now))
