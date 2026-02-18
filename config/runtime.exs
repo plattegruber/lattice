@@ -37,13 +37,6 @@ config :lattice, :resources,
 # Capability auto-selection: use live implementations when credentials are present
 capabilities = Application.get_env(:lattice, :capabilities, [])
 
-capabilities =
-  if System.get_env("GITHUB_REPO") do
-    Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Live)
-  else
-    capabilities
-  end
-
 config :lattice, :capabilities, capabilities
 
 # Auth provider: use Clerk when secret key is configured, otherwise stub

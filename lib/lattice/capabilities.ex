@@ -18,7 +18,7 @@ defmodule Lattice.Capabilities do
   2. The behaviour module exposes proxy functions that delegate to the
      configured implementation
   3. Configuration selects the active implementation per environment
-  4. Mox mocks or stub implementations provide test doubles
+  4. Tests use Mox mocks against the behaviour for isolation
 
   ## Configuration
 
@@ -26,7 +26,7 @@ defmodule Lattice.Capabilities do
 
       config :lattice, :capabilities,
         sprites: Lattice.Capabilities.Sprites.Live,
-        github: Lattice.Capabilities.GitHub.Stub,
+        github: Lattice.Capabilities.GitHub.Live,
         fly: Lattice.Capabilities.Fly.Live,
         secret_store: Lattice.Capabilities.SecretStore.Env
 
@@ -35,9 +35,8 @@ defmodule Lattice.Capabilities do
   1. Define a behaviour module in `lib/lattice/capabilities/your_capability.ex`
   2. Add `@callback` definitions returning `{:ok, result} | {:error, reason}`
   3. Add proxy functions that delegate to `impl()`
-  4. Create a stub implementation in `your_capability/stub.ex`
-  5. Register the implementation in config
-  6. Write tests for the stub
+  4. Register the implementation in config
+  5. Define a Mox mock in `test/test_helper.exs` and configure it in `config/test.exs`
   """
 
   @doc """
@@ -49,7 +48,7 @@ defmodule Lattice.Capabilities do
       #=> Lattice.Capabilities.Sprites.Live
 
       Lattice.Capabilities.impl(:github)
-      #=> Lattice.Capabilities.GitHub.Stub
+      #=> Lattice.Capabilities.GitHub.Live
   """
   @spec impl(atom()) :: module()
   def impl(capability) when is_atom(capability) do
