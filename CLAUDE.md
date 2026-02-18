@@ -203,8 +203,24 @@ The `/api` scope is protected by bearer token auth (`Authorization: Bearer <toke
 | `POST` | `/api/fleet/audit` | Trigger fleet-wide reconciliation |
 | `GET` | `/api/sprites` | List all sprites |
 | `GET` | `/api/sprites/:id` | Sprite detail |
+| `POST` | `/api/sprites` | Create a sprite |
 | `PUT` | `/api/sprites/:id/desired` | Update desired state |
+| `PUT` | `/api/sprites/:id/tags` | Update sprite tags/metadata |
+| `DELETE` | `/api/sprites/:id` | Delete a sprite (dangerous) |
 | `POST` | `/api/sprites/:id/reconcile` | Trigger sprite reconciliation |
+| `POST` | `/api/sprites/:id/exec` | Start exec session (WebSocket-backed) |
+| `GET` | `/api/sprites/:id/sessions` | List active exec sessions |
+| `GET` | `/api/sprites/:id/sessions/:sid` | Exec session detail with output |
+| `DELETE` | `/api/sprites/:id/sessions/:sid` | Terminate exec session |
+| `POST` | `/api/sprites/:name/tasks` | Create a task on a sprite |
+| `GET` | `/api/intents` | List intents |
+| `GET` | `/api/intents/:id` | Intent detail |
+| `POST` | `/api/intents` | Create intent |
+| `POST` | `/api/intents/:id/approve` | Approve an intent |
+| `POST` | `/api/intents/:id/reject` | Reject an intent |
+| `POST` | `/api/intents/:id/cancel` | Cancel an intent |
+| `GET` | `/api/runs` | List runs (filter: intent_id, sprite_name, status) |
+| `GET` | `/api/runs/:id` | Run detail |
 
 `GET /health` is unauthenticated.
 

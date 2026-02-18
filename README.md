@@ -66,8 +66,18 @@ Lattice exposes an authenticated JSON API under `/api`. All endpoints require a 
 | `POST` | `/api/fleet/audit` | Trigger fleet-wide reconciliation audit |
 | `GET` | `/api/sprites` | List all sprites with current state |
 | `GET` | `/api/sprites/:id` | Single sprite detail |
+| `POST` | `/api/sprites` | Create a sprite |
 | `PUT` | `/api/sprites/:id/desired` | Update desired state (`ready` / `hibernating`) |
+| `PUT` | `/api/sprites/:id/tags` | Update sprite tags/metadata |
+| `DELETE` | `/api/sprites/:id` | Delete a sprite |
 | `POST` | `/api/sprites/:id/reconcile` | Trigger reconciliation for one sprite |
+| `POST` | `/api/sprites/:id/exec` | Start exec session |
+| `GET` | `/api/sprites/:id/sessions` | List active exec sessions |
+| `DELETE` | `/api/sprites/:id/sessions/:sid` | Terminate exec session |
+| `GET` | `/api/intents` | List intents |
+| `POST` | `/api/intents` | Create intent |
+| `GET` | `/api/runs` | List runs |
+| `GET` | `/api/runs/:id` | Run detail |
 
 An unauthenticated `GET /health` endpoint is also available.
 
