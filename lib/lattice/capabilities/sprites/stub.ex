@@ -102,6 +102,12 @@ defmodule Lattice.Capabilities.Sprites.Stub do
   end
 
   @impl true
+  def exec_ws(sprite_id, command, opts \\ []) do
+    args = [sprite_id: sprite_id, command: command] ++ opts
+    GenServer.start_link(Lattice.Sprites.ExecSession.Stub, args)
+  end
+
+  @impl true
   def fetch_logs(id, _opts) do
     case Enum.find(@stub_sprites, &(&1.id == id)) do
       nil ->

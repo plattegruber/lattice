@@ -186,7 +186,8 @@ defmodule Lattice.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mox, "~> 1.1", only: :test},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:open_api_spex, "~> 3.21"}
+      {:open_api_spex, "~> 3.21"},
+      {:gun, "~> 2.1"}
     ]
   end
 
