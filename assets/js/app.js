@@ -43,11 +43,34 @@ const AutoScroll = {
   }
 }
 
+const LogViewer = {
+  mounted() {
+    this._scrollToBottom()
+    this._observer = new MutationObserver(() => {
+      if (this.el.dataset.pinned === "true") {
+        this._scrollToBottom()
+      }
+    })
+    this._observer.observe(this.el, { childList: true, subtree: true })
+  },
+  updated() {
+    if (this.el.dataset.pinned === "true") {
+      this._scrollToBottom()
+    }
+  },
+  destroyed() {
+    if (this._observer) this._observer.disconnect()
+  },
+  _scrollToBottom() {
+    this.el.scrollTop = this.el.scrollHeight
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, AutoScroll},
+  hooks: {...colocatedHooks, AutoScroll, LogViewer},
 })
 
 // Show progress bar on live navigation and form submits

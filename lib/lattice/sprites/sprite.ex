@@ -46,6 +46,7 @@ defmodule Lattice.Sprites.Sprite do
   alias Lattice.Events.StateChange
   alias Lattice.Intents.IntentGenerator
   alias Lattice.Intents.Observation
+  alias Lattice.Sprites.Logs
   alias Lattice.Sprites.State
 
   @default_reconcile_interval_ms 5_000
@@ -589,6 +590,9 @@ defmodule Lattice.Sprites.Sprite do
       {:ok, event} -> Events.broadcast_state_change(event)
       {:error, _} -> :ok
     end
+
+    log_line = Logs.from_event(:state_change, sprite_id, %{from: from, to: to, reason: reason})
+    Events.broadcast_sprite_log(sprite_id, log_line)
   end
 
   defp emit_reconciliation_result(state, outcome, duration_ms, details \\ nil) do
@@ -598,6 +602,15 @@ defmodule Lattice.Sprites.Sprite do
       {:ok, event} -> Events.broadcast_reconciliation_result(event)
       {:error, _} -> :ok
     end
+
+    log_line =
+      Logs.from_event(:reconciliation, state.sprite_id, %{
+        outcome: outcome,
+        duration_ms: duration_ms,
+        details: details
+      })
+
+    Events.broadcast_sprite_log(state.sprite_id, log_line)
   end
 
   defp emit_health_update(%State{} = state, health_status, duration_ms) do
@@ -609,6 +622,11 @@ defmodule Lattice.Sprites.Sprite do
       {:ok, event} -> Events.broadcast_health_update(event)
       {:error, _} -> :ok
     end
+
+    log_line =
+      Logs.from_event(:health, state.sprite_id, %{status: status, message: message})
+
+    Events.broadcast_sprite_log(state.sprite_id, log_line)
   end
 
   defp health_to_event_status(:ok), do: :healthy

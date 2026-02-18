@@ -93,6 +93,12 @@ defmodule Lattice.Events do
   @spec intents_all_topic() :: String.t()
   def intents_all_topic, do: "intents:all"
 
+  @doc "Returns the PubSub topic for a specific Sprite's unified log stream."
+  @spec sprite_logs_topic(String.t()) :: String.t()
+  def sprite_logs_topic(sprite_id) when is_binary(sprite_id) do
+    "sprite:#{sprite_id}:logs"
+  end
+
   @doc "Returns the PubSub topic for run lifecycle events."
   @spec runs_topic() :: String.t()
   def runs_topic, do: "runs"
@@ -151,6 +157,12 @@ defmodule Lattice.Events do
   @spec subscribe_all_intents() :: :ok | {:error, term()}
   def subscribe_all_intents do
     Phoenix.PubSub.subscribe(pubsub(), intents_all_topic())
+  end
+
+  @doc "Subscribe the calling process to log stream events for a specific Sprite."
+  @spec subscribe_sprite_logs(String.t()) :: :ok | {:error, term()}
+  def subscribe_sprite_logs(sprite_id) do
+    Phoenix.PubSub.subscribe(pubsub(), sprite_logs_topic(sprite_id))
   end
 
   @doc "Subscribe the calling process to run lifecycle events."
@@ -308,6 +320,12 @@ defmodule Lattice.Events do
     )
 
     Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_failed, run})
+  end
+
+  @doc "Broadcast a log line to a sprite's logs topic."
+  @spec broadcast_sprite_log(String.t(), map()) :: :ok
+  def broadcast_sprite_log(sprite_id, log_line) when is_binary(sprite_id) and is_map(log_line) do
+    Phoenix.PubSub.broadcast(pubsub(), sprite_logs_topic(sprite_id), {:sprite_log, log_line})
   end
 
   # ── Telemetry ──────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ defmodule LatticeWeb.SpriteLive.Show do
   alias Lattice.Sprites.ExecSession
   alias Lattice.Sprites.ExecSupervisor
   alias Lattice.Sprites.FleetManager
+  alias Lattice.Sprites.Logs
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
 
@@ -46,8 +47,11 @@ defmodule LatticeWeb.SpriteLive.Show do
           Events.subscribe_sprite(sprite_id)
           Events.subscribe_fleet()
           Events.subscribe_intents()
+          Events.subscribe_sprite_logs(sprite_id)
           schedule_refresh()
         end
+
+        historical = Logs.fetch_historical(sprite_id)
 
         {:ok,
          socket
@@ -62,6 +66,9 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:exec_sessions, load_exec_sessions(sprite_id))
          |> assign(:active_session_id, nil)
          |> assign(:exec_command, "")
+         |> assign(:log_pinned_to_bottom, true)
+         |> assign(:has_sprite_logs, historical != [])
+         |> stream(:sprite_logs, historical)
          |> stream(:log_lines, [])
          |> assign_sprite_tasks()}
 
@@ -79,6 +86,9 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:exec_sessions, [])
          |> assign(:active_session_id, nil)
          |> assign(:exec_command, "")
+         |> assign(:log_pinned_to_bottom, true)
+         |> assign(:has_sprite_logs, false)
+         |> stream(:sprite_logs, [])
          |> stream(:log_lines, [])
          |> assign(:sprite_tasks, [])}
     end
@@ -165,6 +175,14 @@ defmodule LatticeWeb.SpriteLive.Show do
     else
       {:noreply, socket}
     end
+  end
+
+  # Sprite log stream events
+  def handle_info({:sprite_log, log_line}, socket) do
+    {:noreply,
+     socket
+     |> assign(:has_sprite_logs, true)
+     |> stream_insert(:sprite_logs, log_line, limit: -500)}
   end
 
   # Catch-all for unexpected PubSub messages
@@ -264,6 +282,10 @@ defmodule LatticeWeb.SpriteLive.Show do
      |> stream(:log_lines, [], reset: true)}
   end
 
+  def handle_event("toggle_pin_to_bottom", _params, socket) do
+    {:noreply, assign(socket, :log_pinned_to_bottom, !socket.assigns.log_pinned_to_bottom)}
+  end
+
   def handle_event("submit_task", %{"task" => params}, socket) do
     sprite_name = socket.assigns.sprite_id
 
@@ -323,6 +345,12 @@ defmodule LatticeWeb.SpriteLive.Show do
         </div>
 
         <.tags_panel tags={@sprite_state.tags} />
+
+        <.sprite_log_panel
+          sprite_logs={@streams.sprite_logs}
+          pinned_to_bottom={@log_pinned_to_bottom}
+          has_sprite_logs={@has_sprite_logs}
+        />
 
         <.tasks_section
           sprite_id={@sprite_id}
@@ -734,6 +762,61 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
+  attr :sprite_logs, :list, required: true
+  attr :pinned_to_bottom, :boolean, default: true
+  attr :has_sprite_logs, :boolean, default: false
+
+  defp sprite_log_panel(assigns) do
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title text-base">
+            <.icon name="hero-document-text" class="size-5" /> Sprite Logs
+            <span class="loading loading-spinner loading-xs ml-2 text-success"></span>
+          </h2>
+          <label class="label cursor-pointer gap-2">
+            <span class="label-text text-xs">Auto-scroll</span>
+            <input
+              type="checkbox"
+              class="toggle toggle-xs toggle-success"
+              checked={@pinned_to_bottom}
+              phx-click="toggle_pin_to_bottom"
+            />
+          </label>
+        </div>
+
+        <div
+          id="sprite-logs-container"
+          phx-update="stream"
+          phx-hook="LogViewer"
+          data-pinned={to_string(@pinned_to_bottom)}
+          class="bg-base-300 rounded-lg p-3 mt-2 max-h-96 overflow-y-auto font-mono text-xs"
+        >
+          <div
+            :for={{dom_id, line} <- @sprite_logs}
+            id={dom_id}
+            class={["flex gap-2", log_level_class(line.level)]}
+          >
+            <span class="text-base-content/40 select-none shrink-0 tabular-nums">
+              {format_log_timestamp(line.timestamp)}
+            </span>
+            <span class={["shrink-0 w-14 text-right", log_source_class(line.source)]}>
+              [{format_log_source(line.source)}]
+            </span>
+            <span class="whitespace-pre-wrap break-all">{line.message}</span>
+          </div>
+        </div>
+
+        <div :if={!@has_sprite_logs} class="text-center py-6 text-base-content/50">
+          <.icon name="hero-inbox" class="size-8 mx-auto mb-2" />
+          <p class="text-sm">No log output yet. Logs will appear here in real time.</p>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   attr :events, :list, required: true
 
   defp event_timeline(assigns) do
@@ -1085,6 +1168,32 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp exec_line_class(:stderr), do: "text-error"
   defp exec_line_class(:exit), do: "text-warning italic"
   defp exec_line_class(_), do: ""
+
+  # Log level colors
+  defp log_level_class(:error), do: "text-error"
+  defp log_level_class(:warn), do: "text-warning"
+  defp log_level_class(:debug), do: "text-base-content/50"
+  defp log_level_class(_), do: ""
+
+  # Log source colors
+  defp log_source_class(:exec), do: "text-info"
+  defp log_source_class(:reconciliation), do: "text-accent"
+  defp log_source_class(:state_change), do: "text-primary"
+  defp log_source_class(:health), do: "text-success"
+  defp log_source_class(:service), do: "text-base-content/60"
+  defp log_source_class(_), do: "text-base-content/60"
+
+  # Log source labels
+  defp format_log_source(:exec), do: "exec"
+  defp format_log_source(:reconciliation), do: "recon"
+  defp format_log_source(:state_change), do: "state"
+  defp format_log_source(:health), do: "health"
+  defp format_log_source(:service), do: "svc"
+  defp format_log_source(_), do: "sys"
+
+  defp format_log_timestamp(datetime) do
+    Calendar.strftime(datetime, "%H:%M:%S")
+  end
 
   defp has_drift?(%State{observed_state: same, desired_state: same}), do: false
   defp has_drift?(%State{}), do: true

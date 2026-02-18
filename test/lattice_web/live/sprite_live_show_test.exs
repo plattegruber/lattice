@@ -19,6 +19,10 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
 
   setup do
     IntentStore.ETS.reset()
+
+    Lattice.Capabilities.MockSprites
+    |> Mox.stub(:fetch_logs, fn _sprite_id, _opts -> {:ok, []} end)
+
     :ok
   end
 

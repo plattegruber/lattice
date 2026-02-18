@@ -116,6 +116,30 @@ defmodule Lattice.EventsTest do
     end
   end
 
+  # ── Sprite Logs ──────────────────────────────────────────────────────
+
+  describe "sprite logs" do
+    test "sprite_logs_topic/1 returns correct topic string" do
+      assert Events.sprite_logs_topic("sprite-001") == "sprite:sprite-001:logs"
+    end
+
+    test "subscribe and broadcast round-trip" do
+      Events.subscribe_sprite_logs("test-log-sprite")
+
+      log_line = %{
+        id: 1,
+        source: :state_change,
+        level: :info,
+        message: "test log",
+        timestamp: DateTime.utc_now()
+      }
+
+      Events.broadcast_sprite_log("test-log-sprite", log_line)
+
+      assert_receive {:sprite_log, ^log_line}
+    end
+  end
+
   # ── Telemetry Emissions ────────────────────────────────────────────
 
   describe "telemetry events" do
