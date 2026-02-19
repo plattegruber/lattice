@@ -37,6 +37,8 @@ defmodule Lattice.Intents.Executor.Task do
 
   require Logger
 
+  alias Lattice.Capabilities.GitHub.ArtifactLink
+  alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Capabilities.Sprites
   alias Lattice.Intents.ExecutionResult
   alias Lattice.Intents.Intent
@@ -71,6 +73,7 @@ defmodule Lattice.Intents.Executor.Task do
 
         if exit_code == 0 do
           artifacts = build_artifacts(output)
+          register_artifact_links(intent, output)
 
           ExecutionResult.success(duration_ms, started_at, completed_at,
             output: exec_result,
@@ -115,7 +118,9 @@ defmodule Lattice.Intents.Executor.Task do
     instructions = Map.fetch!(payload, "instructions")
     base_branch = Map.get(payload, "base_branch", "main")
     pr_title = Map.get(payload, "pr_title", "Task: #{task_kind}")
-    pr_body = Map.get(payload, "pr_body", "Automated task: #{task_kind}")
+    draft = Map.get(payload, "draft", false)
+    issue_number = Map.get(payload, "issue_number")
+    pr_body = build_pr_body(payload, task_kind, issue_number)
     branch_name = "lattice/#{task_kind}-#{:os.system_time(:second)}"
 
     # Use a unique heredoc delimiter to avoid collisions with user content
@@ -154,7 +159,7 @@ defmodule Lattice.Intents.Executor.Task do
       --title '#{escape_single_quotes(pr_title)}' \
       --body '#{escape_single_quotes(pr_body)}' \
       --base '#{escape_single_quotes(base_branch)}' \
-      --head '#{escape_single_quotes(branch_name)}' 2>&1 | grep -oE 'https://github\\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
+      --head '#{escape_single_quotes(branch_name)}'#{if draft, do: " \\\n      --draft", else: ""} 2>&1 | grep -oE 'https://github\\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
 
     if [ -z "${PR_URL}" ]; then
       echo "ERROR: gh pr create did not return a PR URL" >&2
@@ -206,6 +211,80 @@ defmodule Lattice.Intents.Executor.Task do
   end
 
   # ── Private ────────────────────────────────────────────────────────
+
+  defp build_pr_body(payload, task_kind, issue_number) do
+    custom_body = Map.get(payload, "pr_body")
+
+    if custom_body do
+      maybe_append_issue_ref(custom_body, issue_number)
+    else
+      parts = ["Automated task: #{task_kind}"]
+
+      parts =
+        if issue_number do
+          parts ++ ["", "Fixes ##{issue_number}"]
+        else
+          parts
+        end
+
+      (parts ++ ["", "_Created by Lattice_"]) |> Enum.join("\n")
+    end
+  end
+
+  defp maybe_append_issue_ref(body, nil), do: body
+
+  defp maybe_append_issue_ref(body, issue_number) do
+    if String.contains?(body, "##{issue_number}") do
+      body
+    else
+      body <> "\n\nPart of ##{issue_number}"
+    end
+  end
+
+  defp register_artifact_links(%Intent{} = intent, output) do
+    pr_url = parse_pr_url(output)
+    issue_number = Map.get(intent.payload, "issue_number")
+
+    if pr_url do
+      # Extract PR number from URL
+      pr_number =
+        case Regex.run(~r{/pull/(\d+)}, pr_url) do
+          [_, num] -> String.to_integer(num)
+          _ -> nil
+        end
+
+      if pr_number do
+        # Register PR artifact
+        pr_link =
+          ArtifactLink.new(%{
+            intent_id: intent.id,
+            kind: :pull_request,
+            ref: pr_number,
+            url: pr_url,
+            role: :output
+          })
+
+        ArtifactRegistry.register(pr_link)
+
+        # Register bidirectional issue link if applicable
+        if issue_number do
+          issue_link =
+            ArtifactLink.new(%{
+              intent_id: intent.id,
+              kind: :issue,
+              ref: issue_number,
+              url: nil,
+              role: :input
+            })
+
+          ArtifactRegistry.register(issue_link)
+        end
+      end
+    end
+  rescue
+    error ->
+      Logger.warning("Failed to register artifact links: #{inspect(error)}")
+  end
 
   defp build_artifacts(output) when is_binary(output) do
     case parse_pr_url(output) do
