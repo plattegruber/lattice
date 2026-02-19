@@ -67,7 +67,7 @@ defmodule LatticeWeb.Hooks.AuthHook do
         {:cont, assign(socket, :current_operator, operator)}
 
       {:error, _reason} ->
-        {:halt, redirect(socket, to: "/")}
+        {:halt, redirect(socket, to: "/login")}
     end
   end
 
@@ -77,7 +77,7 @@ defmodule LatticeWeb.Hooks.AuthHook do
     if Operator.has_role?(operator, required_role) do
       {:cont, socket}
     else
-      {:halt, redirect(socket, to: "/")}
+      {:halt, redirect(socket, to: "/login")}
     end
   end
 end

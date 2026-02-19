@@ -52,7 +52,7 @@ capabilities = Application.get_env(:lattice, :capabilities, [])
 
 capabilities =
   if System.get_env("GITHUB_REPO") do
-    Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Live)
+    Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Http)
   else
     capabilities
   end

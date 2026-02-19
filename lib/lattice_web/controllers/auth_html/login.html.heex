@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <title>Sign In · Lattice</title>
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script>
+      (() => {
+        const theme = localStorage.getItem("phx:theme");
+        if (theme) document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+  </head>
+  <body class="h-full flex items-center justify-center bg-base-200">
+    <div class="text-center space-y-8">
+      <div class="space-y-2">
+        <h1 class="text-3xl font-bold">Lattice</h1>
+        <p class="text-sm opacity-60">AI Agent Control Plane</p>
+      </div>
+
+      <div id="clerk-sign-in" class="flex justify-center min-h-[400px]">
+        <div class="loading loading-spinner loading-lg" />
+      </div>
+
+      <p class="text-xs opacity-40">
+        {Lattice.Instance.name()} · {Lattice.Instance.environment()}
+      </p>
+    </div>
+
+    <script>
+      (async () => {
+        const publishableKey = "<%= @clerk_publishable_key %>";
+        if (!publishableKey) {
+          document.getElementById("clerk-sign-in").innerHTML =
+            '<div class="alert alert-warning max-w-md">' +
+            '<span>CLERK_PUBLISHABLE_KEY not configured. Set it in your environment.</span>' +
+            '</div>';
+          return;
+        }
+
+        // Load Clerk JS from CDN
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js";
+        script.crossOrigin = "anonymous";
+        script.onload = async () => {
+          const clerk = new window.Clerk(publishableKey);
+          await clerk.load();
+
+          if (clerk.user) {
+            // Already signed in — get token and POST to callback
+            const token = await clerk.session.getToken();
+            await postCallback(token);
+          } else {
+            // Mount the sign-in component
+            const container = document.getElementById("clerk-sign-in");
+            container.innerHTML = "";
+            clerk.mountSignIn(container, {
+              afterSignInUrl: window.location.origin + "/auth/callback",
+            });
+
+            // Listen for sign-in completion
+            clerk.addListener(async ({ session }) => {
+              if (session) {
+                const token = await session.getToken();
+                await postCallback(token);
+              }
+            });
+          }
+        };
+        document.head.appendChild(script);
+
+        async function postCallback(token) {
+          const csrfToken = document.querySelector("meta[name='csrf-token']").content;
+          const resp = await fetch("/auth/callback", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-csrf-token": csrfToken,
+            },
+            body: JSON.stringify({ token }),
+          });
+          const data = await resp.json();
+          if (data.ok && data.redirect) {
+            window.location.href = data.redirect;
+          }
+        }
+      })();
+    </script>
+  </body>
+</html>

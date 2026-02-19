@@ -41,6 +41,15 @@ defmodule LatticeWeb.Router do
     plug OpenApiSpex.Plug.PutApiSpec, module: LatticeWeb.ApiSpec
   end
 
+  # Auth routes (unauthenticated)
+  scope "/", LatticeWeb do
+    pipe_through :browser
+
+    get "/login", AuthController, :login
+    post "/auth/callback", AuthController, :callback
+    get "/auth/logout", AuthController, :logout
+  end
+
   scope "/", LatticeWeb do
     pipe_through :browser
 
@@ -150,6 +159,8 @@ defmodule LatticeWeb.Router do
       live "/intents", IntentsLive
       live "/intents/:id", IntentLive.Show
       live "/audit", AuditLive
+
+      live "/settings/repository", Settings.RepositoryLive
     end
   end
 

@@ -31,9 +31,14 @@ defmodule LatticeWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :current_operator, :map, default: nil, doc: "the authenticated operator"
+
   slot :inner_block, required: true
 
   def app(assigns) do
+    assigns =
+      assign_new(assigns, :connected_repo, fn -> Lattice.Instance.resource(:github_repo) end)
+
     ~H"""
     <header class="navbar bg-base-200 px-4 sm:px-6 lg:px-8 border-b border-base-300">
       <div class="flex-1">
@@ -41,6 +46,15 @@ defmodule LatticeWeb.Layouts do
           <.icon name="hero-cube-transparent" class="size-6" /> Lattice
           <span class="badge badge-xs badge-ghost font-normal text-[10px]">control plane</span>
         </.link>
+        <%= if @connected_repo do %>
+          <.link
+            navigate={~p"/settings/repository"}
+            class="ml-3 badge badge-sm badge-outline gap-1 opacity-70 hover:opacity-100"
+          >
+            <.icon name="hero-link" class="size-3" />
+            {@connected_repo}
+          </.link>
+        <% end %>
       </div>
       <div class="flex-none">
         <ul class="menu menu-horizontal px-1 space-x-1 items-center">
@@ -92,6 +106,32 @@ defmodule LatticeWeb.Layouts do
           <li>
             <.theme_toggle />
           </li>
+          <%= if @current_operator do %>
+            <li>
+              <details class="dropdown dropdown-end">
+                <summary class="font-medium">
+                  <.icon name="hero-user-circle" class="size-5" />
+                  <span class="hidden sm:inline">{@current_operator.name}</span>
+                </summary>
+                <ul class="dropdown-content menu bg-base-200 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
+                  <li class="menu-title text-xs opacity-60">
+                    {@current_operator.name}
+                    <span class="badge badge-xs badge-ghost ml-1">{@current_operator.role}</span>
+                  </li>
+                  <li>
+                    <.link navigate={~p"/settings/repository"}>
+                      <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+                    </.link>
+                  </li>
+                  <li>
+                    <.link href={~p"/auth/logout"} method="get">
+                      <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Sign out
+                    </.link>
+                  </li>
+                </ul>
+              </details>
+            </li>
+          <% end %>
         </ul>
       </div>
     </header>
