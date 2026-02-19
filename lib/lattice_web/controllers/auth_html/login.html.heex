@@ -59,7 +59,7 @@
           const container = document.getElementById("clerk-sign-in");
           container.innerHTML = "";
           clerk.mountSignIn(container, {
-            afterSignInUrl: window.location.origin + "/auth/callback",
+            afterSignInUrl: window.location.origin + "/login",
           });
 
           // Listen for sign-in completion
