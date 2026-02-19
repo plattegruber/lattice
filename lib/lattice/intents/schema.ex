@@ -17,30 +17,30 @@ defmodule Lattice.Intents.Schema do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "intents" do
-    field :kind, :string
-    field :state, :string
-    field :classification, :string
-    field :source_type, :string
-    field :source_id, :string
-    field :summary, :string
-    field :payload, :map, default: %{}
-    field :metadata, :map, default: %{}
-    field :result, :map
-    field :affected_resources, {:array, :string}, default: []
-    field :expected_side_effects, {:array, :string}, default: []
-    field :rollback_strategy, :string
-    field :rollback_for, :string
-    field :plan, :map
-    field :transition_log, {:array, :map}, default: []
-    field :blocked_reason, :string
-    field :pending_question, :map
+    field(:kind, :string)
+    field(:state, :string)
+    field(:classification, :string)
+    field(:source_type, :string)
+    field(:source_id, :string)
+    field(:summary, :string)
+    field(:payload, :map, default: %{})
+    field(:metadata, :map, default: %{})
+    field(:result, :map)
+    field(:affected_resources, {:array, :string}, default: [])
+    field(:expected_side_effects, {:array, :string}, default: [])
+    field(:rollback_strategy, :string)
+    field(:rollback_for, :string)
+    field(:plan, :map)
+    field(:transition_log, {:array, :map}, default: [])
+    field(:blocked_reason, :string)
+    field(:pending_question, :map)
 
-    field :classified_at, :utc_datetime_usec
-    field :approved_at, :utc_datetime_usec
-    field :started_at, :utc_datetime_usec
-    field :completed_at, :utc_datetime_usec
-    field :blocked_at, :utc_datetime_usec
-    field :resumed_at, :utc_datetime_usec
+    field(:classified_at, :utc_datetime_usec)
+    field(:approved_at, :utc_datetime_usec)
+    field(:started_at, :utc_datetime_usec)
+    field(:completed_at, :utc_datetime_usec)
+    field(:blocked_at, :utc_datetime_usec)
+    field(:resumed_at, :utc_datetime_usec)
 
     timestamps()
   end

@@ -16,7 +16,13 @@ defmodule Lattice.Connections.WebhookSetup do
   require Logger
 
   @api_base "https://api.github.com"
-  @webhook_events ["issues", "issue_comment", "pull_request"]
+  @webhook_events [
+    "issues",
+    "issue_comment",
+    "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment"
+  ]
 
   @doc """
   Create a webhook on the given repo.

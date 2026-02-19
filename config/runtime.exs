@@ -73,6 +73,19 @@ if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
     dedup_ttl_ms: :timer.minutes(5)
 end
 
+# Ambient responder: enable when ANTHROPIC_API_KEY is set
+if System.get_env("ANTHROPIC_API_KEY") do
+  config :lattice, Lattice.Ambient.Responder,
+    enabled: true,
+    bot_login: System.get_env("LATTICE_BOT_LOGIN"),
+    cooldown_ms: String.to_integer(System.get_env("AMBIENT_COOLDOWN_MS", "60000")),
+    eyes_reaction: true
+
+  config :lattice, Lattice.Ambient.Claude,
+    api_key: System.get_env("ANTHROPIC_API_KEY"),
+    model: System.get_env("AMBIENT_MODEL", "claude-sonnet-4-20250514")
+end
+
 # Auth provider: Clerk is the default; the secret key is required for prod
 # (test env uses Lattice.MockAuth via config/test.exs)
 if clerk_key = System.get_env("CLERK_SECRET_KEY") do
