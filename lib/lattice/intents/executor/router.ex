@@ -19,11 +19,12 @@ defmodule Lattice.Intents.Executor.Router do
   """
 
   alias Lattice.Intents.Executor.ControlPlane
+  alias Lattice.Intents.Executor.PrFixup
   alias Lattice.Intents.Executor.Sprite
   alias Lattice.Intents.Executor.Task
   alias Lattice.Intents.Intent
 
-  @executors [Task, Sprite, ControlPlane]
+  @executors [Task, PrFixup, Sprite, ControlPlane]
 
   @doc """
   Select the executor module for a given intent.
