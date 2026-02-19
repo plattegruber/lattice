@@ -30,6 +30,7 @@ defmodule Lattice.Intents.Pipeline do
 
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Store
+  alias Lattice.Policy.Rules
   alias Lattice.Safety.Action
   alias Lattice.Safety.Classifier
   alias Lattice.Safety.Gate
@@ -95,15 +96,25 @@ defmodule Lattice.Intents.Pipeline do
   def gate(intent_id) when is_binary(intent_id) do
     with {:ok, intent} <- Store.get(intent_id),
          {:ok, action} <- build_action(intent) do
-      case Gate.check(action) do
+      # Policy rules can override the default Gate decision
+      case Rules.evaluate(intent) do
         :allow ->
-          advance_to_approved(intent_id)
+          advance_to_approved(intent_id, "auto-approved (policy rule)")
 
-        {:deny, :approval_required} ->
-          gate_approval_required(intent_id, intent)
+        :deny ->
+          advance_to_awaiting_approval(intent_id)
 
-        {:deny, :action_not_permitted} ->
-          reject_not_permitted(intent_id)
+        :no_match ->
+          case Gate.check(action) do
+            :allow ->
+              advance_to_approved(intent_id)
+
+            {:deny, :approval_required} ->
+              gate_approval_required(intent_id, intent)
+
+            {:deny, :action_not_permitted} ->
+              reject_not_permitted(intent_id)
+          end
       end
     end
   end
