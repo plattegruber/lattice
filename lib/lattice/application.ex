@@ -46,7 +46,9 @@ defmodule Lattice.Application do
         # Health detection: observation → intent pipeline
         Lattice.Health.Detector,
         # Health remediation: approved detect → remediate intent
-        Lattice.Health.Remediator
+        Lattice.Health.Remediator,
+        # Documentation drift detection: completed intents → doc update proposals
+        Lattice.Docs.DriftDetector
       ] ++
         maybe_pr_monitor() ++
         maybe_health_scheduler() ++

@@ -205,7 +205,8 @@ defmodule Lattice.Intents.Kind do
       Lattice.Intents.Kind.PrFixup,
       Lattice.Intents.Kind.PrCreate,
       Lattice.Intents.Kind.HealthDetect,
-      Lattice.Intents.Kind.HealthRemediate
+      Lattice.Intents.Kind.HealthRemediate,
+      Lattice.Intents.Kind.DocUpdate
     ]
 
     Enum.each(builtins, fn module ->
