@@ -14,6 +14,9 @@ defmodule Lattice.Application do
     # This ensures events emitted during startup are captured.
     TelemetryHandler.attach()
 
+    # Initialize the intent kind registry (ETS table for kind metadata)
+    Lattice.Intents.Kind.init()
+
     # Validate resource bindings and log instance identity at boot.
     # In prod, missing bindings cause a crash (fail fast).
     Instance.validate!()

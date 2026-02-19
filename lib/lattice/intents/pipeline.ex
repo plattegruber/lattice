@@ -250,6 +250,14 @@ defmodule Lattice.Intents.Pipeline do
     end
   end
 
+  def classify_intent(%Intent{kind: kind}) do
+    # Extended kinds use their registered default classification
+    case Lattice.Intents.Kind.default_classification(kind) do
+      {:ok, classification} -> {:ok, classification}
+      {:error, :unknown_kind} -> {:ok, :controlled}
+    end
+  end
+
   # ── Private ────────────────────────────────────────────────────────
 
   defp gate_approval_required(intent_id, intent) do
