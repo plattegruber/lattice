@@ -33,6 +33,7 @@ defmodule LatticeWeb.SpriteLive.Show do
   alias Lattice.Sprites.Logs
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
+  alias LatticeWeb.Presence
 
   @max_events 50
   @refresh_interval_ms 30_000
@@ -50,6 +51,13 @@ defmodule LatticeWeb.SpriteLive.Show do
             Events.subscribe_intents()
             Events.subscribe_sprite_logs(sprite_id)
             schedule_refresh()
+
+            Presence.track(self(), Presence.viewers_topic(), socket.id, %{
+              page: :sprite_detail,
+              sprite_id: sprite_id,
+              joined_at: DateTime.utc_now()
+            })
+
             Logs.fetch_historical(sprite_id)
           else
             []
@@ -519,6 +527,30 @@ defmodule LatticeWeb.SpriteLive.Show do
           <p :if={@last_reconciliation.details} class="text-xs text-base-content/50 mt-1">
             {@last_reconciliation.details}
           </p>
+        </div>
+
+        <div :if={@sprite_state.last_started_at || @sprite_state.last_active_at} class="divider my-2">
+        </div>
+        <div
+          :if={@sprite_state.last_started_at || @sprite_state.last_active_at}
+          class="grid grid-cols-2 gap-4"
+        >
+          <div :if={@sprite_state.last_started_at}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Last Started
+            </div>
+            <div class="mt-1 text-sm">
+              <.relative_time datetime={@sprite_state.last_started_at} />
+            </div>
+          </div>
+          <div :if={@sprite_state.last_active_at}>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Last Active
+            </div>
+            <div class="mt-1 text-sm">
+              <.relative_time datetime={@sprite_state.last_active_at} />
+            </div>
+          </div>
         </div>
 
         <div class="text-xs text-base-content/50 mt-2">

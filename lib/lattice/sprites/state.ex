@@ -40,6 +40,10 @@ defmodule Lattice.Sprites.State do
           not_found_count: non_neg_integer(),
           max_retries: non_neg_integer(),
           last_observed_at: DateTime.t() | nil,
+          api_created_at: DateTime.t() | nil,
+          api_updated_at: DateTime.t() | nil,
+          last_started_at: DateTime.t() | nil,
+          last_active_at: DateTime.t() | nil,
           log_cursor: String.t() | nil,
           tags: map(),
           started_at: DateTime.t(),
@@ -54,6 +58,10 @@ defmodule Lattice.Sprites.State do
     :started_at,
     :updated_at,
     :last_observed_at,
+    :api_created_at,
+    :api_updated_at,
+    :last_started_at,
+    :last_active_at,
     observed_state: :hibernating,
     desired_state: :hibernating,
     health: :unknown,
@@ -252,6 +260,24 @@ defmodule Lattice.Sprites.State do
   end
 
   @doc """
+  Store API-reported timestamps from the Sprites API response.
+
+  Accepts a map with string keys matching the API response shape:
+  `"created_at"`, `"updated_at"`, `"last_started_at"`, `"last_active_at"`.
+  Ignores any keys that are `nil` or missing from the map.
+  """
+  @spec update_api_timestamps(t(), map()) :: t()
+  def update_api_timestamps(%__MODULE__{} = state, api_data) when is_map(api_data) do
+    %{
+      state
+      | api_created_at: parse_api_datetime(api_data["created_at"]) || state.api_created_at,
+        api_updated_at: parse_api_datetime(api_data["updated_at"]) || state.api_updated_at,
+        last_started_at: parse_api_datetime(api_data["last_started_at"]) || state.last_started_at,
+        last_active_at: parse_api_datetime(api_data["last_active_at"]) || state.last_active_at
+    }
+  end
+
+  @doc """
   Returns the display name for a Sprite: the human-readable name if set,
   otherwise falls back to the sprite_id.
   """
@@ -329,4 +355,17 @@ defmodule Lattice.Sprites.State do
     backoff = base * Integer.pow(2, failure_count - 1)
     min(backoff, max)
   end
+
+  defp parse_api_datetime(nil), do: nil
+
+  defp parse_api_datetime(%DateTime{} = dt), do: dt
+
+  defp parse_api_datetime(str) when is_binary(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _offset} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_api_datetime(_), do: nil
 end

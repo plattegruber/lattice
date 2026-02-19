@@ -16,6 +16,7 @@ defmodule LatticeWeb.FleetLive do
   alias Lattice.Events.StateChange
   alias Lattice.Sprites.FleetManager
   alias Lattice.Sprites.State
+  alias LatticeWeb.Presence
 
   @refresh_interval_ms 30_000
 
@@ -26,6 +27,11 @@ defmodule LatticeWeb.FleetLive do
     if connected?(socket) do
       Events.subscribe_fleet()
       schedule_refresh()
+
+      Presence.track(self(), Presence.viewers_topic(), socket.id, %{
+        page: :fleet,
+        joined_at: DateTime.utc_now()
+      })
     end
 
     sprites = FleetManager.list_sprites()
@@ -120,7 +126,7 @@ defmodule LatticeWeb.FleetLive do
             <.health_badge health={state.health} />
           </:col>
           <:col :let={{_id, state}} label="Last Update">
-            <.relative_time datetime={state.updated_at} />
+            <.relative_time datetime={api_or_internal_timestamp(state)} />
           </:col>
         </.table>
 
@@ -229,5 +235,9 @@ defmodule LatticeWeb.FleetLive do
     order
     |> Enum.filter(&Map.has_key?(by_state, &1))
     |> Enum.map(fn state -> {state, Map.get(by_state, state)} end)
+  end
+
+  defp api_or_internal_timestamp(state) do
+    state.api_updated_at || state.last_active_at || state.updated_at
   end
 end

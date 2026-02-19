@@ -34,6 +34,8 @@ defmodule Lattice.Application do
       # Exec session registry and supervisor for WebSocket exec connections
       {Registry, keys: :unique, name: Lattice.Sprites.ExecRegistry},
       Lattice.Sprites.ExecSupervisor,
+      # Presence tracking for adaptive fleet polling
+      LatticeWeb.Presence,
       # Start to serve requests, typically the last entry
       LatticeWeb.Endpoint
     ]

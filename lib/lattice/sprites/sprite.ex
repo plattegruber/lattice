@@ -266,9 +266,9 @@ defmodule Lattice.Sprites.Sprite do
   defp do_reconcile(%State{} = state) do
     start_time = System.monotonic_time(:millisecond)
 
-    case fetch_observed_state(state) do
-      {:ok, api_observed} ->
-        state = update_from_observation(state, api_observed)
+    case fetch_sprite_data(state) do
+      {:ok, api_observed, api_data} ->
+        state = update_from_observation(state, api_observed, api_data)
         reconcile_with_observation(state, start_time)
 
       {:error, :not_found} ->
@@ -279,21 +279,26 @@ defmodule Lattice.Sprites.Sprite do
     end
   end
 
-  # Fetch the real observed state from the SpritesCapability API.
-  defp fetch_observed_state(%State{sprite_id: sprite_id}) do
+  # Fetch the full sprite data from the SpritesCapability API.
+  # Returns {status_atom, raw_api_map} so callers can extract timestamps.
+  defp fetch_sprite_data(%State{sprite_id: sprite_id}) do
     case sprites_capability().get_sprite(sprite_id) do
-      {:ok, %{status: status}} when is_atom(status) ->
-        {:ok, status}
+      {:ok, %{status: status} = data} when is_atom(status) ->
+        {:ok, status, stringify_keys(data)}
 
-      {:ok, %{status: status}} when is_binary(status) ->
-        {:ok, parse_api_status(status)}
+      {:ok, %{status: status} = data} when is_binary(status) ->
+        {:ok, parse_api_status(status), stringify_keys(data)}
 
-      {:ok, _sprite_data} ->
-        {:ok, :error}
+      {:ok, data} ->
+        {:ok, :error, stringify_keys(data)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {to_string(k), v} end)
   end
 
   # Map API string statuses to internal lifecycle atoms.
@@ -303,13 +308,14 @@ defmodule Lattice.Sprites.Sprite do
   defp parse_api_status("sleeping"), do: :hibernating
   defp parse_api_status(_other), do: :error
 
-  # Update internal state with the observed API snapshot.
-  defp update_from_observation(%State{} = state, api_observed) do
+  # Update internal state with the observed API snapshot and timestamps.
+  defp update_from_observation(%State{} = state, api_observed, api_data) do
     old_observed = state.observed_state
 
     case State.transition(state, api_observed) do
       {:ok, new_state} ->
         new_state = State.record_observation(new_state)
+        new_state = State.update_api_timestamps(new_state, api_data)
 
         if old_observed != api_observed do
           emit_state_change(
