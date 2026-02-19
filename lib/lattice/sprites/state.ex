@@ -5,34 +5,24 @@ defmodule Lattice.Sprites.State do
   Each Sprite GenServer holds a `%State{}` that tracks:
 
   - **Identity** -- `sprite_id` is the unique identifier for this Sprite
-  - **Lifecycle** -- `observed_state` is the current state from the API;
-    `desired_state` is what the operator wants
-  - **Health** -- `health` summarizes the last health check result
+  - **Status** -- `status` is the current state from the API (`:cold`, `:warm`, `:running`)
   - **Backoff** -- exponential backoff parameters for retry after failure
   - **Failure tracking** -- `failure_count` tracks consecutive failures
   - **Log cursor** -- `log_cursor` tracks the last-read log position
 
-  ## Lifecycle States
+  ## Statuses
 
-  A Sprite moves through these states:
+  Sprites have three statuses matching the Sprites API:
 
-      hibernating -> waking -> ready -> busy -> error
-
-  The `observed_state` reflects the actual state reported by the Sprites API.
-  The `desired_state` is the target set by the operator. The reconciliation
-  loop works to bring `observed_state` in line with `desired_state`.
+      cold | warm | running
   """
 
-  @type lifecycle :: :hibernating | :waking | :ready | :busy | :error
-
-  @type health :: :ok | :converging | :degraded | :error
+  @type status :: :cold | :warm | :running
 
   @type t :: %__MODULE__{
           sprite_id: String.t(),
           name: String.t() | nil,
-          observed_state: lifecycle(),
-          desired_state: lifecycle(),
-          health: :healthy | :degraded | :unhealthy | :unknown | health(),
+          status: status(),
           backoff_ms: non_neg_integer(),
           max_backoff_ms: non_neg_integer(),
           base_backoff_ms: non_neg_integer(),
@@ -62,9 +52,7 @@ defmodule Lattice.Sprites.State do
     :api_updated_at,
     :last_started_at,
     :last_active_at,
-    observed_state: :hibernating,
-    desired_state: :hibernating,
-    health: :unknown,
+    status: :cold,
     backoff_ms: 1_000,
     max_backoff_ms: 60_000,
     base_backoff_ms: 1_000,
@@ -74,48 +62,44 @@ defmodule Lattice.Sprites.State do
     tags: %{}
   ]
 
-  @valid_lifecycle_states [:hibernating, :waking, :ready, :busy, :error]
+  @valid_statuses [:cold, :warm, :running]
 
   @doc """
   Creates a new State struct for a Sprite.
 
   ## Options
 
-  - `:desired_state` -- initial desired state (default: `:hibernating`)
-  - `:observed_state` -- initial observed state (default: `:hibernating`)
+  - `:status` -- initial status (default: `:cold`)
   - `:base_backoff_ms` -- base backoff interval in ms (default: 1000)
   - `:max_backoff_ms` -- maximum backoff interval in ms (default: 60000)
-  - `:max_retries` -- maximum consecutive failures before health is `:error` (default: 10)
+  - `:max_retries` -- maximum consecutive failures (default: 10)
 
   ## Examples
 
       iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
       iex> state.sprite_id
       "sprite-001"
-      iex> state.observed_state
-      :hibernating
+      iex> state.status
+      :cold
 
   """
   @spec new(String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def new(sprite_id, opts \\ []) when is_binary(sprite_id) do
     name = Keyword.get(opts, :name)
-    desired = Keyword.get(opts, :desired_state, :hibernating)
-    observed = Keyword.get(opts, :observed_state, :hibernating)
+    status = Keyword.get(opts, :status, :cold)
     base_backoff = Keyword.get(opts, :base_backoff_ms, 1_000)
     max_backoff = Keyword.get(opts, :max_backoff_ms, 60_000)
     max_retries = Keyword.get(opts, :max_retries, 10)
     tags = Keyword.get(opts, :tags, %{})
 
-    with :ok <- validate_lifecycle(desired),
-         :ok <- validate_lifecycle(observed) do
+    with :ok <- validate_status(status) do
       now = DateTime.utc_now()
 
       {:ok,
        %__MODULE__{
          sprite_id: sprite_id,
          name: name,
-         observed_state: observed,
-         desired_state: desired,
+         status: status,
          base_backoff_ms: base_backoff,
          backoff_ms: base_backoff,
          max_backoff_ms: max_backoff,
@@ -128,44 +112,23 @@ defmodule Lattice.Sprites.State do
   end
 
   @doc """
-  Transition the observed state, updating the timestamp.
+  Update the status, updating the timestamp.
 
-  Returns `{:ok, updated_state}` if the new state is valid, or
-  `{:error, {:invalid_lifecycle, state}}` if it is not.
-
-  ## Examples
-
-      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
-      iex> {:ok, state} = Lattice.Sprites.State.transition(state, :waking)
-      iex> state.observed_state
-      :waking
-
-  """
-  @spec transition(t(), lifecycle()) :: {:ok, t()} | {:error, term()}
-  def transition(%__MODULE__{} = state, new_observed) do
-    with :ok <- validate_lifecycle(new_observed) do
-      {:ok, %{state | observed_state: new_observed, updated_at: DateTime.utc_now()}}
-    end
-  end
-
-  @doc """
-  Set the desired state, updating the timestamp.
-
-  Returns `{:ok, updated_state}` if the new state is valid, or
-  `{:error, {:invalid_lifecycle, state}}` if it is not.
+  Returns `{:ok, updated_state}` if the new status is valid, or
+  `{:error, {:invalid_status, status}}` if it is not.
 
   ## Examples
 
       iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
-      iex> {:ok, state} = Lattice.Sprites.State.set_desired(state, :ready)
-      iex> state.desired_state
-      :ready
+      iex> {:ok, state} = Lattice.Sprites.State.update_status(state, :warm)
+      iex> state.status
+      :warm
 
   """
-  @spec set_desired(t(), lifecycle()) :: {:ok, t()} | {:error, term()}
-  def set_desired(%__MODULE__{} = state, new_desired) do
-    with :ok <- validate_lifecycle(new_desired) do
-      {:ok, %{state | desired_state: new_desired, updated_at: DateTime.utc_now()}}
+  @spec update_status(t(), status()) :: {:ok, t()} | {:error, term()}
+  def update_status(%__MODULE__{} = state, new_status) do
+    with :ok <- validate_status(new_status) do
+      {:ok, %{state | status: new_status, updated_at: DateTime.utc_now()}}
     end
   end
 
@@ -230,20 +193,6 @@ defmodule Lattice.Sprites.State do
   end
 
   @doc """
-  Returns true if the observed state differs from the desired state.
-
-  ## Examples
-
-      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001", desired_state: :ready)
-      iex> Lattice.Sprites.State.needs_reconciliation?(state)
-      true
-
-  """
-  @spec needs_reconciliation?(t()) :: boolean()
-  def needs_reconciliation?(%__MODULE__{observed_state: same, desired_state: same}), do: false
-  def needs_reconciliation?(%__MODULE__{}), do: true
-
-  @doc """
   Update the last observed timestamp after a successful API observation.
 
   ## Examples
@@ -286,40 +235,6 @@ defmodule Lattice.Sprites.State do
   def display_name(%__MODULE__{sprite_id: id}), do: id
 
   @doc """
-  Compute health summary based on current state.
-
-  Returns:
-  - `:ok` -- observed matches desired, no failures
-  - `:converging` -- action taken, waiting for effect (observed != desired, no failures)
-  - `:degraded` -- retrying after failure (failure_count > 0 but under max_retries)
-  - `:error` -- max retries exceeded or persistent failure
-
-  ## Examples
-
-      iex> {:ok, state} = Lattice.Sprites.State.new("sprite-001")
-      iex> Lattice.Sprites.State.compute_health(state)
-      :ok
-
-  """
-  @spec compute_health(t()) :: health()
-  def compute_health(%__MODULE__{failure_count: count, max_retries: max})
-      when count >= max do
-    :error
-  end
-
-  def compute_health(%__MODULE__{failure_count: count}) when count > 0 do
-    :degraded
-  end
-
-  def compute_health(%__MODULE__{observed_state: same, desired_state: same}) do
-    :ok
-  end
-
-  def compute_health(%__MODULE__{}) do
-    :converging
-  end
-
-  @doc """
   Compute the backoff delay with jitter for the next retry.
 
   Uses exponential backoff with random jitter of +/- 25% to prevent
@@ -341,14 +256,14 @@ defmodule Lattice.Sprites.State do
     max(backoff + jitter, 0)
   end
 
-  @doc "Returns the list of valid lifecycle states."
-  @spec valid_lifecycle_states() :: [lifecycle()]
-  def valid_lifecycle_states, do: @valid_lifecycle_states
+  @doc "Returns the list of valid statuses."
+  @spec valid_statuses() :: [status()]
+  def valid_statuses, do: @valid_statuses
 
   # ── Private ────────────────────────────────────────────────────────
 
-  defp validate_lifecycle(state) when state in @valid_lifecycle_states, do: :ok
-  defp validate_lifecycle(state), do: {:error, {:invalid_lifecycle, state}}
+  defp validate_status(status) when status in @valid_statuses, do: :ok
+  defp validate_status(status), do: {:error, {:invalid_status, status}}
 
   defp compute_backoff(base, failure_count, max) do
     # Exponential backoff: base * 2^(failures - 1), capped at max

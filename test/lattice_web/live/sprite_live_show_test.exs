@@ -5,7 +5,6 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
   import Phoenix.LiveViewTest
 
   alias Lattice.Events
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.Intent
@@ -26,23 +25,19 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     :ok
   end
 
-  # ── Helpers ──────────────────────────────────────────────────────────
+  # -- Helpers ---------------------------------------------------------------
 
   defp start_test_sprite(sprite_id, opts \\ []) do
-    desired = Keyword.get(opts, :desired_state, :hibernating)
-    observed = Keyword.get(opts, :observed_state, :hibernating)
-
     {:ok, _pid} =
       Sprite.start_link(
         sprite_id: sprite_id,
-        desired_state: desired,
-        observed_state: observed,
+        status: Keyword.get(opts, :status, :cold),
         reconcile_interval_ms: 60_000,
         name: Sprite.via(sprite_id)
       )
   end
 
-  # ── 404 / Not Found ──────────────────────────────────────────────────
+  # -- 404 / Not Found -------------------------------------------------------
 
   describe "sprite not found" do
     test "renders not found message for unknown sprite", %{conn: conn} do
@@ -56,13 +51,13 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     test "does not render state panels when sprite not found", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/sprites/ghost-sprite")
 
-      refute html =~ "State Comparison"
-      refute html =~ "Health &amp; Backoff"
+      refute html =~ "Status"
+      refute html =~ "Observation"
       refute html =~ "Event Timeline"
     end
   end
 
-  # ── Rendering with Live Sprite ────────────────────────────────────
+  # -- Rendering with Live Sprite --------------------------------------------
 
   describe "rendering with running sprite" do
     setup do
@@ -77,26 +72,20 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
       assert html =~ sprite_id
     end
 
-    test "renders state comparison panel", %{conn: conn, sprite_id: sprite_id} do
+    test "renders status panel", %{conn: conn, sprite_id: sprite_id} do
       {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
 
-      assert html =~ "State Comparison"
-      assert html =~ "Observed"
-      assert html =~ "Desired"
+      assert html =~ "Status"
+      assert html =~ "Current Status"
     end
 
-    test "shows in-sync state when observed matches desired", %{conn: conn, sprite_id: sprite_id} do
+    test "renders observation panel", %{conn: conn, sprite_id: sprite_id} do
       {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
 
-      assert html =~ "States are in sync"
-    end
-
-    test "renders health and backoff panel", %{conn: conn, sprite_id: sprite_id} do
-      {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
-
-      assert html =~ "Health"
+      assert html =~ "Observation"
       assert html =~ "Failures"
       assert html =~ "Backoff"
+      refute html =~ "Health"
     end
 
     test "renders event timeline section", %{conn: conn, sprite_id: sprite_id} do
@@ -130,7 +119,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     end
   end
 
-  # ── Tasks Section ──────────────────────────────────────────────────
+  # -- Tasks Section ---------------------------------------------------------
 
   describe "tasks section" do
     setup do
@@ -173,7 +162,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     end
   end
 
-  # ── Assign Task Form ──────────────────────────────────────────────
+  # -- Assign Task Form ------------------------------------------------------
 
   describe "assign task form" do
     setup do
@@ -261,20 +250,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     end
   end
 
-  # ── Drift Detection ───────────────────────────────────────────────
-
-  describe "drift detection" do
-    test "shows drift warning when states differ", %{conn: conn} do
-      sprite_id = "drift-sprite-#{System.unique_integer([:positive])}"
-      start_test_sprite(sprite_id, desired_state: :ready, observed_state: :hibernating)
-
-      {:ok, _view, html} = live(conn, ~p"/sprites/#{sprite_id}")
-
-      assert html =~ "Drift detected"
-    end
-  end
-
-  # ── Real-time PubSub Updates ──────────────────────────────────────
+  # -- Real-time PubSub Updates ----------------------------------------------
 
   describe "real-time PubSub updates" do
     setup do
@@ -287,7 +263,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
       {:ok, view, _html} = live(conn, ~p"/sprites/#{sprite_id}")
 
       {:ok, event} =
-        StateChange.new(sprite_id, :hibernating, :waking, reason: "test transition")
+        StateChange.new(sprite_id, :cold, :warm, reason: "test transition")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
@@ -297,7 +273,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
 
       html = render(view)
       assert html =~ "state_change"
-      assert html =~ "hibernating -&gt; waking"
+      assert html =~ "cold -&gt; warm"
     end
 
     test "updates event timeline on reconciliation result", %{conn: conn, sprite_id: sprite_id} do
@@ -331,25 +307,8 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
       )
 
       html = render(view)
-      assert html =~ "Last Reconciliation"
+      assert html =~ "Last Observation Cycle"
       assert html =~ "API timeout"
-    end
-
-    test "updates event timeline on health update", %{conn: conn, sprite_id: sprite_id} do
-      {:ok, view, _html} = live(conn, ~p"/sprites/#{sprite_id}")
-
-      {:ok, event} =
-        HealthUpdate.new(sprite_id, :healthy, 15, message: "all checks passed")
-
-      Phoenix.PubSub.broadcast(
-        Lattice.PubSub,
-        Events.sprite_topic(sprite_id),
-        event
-      )
-
-      html = render(view)
-      assert html =~ "health"
-      assert html =~ "all checks passed"
     end
 
     test "handles fleet summary broadcast without crashing",
@@ -359,7 +318,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
         Events.fleet_topic(),
-        {:fleet_summary, %{total: 1, by_state: %{hibernating: 1}}}
+        {:fleet_summary, %{total: 1, by_state: %{cold: 1}}}
       )
 
       html = render(view)
@@ -405,7 +364,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     end
   end
 
-  # ── Event Timeline Ordering ─────────────────────────────────────────
+  # -- Event Timeline Ordering -----------------------------------------------
 
   describe "event timeline ordering" do
     setup do
@@ -417,7 +376,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
     test "shows newest events first", %{conn: conn, sprite_id: sprite_id} do
       {:ok, view, _html} = live(conn, ~p"/sprites/#{sprite_id}")
 
-      {:ok, event1} = StateChange.new(sprite_id, :hibernating, :waking, reason: "first")
+      {:ok, event1} = StateChange.new(sprite_id, :cold, :warm, reason: "first")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
@@ -425,7 +384,7 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
         event1
       )
 
-      {:ok, event2} = StateChange.new(sprite_id, :waking, :ready, reason: "second")
+      {:ok, event2} = StateChange.new(sprite_id, :warm, :running, reason: "second")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,

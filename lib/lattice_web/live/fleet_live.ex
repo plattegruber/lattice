@@ -78,7 +78,7 @@ defmodule LatticeWeb.FleetLive do
   end
 
   # Catch-all for other PubSub events on the fleet topic (reconciliation
-  # results, health updates, approval events). Refresh sprite data so the
+  # results, approval events). Refresh sprite data so the
   # dashboard stays current.
   def handle_info(_event, socket) do
     sprites = FleetManager.list_sprites()
@@ -116,14 +116,8 @@ defmodule LatticeWeb.FleetLive do
               {State.display_name(state)}
             </.link>
           </:col>
-          <:col :let={{_id, state}} label="State">
-            <.state_badge state={state.observed_state} />
-          </:col>
-          <:col :let={{_id, state}} label="Desired">
-            <.state_badge state={state.desired_state} />
-          </:col>
-          <:col :let={{_id, state}} label="Health">
-            <.health_badge health={state.health} />
+          <:col :let={{_id, state}} label="Status">
+            <.state_badge state={state.status} />
           </:col>
           <:col :let={{_id, state}} label="Last Update">
             <.relative_time datetime={api_or_internal_timestamp(state)} />
@@ -172,16 +166,6 @@ defmodule LatticeWeb.FleetLive do
     """
   end
 
-  attr :health, :atom, required: true
-
-  defp health_badge(assigns) do
-    ~H"""
-    <span class={["badge badge-sm", health_color(@health)]}>
-      {@health}
-    </span>
-    """
-  end
-
   attr :datetime, DateTime, required: true
 
   defp relative_time(assigns) do
@@ -198,18 +182,10 @@ defmodule LatticeWeb.FleetLive do
     Process.send_after(self(), :refresh, @refresh_interval_ms)
   end
 
-  defp state_color(:hibernating), do: "badge-ghost"
-  defp state_color(:waking), do: "badge-info"
-  defp state_color(:ready), do: "badge-success"
-  defp state_color(:busy), do: "badge-warning"
-  defp state_color(:error), do: "badge-error"
+  defp state_color(:cold), do: "badge-ghost"
+  defp state_color(:warm), do: "badge-info"
+  defp state_color(:running), do: "badge-success"
   defp state_color(_), do: "badge-ghost"
-
-  defp health_color(:healthy), do: "badge-success"
-  defp health_color(:degraded), do: "badge-warning"
-  defp health_color(:unhealthy), do: "badge-error"
-  defp health_color(:unknown), do: "badge-ghost"
-  defp health_color(_), do: "badge-ghost"
 
   defp format_state(state) do
     state
@@ -230,7 +206,7 @@ defmodule LatticeWeb.FleetLive do
   end
 
   defp sorted_states(by_state) do
-    order = [:ready, :busy, :waking, :hibernating, :error]
+    order = [:running, :warm, :cold]
 
     order
     |> Enum.filter(&Map.has_key?(by_state, &1))

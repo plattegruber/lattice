@@ -31,6 +31,11 @@ defmodule LatticeWeb.Router do
     plug LatticeWeb.Plugs.Auth
   end
 
+  pipeline :webhook do
+    plug :accepts, ["json"]
+    plug LatticeWeb.Plugs.WebhookSignature
+  end
+
   pipeline :api_docs do
     plug :accepts, ["json", "html"]
     plug OpenApiSpex.Plug.PutApiSpec, module: LatticeWeb.ApiSpec
@@ -64,6 +69,13 @@ defmodule LatticeWeb.Router do
     get "/health", HealthController, :index
   end
 
+  # Webhook routes -- authenticated via HMAC signature, not bearer token
+  scope "/api/webhooks", LatticeWeb.Api do
+    pipe_through :webhook
+
+    post "/github", WebhookController, :github
+  end
+
   # Authenticated API routes -- protected by bearer token
   scope "/api", LatticeWeb.Api do
     pipe_through :authenticated_api
@@ -74,11 +86,15 @@ defmodule LatticeWeb.Router do
     get "/sprites", SpriteController, :index
     post "/sprites", SpriteController, :create
     get "/sprites/:id", SpriteController, :show
-    put "/sprites/:id/desired", SpriteController, :update_desired
     put "/sprites/:id/tags", SpriteController, :update_tags
+    post "/sprites/:id/wake", SpriteController, :wake
+    post "/sprites/:id/sleep", SpriteController, :sleep
     post "/sprites/:id/reconcile", SpriteController, :reconcile
     delete "/sprites/:id", SpriteController, :delete
     post "/sprites/:name/tasks", TaskController, :create
+
+    get "/sprites/:name/skills", SkillController, :index
+    get "/sprites/:name/skills/:skill_name", SkillController, :show
 
     post "/sprites/:id/exec", ExecController, :create
     get "/sprites/:id/sessions", ExecController, :index
@@ -91,9 +107,11 @@ defmodule LatticeWeb.Router do
     post "/intents/:id/approve", IntentController, :approve
     post "/intents/:id/reject", IntentController, :reject
     post "/intents/:id/cancel", IntentController, :cancel
+    put "/intents/:id/plan", IntentController, :update_plan
 
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show
+    post "/runs/:id/answer", RunController, :answer
   end
 
   # Authenticated LiveView routes

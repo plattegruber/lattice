@@ -37,7 +37,29 @@ config :lattice, :resources,
 # Capability auto-selection: use live implementations when credentials are present
 capabilities = Application.get_env(:lattice, :capabilities, [])
 
+capabilities =
+  if System.get_env("GITHUB_REPO") do
+    Keyword.put(capabilities, :github, Lattice.Capabilities.GitHub.Live)
+  else
+    capabilities
+  end
+
+capabilities =
+  if System.get_env("FLY_APP") do
+    Keyword.put(capabilities, :fly, Lattice.Capabilities.Fly.Live)
+  else
+    capabilities
+  end
+
+
 config :lattice, :capabilities, capabilities
+
+# Webhook secret for GitHub HMAC-SHA256 signature verification
+if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
+  config :lattice, :webhooks,
+    github_secret: github_webhook_secret,
+    dedup_ttl_ms: :timer.minutes(5)
+end
 
 # Auth provider: use Clerk when secret key is configured, otherwise stub
 if System.get_env("CLERK_SECRET_KEY") do
@@ -63,6 +85,7 @@ if config_env() == :prod do
 
   config :lattice, LatticeWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    check_origin: ["//#{host}"],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

@@ -38,7 +38,7 @@ Lattice is an **Elixir/Phoenix control plane for managing AI coding agents ("Spr
 
 ### Key Mental Models
 
-- **Sprites are processes.** Each Sprite gets a GenServer that owns its state, reads its logs, and reconciles desired vs. actual.
+- **Sprites are processes.** Each Sprite gets a GenServer that owns its state, reads its logs, and observes the Sprites API for status.
 - **Events are truth.** State changes emit Telemetry events. PubSub broadcasts them. LiveView subscribes and renders. No polling.
 - **Capabilities are behaviours.** Each external system (GitHub, Fly, Sprites API) gets a behaviour module. This enables clean mocking, testing, and future swapping.
 - **Safety is first-class.** Every action is classified (safe/needs-review/dangerous), gated, and audit-logged.
@@ -204,7 +204,8 @@ The `/api` scope is protected by bearer token auth (`Authorization: Bearer <toke
 | `GET` | `/api/sprites` | List all sprites |
 | `GET` | `/api/sprites/:id` | Sprite detail |
 | `POST` | `/api/sprites` | Create a sprite |
-| `PUT` | `/api/sprites/:id/desired` | Update desired state |
+| `POST` | `/api/sprites/:id/wake` | Wake a sleeping sprite |
+| `POST` | `/api/sprites/:id/sleep` | Sleep a running sprite |
 | `PUT` | `/api/sprites/:id/tags` | Update sprite tags/metadata |
 | `DELETE` | `/api/sprites/:id` | Delete a sprite (dangerous) |
 | `POST` | `/api/sprites/:id/reconcile` | Trigger sprite reconciliation |
@@ -221,6 +222,9 @@ The `/api` scope is protected by bearer token auth (`Authorization: Bearer <toke
 | `POST` | `/api/intents/:id/cancel` | Cancel an intent |
 | `GET` | `/api/runs` | List runs (filter: intent_id, sprite_name, status) |
 | `GET` | `/api/runs/:id` | Run detail |
+| `POST` | `/api/runs/:id/answer` | Answer a blocked run's question |
+| `GET` | `/api/sprites/:name/skills` | List available skills for a sprite |
+| `GET` | `/api/sprites/:name/skills/:skill_name` | Skill detail with manifest |
 
 `GET /health` is unauthenticated.
 

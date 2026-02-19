@@ -12,7 +12,6 @@ defmodule Lattice.Events.TelemetryHandler do
 
   - `[:lattice, :sprite, :state_change]` — Sprite state transitions
   - `[:lattice, :sprite, :reconciliation]` — Reconciliation cycle results
-  - `[:lattice, :sprite, :health_update]` — Health check results
   - `[:lattice, :sprite, :approval_needed]` — Actions requiring approval
   - `[:lattice, :capability, :call]` — Capability module API calls
   - `[:lattice, :fleet, :summary]` — Fleet-level aggregate metrics
@@ -36,7 +35,6 @@ defmodule Lattice.Events.TelemetryHandler do
   @events [
     [:lattice, :sprite, :state_change],
     [:lattice, :sprite, :reconciliation],
-    [:lattice, :sprite, :health_update],
     [:lattice, :sprite, :approval_needed],
     [:lattice, :capability, :call],
     [:lattice, :fleet, :summary],
@@ -44,7 +42,11 @@ defmodule Lattice.Events.TelemetryHandler do
     [:lattice, :observation, :emitted],
     [:lattice, :intent, :created],
     [:lattice, :intent, :transitioned],
-    [:lattice, :intent, :artifact_added]
+    [:lattice, :intent, :artifact_added],
+    [:lattice, :webhook, :received],
+    [:lattice, :webhook, :intent_proposed],
+    [:lattice, :intent, :plan_attached],
+    [:lattice, :intent, :plan_step_updated]
   ]
 
   @doc """
@@ -112,29 +114,6 @@ defmodule Lattice.Events.TelemetryHandler do
       outcome: event.outcome,
       duration_ms: event.duration_ms,
       details: event.details
-    )
-  end
-
-  def handle_event(
-        [:lattice, :sprite, :health_update],
-        _measurements,
-        %{sprite_id: sprite_id, event: event},
-        _config
-      ) do
-    log_level =
-      case event.status do
-        :healthy -> :info
-        :degraded -> :warning
-        :unhealthy -> :error
-      end
-
-    Logger.log(
-      log_level,
-      "Sprite health: #{event.status}",
-      sprite_id: sprite_id,
-      status: event.status,
-      check_duration_ms: event.check_duration_ms,
-      message: event.message
     )
   end
 
@@ -277,6 +256,63 @@ defmodule Lattice.Events.TelemetryHandler do
       "Artifact added to intent: #{intent.id}",
       intent_id: intent.id,
       artifact_type: Map.get(artifact, :type, :unknown)
+    )
+  end
+
+  def handle_event(
+        [:lattice, :webhook, :received],
+        _measurements,
+        %{event_type: event_type, delivery_id: delivery_id},
+        _config
+      ) do
+    Logger.info(
+      "Webhook received: #{event_type}",
+      event_type: event_type,
+      delivery_id: delivery_id
+    )
+  end
+
+  def handle_event(
+        [:lattice, :webhook, :intent_proposed],
+        _measurements,
+        %{event_type: event_type, intent: intent},
+        _config
+      ) do
+    Logger.info(
+      "Webhook proposed intent: #{intent.id} (#{event_type})",
+      intent_id: intent.id,
+      event_type: event_type,
+      kind: intent.kind
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :plan_attached],
+        _measurements,
+        %{intent: intent},
+        _config
+      ) do
+    step_count = length(intent.plan.steps)
+
+    Logger.info(
+      "Plan attached to intent: #{intent.id} (#{intent.plan.title}, #{step_count} steps)",
+      intent_id: intent.id,
+      plan_title: intent.plan.title,
+      step_count: step_count
+    )
+  end
+
+  def handle_event(
+        [:lattice, :intent, :plan_step_updated],
+        _measurements,
+        %{intent: intent, step_id: step_id, status: status},
+        _config
+      ) do
+    Logger.info(
+      "Plan step updated: #{step_id} -> #{status} (intent: #{intent.id})",
+      intent_id: intent.id,
+      step_id: step_id,
+      step_status: status
     )
   end
 end

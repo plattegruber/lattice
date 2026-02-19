@@ -8,14 +8,13 @@ defmodule Lattice.Capabilities.Sprites.Live do
 
   ## Status Mapping
 
-  The API returns string statuses that are mapped to internal atoms:
+  The API returns string statuses that map directly to atoms:
 
-  | API Status  | Internal Atom   |
-  |-------------|-----------------|
-  | `"cold"`    | `:hibernating`  |
-  | `"warm"`    | `:waking`       |
-  | `"running"` | `:ready`        |
-  | other       | `:error`        |
+  | API Status  | Internal Atom |
+  |-------------|---------------|
+  | `"cold"`    | `:cold`       |
+  | `"warm"`    | `:warm`       |
+  | `"running"` | `:running`    |
 
   ## Wake / Sleep
 
@@ -116,8 +115,11 @@ defmodule Lattice.Capabilities.Sprites.Live do
   @impl true
   def exec(id, command) do
     sprite = build_sprite(id)
-    {output, exit_code} = Sprites.cmd(sprite, command, [])
-    {:ok, %{sprite_id: id, command: command, output: output, exit_code: exit_code}}
+
+    case Sprites.cmd(sprite, "sh", ["-c", command]) do
+      {output, exit_code} ->
+        {:ok, %{sprite_id: id, command: command, output: output, exit_code: exit_code}}
+    end
   rescue
     e -> {:error, normalize_error(e)}
   end
@@ -188,11 +190,11 @@ defmodule Lattice.Capabilities.Sprites.Live do
   end
 
   @doc false
-  def parse_status("cold"), do: :hibernating
-  def parse_status("warm"), do: :waking
-  def parse_status("running"), do: :ready
-  def parse_status(nil), do: :error
-  def parse_status(_other), do: :error
+  def parse_status("cold"), do: :cold
+  def parse_status("warm"), do: :warm
+  def parse_status("running"), do: :running
+  def parse_status(nil), do: :cold
+  def parse_status(_other), do: :cold
 
   # Look up a field by string key, falling back to atom key.
   # All keys passed here are hardcoded literals with existing atoms.

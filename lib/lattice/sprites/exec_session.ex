@@ -1,16 +1,17 @@
 defmodule Lattice.Sprites.ExecSession do
   @moduledoc """
-  GenServer managing an interactive exec session with a sprite via the
-  `sprites-ex` SDK.
+  GenServer managing an exec session with a sprite via `Sprites.Command`.
 
-  Uses `Sprites.spawn/4` to open an async command. Output messages from the
-  SDK are forwarded to PubSub and buffered for replay.
+  Uses the sprites-ex SDK to connect and stream command output.
+  Broadcasts output chunks via PubSub and maintains an output buffer for replay.
   """
   use GenServer
 
   require Logger
 
   alias Lattice.Events
+  alias Lattice.Protocol.Event
+  alias Lattice.Protocol.Parser
   alias Lattice.Sprites.Logs
 
   @default_idle_timeout 300_000
@@ -20,14 +21,15 @@ defmodule Lattice.Sprites.ExecSession do
     :session_id,
     :sprite_id,
     :command,
-    :sdk_command,
+    :sprites_command,
     :status,
     :started_at,
     :idle_timer,
     idle_timeout: @default_idle_timeout,
     output_buffer: [],
     buffer_size: 0,
-    exit_code: nil
+    exit_code: nil,
+    events: []
   ]
 
   # ── Public API ──────────────────────────────────────────────────────
@@ -46,6 +48,10 @@ defmodule Lattice.Sprites.ExecSession do
 
   def close(pid) do
     GenServer.call(pid, :close)
+  end
+
+  def get_events(pid) do
+    GenServer.call(pid, :get_events)
   end
 
   @doc "Returns the PubSub topic for a given session ID."
@@ -88,41 +94,20 @@ defmodule Lattice.Sprites.ExecSession do
     {:ok, state, {:continue, :connect}}
   end
 
+  # Spawn the connection in a separate process so this GenServer remains
+  # responsive to get_state calls while the WebSocket handshake completes.
+  # Sprites.Command.init blocks synchronously during the full TCP + TLS +
+  # WS upgrade sequence, which would otherwise starve queued GenServer.calls.
   @impl true
   def handle_continue(:connect, state) do
-    client = Sprites.new(sprites_api_token(), base_url: sprites_api_base())
-    sprite = Sprites.sprite(client, state.sprite_id)
+    me = self()
 
-    case Sprites.spawn(sprite, state.command, [], tty: true) do
-      {:ok, cmd} ->
-        new_state = %{
-          state
-          | sdk_command: cmd,
-            status: :running,
-            idle_timer: schedule_idle_timeout(state.idle_timeout)
-        }
+    spawn(fn ->
+      result = start_command(state.sprite_id, state.command, me)
+      send(me, {:sprites_command_result, result})
+    end)
 
-        Logger.info("Exec session #{state.session_id} connected to sprite #{state.sprite_id}")
-
-        :telemetry.execute(
-          [:lattice, :exec, :started],
-          %{count: 1},
-          %{session_id: state.session_id, sprite_id: state.sprite_id, command: state.command}
-        )
-
-        {:noreply, new_state}
-
-      {:error, reason} ->
-        Logger.error("Exec session #{state.session_id} failed to connect: #{inspect(reason)}")
-
-        :telemetry.execute(
-          [:lattice, :exec, :failed],
-          %{count: 1},
-          %{session_id: state.session_id, sprite_id: state.sprite_id, reason: reason}
-        )
-
-        {:stop, {:shutdown, {:connection_failed, reason}}, state}
-    end
+    {:noreply, state}
   end
 
   @impl true
@@ -134,7 +119,8 @@ defmodule Lattice.Sprites.ExecSession do
       status: state.status,
       started_at: state.started_at,
       buffer_size: state.buffer_size,
-      exit_code: state.exit_code
+      exit_code: state.exit_code,
+      event_count: length(state.events)
     }
 
     {:reply, {:ok, reply}, state}
@@ -144,28 +130,67 @@ defmodule Lattice.Sprites.ExecSession do
     {:reply, {:ok, Enum.reverse(state.output_buffer)}, state}
   end
 
+  def handle_call(:get_events, _from, state) do
+    {:reply, {:ok, Enum.reverse(state.events)}, state}
+  end
+
   def handle_call(:close, _from, state) do
     new_state = do_close(state)
     {:stop, :normal, :ok, new_state}
   end
 
-  # SDK stdout message
+  # ── Async connection result ──────────────────────────────────────────
+
   @impl true
-  def handle_info({:stdout, _ref, data}, state) do
+  def handle_info({:sprites_command_result, {:ok, cmd}}, state) do
+    Process.link(cmd.pid)
+
+    new_state = %{
+      state
+      | sprites_command: cmd,
+        status: :running,
+        idle_timer: schedule_idle_timeout(state.idle_timeout)
+    }
+
+    Logger.info("Exec session #{state.session_id} connected to sprite #{state.sprite_id}")
+
+    :telemetry.execute(
+      [:lattice, :exec, :started],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, command: state.command}
+    )
+
+    {:noreply, new_state}
+  end
+
+  def handle_info({:sprites_command_result, {:error, reason}}, state) do
+    Logger.error("Exec session #{state.session_id} failed to connect: #{inspect(reason)}")
+
+    :telemetry.execute(
+      [:lattice, :exec, :failed],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, reason: reason}
+    )
+
+    broadcast_output(state, :stderr, "Connection failed: #{inspect(reason)}")
+    {:stop, {:shutdown, {:connection_failed, reason}}, state}
+  end
+
+  # ── Sprites.Command message handlers ─────────────────────────────────
+
+  def handle_info({:stdout, _cmd, data}, state) do
     state = cancel_idle_timer(state)
     new_state = handle_output_chunk(state, :stdout, data)
     {:noreply, reset_idle_timer(new_state)}
   end
 
-  # SDK stderr message
-  def handle_info({:stderr, _ref, data}, state) do
+  def handle_info({:stderr, _cmd, data}, state) do
     state = cancel_idle_timer(state)
     new_state = handle_output_chunk(state, :stderr, data)
     {:noreply, reset_idle_timer(new_state)}
   end
 
-  # SDK exit message
-  def handle_info({:exit, _ref, code}, state) do
+  def handle_info({:exit, _cmd, code}, state) do
     new_state = %{state | exit_code: code, status: :closed}
 
     :telemetry.execute(
@@ -178,10 +203,10 @@ defmodule Lattice.Sprites.ExecSession do
     {:stop, :normal, new_state}
   end
 
-  # SDK error message
-  def handle_info({:error, _ref, reason}, state) do
-    Logger.warning("Exec session #{state.session_id} SDK error: #{inspect(reason)}")
-    {:stop, {:shutdown, {:sdk_error, reason}}, %{state | status: :closed}}
+  def handle_info({:error, _cmd, reason}, state) do
+    Logger.error("Exec session #{state.session_id} command error: #{inspect(reason)}")
+    broadcast_output(state, :stderr, "Error: #{inspect(reason)}")
+    {:stop, {:shutdown, reason}, %{state | status: :closed}}
   end
 
   # Idle timeout
@@ -199,11 +224,12 @@ defmodule Lattice.Sprites.ExecSession do
 
   @impl true
   def terminate(_reason, state) do
-    if state.sdk_command do
+    if cmd = state.sprites_command do
       try do
-        Sprites.close_stdin(state.sdk_command)
-      rescue
-        _ -> :ok
+        Process.unlink(cmd.pid)
+        GenServer.stop(cmd.pid, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
       end
     end
 
@@ -212,9 +238,60 @@ defmodule Lattice.Sprites.ExecSession do
 
   # ── Private ─────────────────────────────────────────────────────────
 
+  defp start_command(sprite_id, command, owner) do
+    token = sprites_api_token()
+    base_url = sprites_api_base()
+
+    client = Sprites.new(token, base_url: base_url)
+    sprite = Sprites.sprite(client, sprite_id)
+
+    Sprites.spawn(sprite, "sh", ["-c", command], owner: owner)
+  end
+
+
   defp handle_output_chunk(state, stream, chunk) do
     broadcast_output(state, stream, chunk)
-    add_to_buffer(state, stream, chunk)
+    state = add_to_buffer(state, stream, chunk)
+
+    # Parse lines for LATTICE_EVENT protocol events
+    if stream == :stdout do
+      parse_and_broadcast_events(state, chunk)
+    else
+      state
+    end
+  end
+
+  defp parse_and_broadcast_events(state, chunk) do
+    lines = String.split(to_string(chunk), "\n", trim: true)
+
+    Enum.reduce(lines, state, fn line, acc ->
+      case Parser.parse_line(line) do
+        {:event, event} ->
+          broadcast_event(acc, event)
+          add_event_to_buffer(acc, event)
+
+        {:text, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp broadcast_event(state, %Event{} = event) do
+    Phoenix.PubSub.broadcast(
+      Lattice.PubSub,
+      "exec:#{state.session_id}:events",
+      {:protocol_event, event}
+    )
+
+    :telemetry.execute(
+      [:lattice, :protocol, :event_received],
+      %{count: 1},
+      %{session_id: state.session_id, sprite_id: state.sprite_id, event_type: event.type}
+    )
+  end
+
+  defp add_event_to_buffer(state, event) do
+    %{state | events: [event | state.events]}
   end
 
   defp broadcast_output(state, stream, chunk) do
@@ -281,16 +358,17 @@ defmodule Lattice.Sprites.ExecSession do
   end
 
   defp do_close(state) do
-    if state.sdk_command do
+    if cmd = state.sprites_command do
       try do
-        Sprites.close_stdin(state.sdk_command)
-      rescue
-        _ -> :ok
+        Process.unlink(cmd.pid)
+        GenServer.stop(cmd.pid, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
       end
     end
 
     state = cancel_idle_timer(state)
-    %{state | status: :closed, sdk_command: nil}
+    %{state | status: :closed, sprites_command: nil}
   end
 
   defp generate_session_id do

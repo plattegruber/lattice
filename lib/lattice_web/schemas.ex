@@ -208,28 +208,16 @@ defmodule LatticeWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, description: "Sprite identifier"},
-        observed_state: %Schema{
+        status: %Schema{
           type: :string,
-          description: "Current observed lifecycle state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        desired_state: %Schema{
-          type: :string,
-          description: "Operator-set target state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        health: %Schema{
-          type: :string,
-          description: "Current health status",
-          enum: ["ok", "converging", "degraded", "error", "healthy", "unhealthy", "unknown"]
+          description: "Current status from the Sprites API",
+          enum: ["cold", "warm", "running"]
         }
       },
-      required: [:id, :observed_state, :desired_state, :health],
+      required: [:id, :status],
       example: %{
         "id" => "sprite-abc123",
-        "observed_state" => "ready",
-        "desired_state" => "ready",
-        "health" => "ok"
+        "status" => "running"
       }
     })
   end
@@ -245,20 +233,10 @@ defmodule LatticeWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, description: "Sprite identifier"},
-        observed_state: %Schema{
+        status: %Schema{
           type: :string,
-          description: "Current observed lifecycle state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        desired_state: %Schema{
-          type: :string,
-          description: "Operator-set target state",
-          enum: ["hibernating", "waking", "ready", "busy", "error"]
-        },
-        health: %Schema{
-          type: :string,
-          description: "Current health status",
-          enum: ["ok", "converging", "degraded", "error", "healthy", "unhealthy", "unknown"]
+          description: "Current status from the Sprites API",
+          enum: ["cold", "warm", "running"]
         },
         failure_count: %Schema{
           type: :integer,
@@ -286,12 +264,10 @@ defmodule LatticeWeb.Schemas do
           additionalProperties: %Schema{type: :string}
         }
       },
-      required: [:id, :observed_state, :desired_state, :health],
+      required: [:id, :status],
       example: %{
         "id" => "sprite-abc123",
-        "observed_state" => "ready",
-        "desired_state" => "ready",
-        "health" => "ok",
+        "status" => "running",
         "failure_count" => 0,
         "last_observed_at" => "2026-01-15T12:00:00Z",
         "started_at" => "2026-01-15T11:00:00Z",
@@ -336,29 +312,6 @@ defmodule LatticeWeb.Schemas do
         timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
       },
       required: [:data, :timestamp]
-    })
-  end
-
-  defmodule UpdateDesiredStateRequest do
-    @moduledoc false
-    require OpenApiSpex
-    alias OpenApiSpex.Schema
-
-    OpenApiSpex.schema(%{
-      title: "UpdateDesiredStateRequest",
-      description: "Request body for updating a sprite's desired state.",
-      type: :object,
-      properties: %{
-        state: %Schema{
-          type: :string,
-          description: "Target desired state",
-          enum: ["ready", "hibernating"]
-        }
-      },
-      required: [:state],
-      example: %{
-        "state" => "ready"
-      }
     })
   end
 
@@ -875,6 +828,60 @@ defmodule LatticeWeb.Schemas do
     })
   end
 
+  # ── Plans ───────────────────────────────────────────────────────
+
+  defmodule UpdatePlanRequest do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "UpdatePlanRequest",
+      description: "Request body for attaching or replacing a structured execution plan.",
+      type: :object,
+      properties: %{
+        title: %Schema{type: :string, description: "Plan title"},
+        steps: %Schema{
+          type: :array,
+          description: "Ordered list of plan steps",
+          items: %Schema{
+            type: :object,
+            properties: %{
+              description: %Schema{type: :string, description: "Step description"},
+              skill: %Schema{
+                type: :string,
+                nullable: true,
+                description: "Skill/capability this step uses"
+              },
+              inputs: %Schema{
+                type: :object,
+                nullable: true,
+                description: "Input parameters for the step",
+                additionalProperties: true
+              }
+            },
+            required: [:description]
+          }
+        },
+        source: %Schema{
+          type: :string,
+          description: "Who generated the plan",
+          enum: ["agent", "operator", "system"]
+        }
+      },
+      required: [:title, :steps],
+      example: %{
+        "title" => "Deploy v1.2.3",
+        "steps" => [
+          %{"description" => "Run tests", "skill" => "test_runner"},
+          %{"description" => "Build image"},
+          %{"description" => "Deploy to staging", "skill" => "fly_deploy"}
+        ],
+        "source" => "agent"
+      }
+    })
+  end
+
   # ── Tasks ───────────────────────────────────────────────────────
 
   defmodule CreateTaskRequest do
@@ -985,6 +992,188 @@ defmodule LatticeWeb.Schemas do
       type: :object,
       properties: %{
         data: LatticeWeb.Schemas.TaskIntentData,
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp]
+    })
+  end
+
+  # ── Skills ─────────────────────────────────────────────────────────
+
+  defmodule SkillInputSchema do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillInput",
+      description: "Descriptor for a skill input parameter.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Parameter name"},
+        type: %Schema{
+          type: :string,
+          description: "Data type",
+          enum: ["string", "integer", "boolean", "map"]
+        },
+        required: %Schema{type: :boolean, description: "Whether the input is required"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        default: %Schema{description: "Default value when not provided", nullable: true}
+      },
+      required: [:name, :type, :required],
+      example: %{
+        "name" => "repo",
+        "type" => "string",
+        "required" => true,
+        "description" => "Target repository in owner/repo format",
+        "default" => nil
+      }
+    })
+  end
+
+  defmodule SkillOutputSchema do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillOutput",
+      description: "Descriptor for a skill output.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Output name"},
+        type: %Schema{type: :string, description: "Data type"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        }
+      },
+      required: [:name, :type],
+      example: %{
+        "name" => "pr_url",
+        "type" => "string",
+        "description" => "URL of the created pull request"
+      }
+    })
+  end
+
+  defmodule SkillSummary do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillSummary",
+      description: "Abbreviated skill manifest used in list responses.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Skill name"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        input_count: %Schema{type: :integer, description: "Number of input parameters"},
+        output_count: %Schema{type: :integer, description: "Number of outputs"},
+        permissions: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description: "Required permissions"
+        },
+        produces_events: %Schema{
+          type: :boolean,
+          description: "Whether the skill emits protocol events"
+        }
+      },
+      required: [:name, :input_count, :output_count, :permissions, :produces_events],
+      example: %{
+        "name" => "open_pr",
+        "description" => "Opens a pull request on a GitHub repository",
+        "input_count" => 3,
+        "output_count" => 1,
+        "permissions" => ["github:write"],
+        "produces_events" => true
+      }
+    })
+  end
+
+  defmodule SkillDetail do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillDetail",
+      description: "Full skill manifest with inputs, outputs, and permissions.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Skill name"},
+        description: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Human-readable description"
+        },
+        inputs: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillInputSchema,
+          description: "Input parameter descriptors"
+        },
+        outputs: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillOutputSchema,
+          description: "Output descriptors"
+        },
+        permissions: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description: "Required permissions"
+        },
+        produces_events: %Schema{
+          type: :boolean,
+          description: "Whether the skill emits protocol events"
+        }
+      },
+      required: [:name, :inputs, :outputs, :permissions, :produces_events]
+    })
+  end
+
+  defmodule SkillListResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillListResponse",
+      description: "List of skill summaries response envelope.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :array,
+          items: LatticeWeb.Schemas.SkillSummary,
+          description: "Array of skill summaries"
+        },
+        timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
+      },
+      required: [:data, :timestamp]
+    })
+  end
+
+  defmodule SkillDetailResponse do
+    @moduledoc false
+    require OpenApiSpex
+    alias OpenApiSpex.Schema
+
+    OpenApiSpex.schema(%{
+      title: "SkillDetailResponse",
+      description: "Single skill detail response envelope.",
+      type: :object,
+      properties: %{
+        data: LatticeWeb.Schemas.SkillDetail,
         timestamp: %Schema{type: :string, format: :datetime, description: "ISO 8601 timestamp"}
       },
       required: [:data, :timestamp]

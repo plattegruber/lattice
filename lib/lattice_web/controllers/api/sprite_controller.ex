@@ -3,7 +3,7 @@ defmodule LatticeWeb.Api.SpriteController do
   API controller for individual sprite operations.
 
   Provides endpoints for listing sprites, querying sprite details,
-  updating desired state, and triggering single-sprite reconciliation.
+  wake/sleep commands, and triggering single-sprite observation.
   """
 
   use LatticeWeb, :controller
@@ -16,8 +16,6 @@ defmodule LatticeWeb.Api.SpriteController do
 
   tags(["Sprites"])
   security([%{"BearerAuth" => []}])
-
-  @allowed_desired_states ~w(ready hibernating)
 
   operation(:index,
     summary: "List sprites",
@@ -131,10 +129,9 @@ defmodule LatticeWeb.Api.SpriteController do
     end
   end
 
-  operation(:update_desired,
-    summary: "Update desired state",
-    description:
-      "Sets the desired state for a sprite. The reconciliation loop will work to converge.",
+  operation(:wake,
+    summary: "Wake a sprite",
+    description: "Sends a wake command to the Sprites API for this sprite.",
     parameters: [
       id: [
         in: :path,
@@ -143,79 +140,109 @@ defmodule LatticeWeb.Api.SpriteController do
         required: true
       ]
     ],
-    request_body:
-      {"Desired state", "application/json", LatticeWeb.Schemas.UpdateDesiredStateRequest},
     responses: [
-      ok: {"Updated sprite", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
+      ok: {"Sprite woken", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
       not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
-      unprocessable_entity:
-        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity: {"API error", "application/json", LatticeWeb.Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
     ]
   )
 
   @doc """
-  PUT /api/sprites/:id/desired — update desired state for a sprite.
-
-  Body: `{ "state": "ready" | "hibernating" }`
+  POST /api/sprites/:id/wake — wake a sprite.
   """
-  def update_desired(conn, %{"id" => sprite_id, "state" => desired_state_str})
-      when desired_state_str in @allowed_desired_states do
-    desired_state = String.to_existing_atom(desired_state_str)
+  def wake(conn, %{"id" => sprite_id}) do
+    with {:ok, _pid} <- FleetManager.get_sprite_pid(sprite_id),
+         {:ok, _} <- SpritesCapability.wake(sprite_id) do
+      # Give the observation loop a moment, then return current state
+      case get_sprite_state(sprite_id) do
+        {:ok, state} ->
+          conn
+          |> put_status(200)
+          |> json(%{
+            data: serialize_sprite_detail(sprite_id, state),
+            timestamp: DateTime.utc_now()
+          })
 
-    with {:ok, pid} <- FleetManager.get_sprite_pid(sprite_id),
-         :ok <- Sprite.set_desired_state(pid, desired_state) do
-      {:ok, updated_state} = Sprite.get_state(pid)
-
-      conn
-      |> put_status(200)
-      |> json(%{
-        data: serialize_sprite_detail(sprite_id, updated_state),
-        timestamp: DateTime.utc_now()
-      })
+        {:error, :not_found} ->
+          conn
+          |> put_status(404)
+          |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+      end
     else
       {:error, :not_found} ->
         conn
         |> put_status(404)
         |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
 
-      {:error, {:invalid_lifecycle, _}} ->
-        conn
-        |> put_status(422)
-        |> json(%{error: "Invalid state transition", code: "INVALID_STATE_TRANSITION"})
-
       {:error, reason} ->
         conn
         |> put_status(422)
         |> json(%{
-          error: "Failed to update desired state: #{inspect(reason)}",
+          error: "Failed to wake sprite: #{inspect(reason)}",
           code: "INVALID_STATE_TRANSITION"
         })
     end
   end
 
-  def update_desired(conn, %{"id" => _sprite_id, "state" => invalid_state}) do
-    conn
-    |> put_status(422)
-    |> json(%{
-      error:
-        "Invalid desired state: #{inspect(invalid_state)}. Allowed: #{inspect(@allowed_desired_states)}",
-      code: "INVALID_STATE"
-    })
-  end
+  operation(:sleep,
+    summary: "Sleep a sprite",
+    description: "Sends a sleep command to the Sprites API for this sprite.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Sprite identifier",
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {"Sprite sleeping", "application/json", LatticeWeb.Schemas.SpriteDetailResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity: {"API error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
 
-  def update_desired(conn, %{"id" => _sprite_id}) do
-    conn
-    |> put_status(422)
-    |> json(%{
-      error: "Missing required field: state",
-      code: "MISSING_FIELD"
-    })
+  @doc """
+  POST /api/sprites/:id/sleep — sleep a sprite.
+  """
+  def sleep(conn, %{"id" => sprite_id}) do
+    with {:ok, _pid} <- FleetManager.get_sprite_pid(sprite_id),
+         {:ok, _} <- SpritesCapability.sleep(sprite_id) do
+      case get_sprite_state(sprite_id) do
+        {:ok, state} ->
+          conn
+          |> put_status(200)
+          |> json(%{
+            data: serialize_sprite_detail(sprite_id, state),
+            timestamp: DateTime.utc_now()
+          })
+
+        {:error, :not_found} ->
+          conn
+          |> put_status(404)
+          |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+      end
+    else
+      {:error, :not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Sprite not found", code: "SPRITE_NOT_FOUND"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(422)
+        |> json(%{
+          error: "Failed to sleep sprite: #{inspect(reason)}",
+          code: "INVALID_STATE_TRANSITION"
+        })
+    end
   end
 
   operation(:reconcile,
-    summary: "Trigger sprite reconciliation",
-    description: "Triggers an immediate reconciliation cycle for a single sprite.",
+    summary: "Trigger sprite observation",
+    description: "Triggers an immediate observation cycle for a single sprite.",
     parameters: [
       id: [
         in: :path,
@@ -226,7 +253,7 @@ defmodule LatticeWeb.Api.SpriteController do
     ],
     responses: [
       ok:
-        {"Reconciliation triggered", "application/json",
+        {"Observation triggered", "application/json",
          LatticeWeb.Schemas.ReconcileTriggeredResponse},
       not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
@@ -234,7 +261,7 @@ defmodule LatticeWeb.Api.SpriteController do
   )
 
   @doc """
-  POST /api/sprites/:id/reconcile — trigger reconciliation for a single sprite.
+  POST /api/sprites/:id/reconcile — trigger observation for a single sprite.
   """
   def reconcile(conn, %{"id" => sprite_id}) do
     case FleetManager.get_sprite_pid(sprite_id) do
@@ -344,8 +371,7 @@ defmodule LatticeWeb.Api.SpriteController do
              {:ok, pid} <- FleetManager.get_sprite_pid(id),
              :ok <- Sprite.set_tags(pid, merged) do
           Lattice.Store.put(:sprite_metadata, id, %{
-            tags: merged,
-            desired_state: state.desired_state
+            tags: merged
           })
 
           conn
@@ -399,9 +425,7 @@ defmodule LatticeWeb.Api.SpriteController do
         {:error, :not_found} ->
           %{
             id: sprite_id,
-            observed_state: :hibernating,
-            desired_state: :hibernating,
-            health: :unknown
+            status: :cold
           }
       end
 
@@ -412,26 +436,29 @@ defmodule LatticeWeb.Api.SpriteController do
 
   defp get_sprite_state(sprite_id) do
     case FleetManager.get_sprite_pid(sprite_id) do
-      {:ok, pid} -> Sprite.get_state(pid)
-      {:error, :not_found} -> {:error, :not_found}
+      {:ok, pid} ->
+        try do
+          Sprite.get_state(pid)
+        catch
+          :exit, _ -> {:error, :not_found}
+        end
+
+      {:error, :not_found} ->
+        {:error, :not_found}
     end
   end
 
   defp serialize_sprite(id, %State{} = state) do
     %{
       id: id,
-      observed_state: state.observed_state,
-      desired_state: state.desired_state,
-      health: state.health
+      status: state.status
     }
   end
 
   defp serialize_sprite_detail(id, %State{} = state) do
     %{
       id: id,
-      observed_state: state.observed_state,
-      desired_state: state.desired_state,
-      health: state.health,
+      status: state.status,
       failure_count: state.failure_count,
       last_observed_at: state.last_observed_at,
       started_at: state.started_at,

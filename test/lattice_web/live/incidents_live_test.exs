@@ -18,14 +18,12 @@ defmodule LatticeWeb.IncidentsLiveTest do
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp start_test_sprite(sprite_id, opts) do
-    desired = Keyword.get(opts, :desired_state, :hibernating)
-    observed = Keyword.get(opts, :observed_state, :hibernating)
+    status = Keyword.get(opts, :status, :cold)
 
     {:ok, _pid} =
       Sprite.start_link(
         sprite_id: sprite_id,
-        desired_state: desired,
-        observed_state: observed,
+        status: status,
         reconcile_interval_ms: 60_000,
         name: Sprite.via(sprite_id)
       )
@@ -54,62 +52,6 @@ defmodule LatticeWeb.IncidentsLiveTest do
       assert html =~ "Active Incidents"
       assert html =~ "Critical"
       assert html =~ "Warning"
-    end
-  end
-
-  # ── Error State Detection ──────────────────────────────────────────
-
-  describe "error state incidents" do
-    test "shows error incident when sprite transitions to error state", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/incidents")
-
-      sprite_id = "error-sprite-#{System.unique_integer([:positive])}"
-
-      {:ok, event} =
-        StateChange.new(sprite_id, :ready, :error, reason: "test failure")
-
-      Phoenix.PubSub.broadcast(
-        Lattice.PubSub,
-        Events.fleet_topic(),
-        event
-      )
-
-      html = render(view)
-      assert html =~ "error state"
-      assert html =~ sprite_id
-    end
-
-    test "auto-resolves error incident when sprite leaves error state", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/incidents")
-
-      sprite_id = "resolve-sprite-#{System.unique_integer([:positive])}"
-
-      # First, add an error incident via state change event
-      {:ok, error_event} =
-        StateChange.new(sprite_id, :ready, :error, reason: "test failure")
-
-      Phoenix.PubSub.broadcast(
-        Lattice.PubSub,
-        Events.fleet_topic(),
-        error_event
-      )
-
-      html = render(view)
-      assert html =~ sprite_id
-      assert html =~ "error state"
-
-      # Now resolve it by transitioning out of error
-      {:ok, resolve_event} =
-        StateChange.new(sprite_id, :error, :waking, reason: "recovery")
-
-      Phoenix.PubSub.broadcast(
-        Lattice.PubSub,
-        Events.fleet_topic(),
-        resolve_event
-      )
-
-      html = render(view)
-      refute html =~ "error-#{sprite_id}"
     end
   end
 
@@ -205,10 +147,10 @@ defmodule LatticeWeb.IncidentsLiveTest do
 
       # Send 4 state changes (exceeds threshold of 4)
       transitions = [
-        {:hibernating, :waking},
-        {:waking, :ready},
-        {:ready, :error},
-        {:error, :waking}
+        {:cold, :warm},
+        {:warm, :running},
+        {:running, :cold},
+        {:cold, :warm}
       ]
 
       for {from, to} <- transitions do
@@ -232,7 +174,7 @@ defmodule LatticeWeb.IncidentsLiveTest do
   describe "backoff detection" do
     test "shows backoff incident for sprite with failures", %{conn: conn} do
       sprite_id = "backoff-sprite-#{System.unique_integer([:positive])}"
-      start_test_sprite(sprite_id, desired_state: :ready, observed_state: :hibernating)
+      start_test_sprite(sprite_id, status: :cold)
 
       # Force a failure onto the sprite to trigger backoff
       {:ok, pid} = FleetManager.get_sprite_pid(sprite_id)
@@ -266,16 +208,16 @@ defmodule LatticeWeb.IncidentsLiveTest do
         fail_event
       )
 
-      # Create an error state incident (critical)
+      # Create another reconciliation failure (critical)
       sprite_id_2 = "sort-sprite-2-#{System.unique_integer([:positive])}"
 
-      {:ok, error_event} =
-        StateChange.new(sprite_id_2, :ready, :error, reason: "test failure")
+      {:ok, fail_event_2} =
+        ReconciliationResult.new(sprite_id_2, :failure, 50, details: "another fail")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
         Events.fleet_topic(),
-        error_event
+        fail_event_2
       )
 
       html = render(view)
@@ -294,7 +236,7 @@ defmodule LatticeWeb.IncidentsLiveTest do
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,
         Events.fleet_topic(),
-        {:fleet_summary, %{total: 3, by_state: %{ready: 2, error: 1}}}
+        {:fleet_summary, %{total: 3, by_state: %{running: 2, cold: 1}}}
       )
 
       html = render(view)
@@ -331,6 +273,24 @@ defmodule LatticeWeb.IncidentsLiveTest do
       html = render(view)
       assert html =~ "All clear"
     end
+
+    test "handles state change events gracefully", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/incidents")
+
+      sprite_id = "state-sprite-#{System.unique_integer([:positive])}"
+
+      {:ok, event} =
+        StateChange.new(sprite_id, :cold, :running, reason: "test")
+
+      Phoenix.PubSub.broadcast(
+        Lattice.PubSub,
+        Events.fleet_topic(),
+        event
+      )
+
+      html = render(view)
+      assert html =~ "Incidents"
+    end
   end
 
   # ── Navigation ─────────────────────────────────────────────────────
@@ -348,7 +308,7 @@ defmodule LatticeWeb.IncidentsLiveTest do
       sprite_id = "nav-sprite-#{System.unique_integer([:positive])}"
 
       {:ok, event} =
-        StateChange.new(sprite_id, :ready, :error, reason: "link test")
+        ReconciliationResult.new(sprite_id, :failure, 100, details: "link test")
 
       Phoenix.PubSub.broadcast(
         Lattice.PubSub,

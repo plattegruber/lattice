@@ -4,10 +4,9 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   Displays:
 
-  - **State comparison panel** -- observed vs desired state, drift highlighting,
-    last reconciliation timestamp
+  - **Status panel** -- current API status (cold/warm/running)
   - **Event timeline** -- last N events streamed via PubSub
-  - **Health & backoff info** -- health status, failure count, backoff duration
+  - **Observation & backoff info** -- failure count, backoff duration
   - **Tasks section** -- active/recent tasks for this sprite with links to
     intent detail view
   - **Assign Task form** -- quick action to assign a task to this sprite
@@ -21,12 +20,13 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   alias Lattice.Events
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
   alias Lattice.Intents.Store, as: IntentStore
+  alias Lattice.Protocol.Event
+  alias Lattice.Protocol.SkillDiscovery
   alias Lattice.Sprites.ExecSession
   alias Lattice.Sprites.ExecSupervisor
   alias Lattice.Sprites.FleetManager
@@ -49,6 +49,7 @@ defmodule LatticeWeb.SpriteLive.Show do
             Events.subscribe_sprite(sprite_id)
             Events.subscribe_fleet()
             Events.subscribe_intents()
+            Events.subscribe_runs()
             Events.subscribe_sprite_logs(sprite_id)
             schedule_refresh()
 
@@ -78,9 +79,16 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:exec_command, "")
          |> assign(:log_pinned_to_bottom, true)
          |> assign(:has_sprite_logs, historical != [])
+         |> assign(:current_progress, nil)
+         |> assign(:protocol_events, [])
+         |> assign(:skills, [])
+         |> assign(:skills_expanded, false)
          |> stream(:sprite_logs, historical)
          |> stream(:log_lines, [])
-         |> assign_sprite_tasks()}
+         |> assign_sprite_tasks()
+         |> then(fn socket ->
+           if connected?(socket), do: maybe_discover_skills(socket), else: socket
+         end)}
 
       {:error, :not_found} ->
         {:ok,
@@ -98,6 +106,10 @@ defmodule LatticeWeb.SpriteLive.Show do
          |> assign(:exec_command, "")
          |> assign(:log_pinned_to_bottom, true)
          |> assign(:has_sprite_logs, false)
+         |> assign(:current_progress, nil)
+         |> assign(:protocol_events, [])
+         |> assign(:skills, [])
+         |> assign(:skills_expanded, false)
          |> stream(:sprite_logs, [])
          |> stream(:log_lines, [])
          |> assign(:sprite_tasks, [])}
@@ -122,15 +134,6 @@ defmodule LatticeWeb.SpriteLive.Show do
       |> refresh_sprite_state()
       |> prepend_event(event)
       |> assign(:last_reconciliation, event)
-
-    {:noreply, socket}
-  end
-
-  def handle_info(%HealthUpdate{} = event, socket) do
-    socket =
-      socket
-      |> refresh_sprite_state()
-      |> prepend_event(event)
 
     {:noreply, socket}
   end
@@ -161,6 +164,22 @@ defmodule LatticeWeb.SpriteLive.Show do
     {:noreply, assign_sprite_tasks(socket)}
   end
 
+  def handle_info({:run_artifact_added, _run, _artifact}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
+  def handle_info({:run_assumption_added, _run}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
+  def handle_info({:run_blocked, _run}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
+  def handle_info({:run_resumed, _run}, socket) do
+    {:noreply, assign_sprite_tasks(socket)}
+  end
+
   def handle_info(:refresh, socket) do
     schedule_refresh()
 
@@ -173,18 +192,34 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   # Exec session output via PubSub
   def handle_info({:exec_output, %{session_id: sid, stream: stream, chunk: chunk}}, socket) do
-    if socket.assigns[:active_session_id] == sid do
-      line = %{
-        id: System.unique_integer([:positive]),
-        stream: stream,
-        data: chunk,
-        timestamp: DateTime.utc_now()
-      }
+    socket =
+      if socket.assigns[:active_session_id] == sid do
+        line = %{
+          id: System.unique_integer([:positive]),
+          stream: stream,
+          data: chunk,
+          timestamp: DateTime.utc_now()
+        }
 
-      {:noreply, stream_insert(socket, :log_lines, line)}
-    else
-      {:noreply, socket}
-    end
+        stream_insert(socket, :log_lines, line)
+      else
+        socket
+      end
+
+    # Refresh session list when a session exits so status badges update
+    socket =
+      if stream == :exit do
+        assign(socket, :exec_sessions, load_exec_sessions(socket.assigns.sprite_id))
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  # Exec session process died — refresh session list
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, assign(socket, :exec_sessions, load_exec_sessions(socket.assigns.sprite_id))}
   end
 
   # Sprite log stream events
@@ -193,6 +228,42 @@ defmodule LatticeWeb.SpriteLive.Show do
      socket
      |> assign(:has_sprite_logs, true)
      |> stream_insert(:sprite_logs, log_line, limit: -500)}
+  end
+
+  # Protocol events from exec sessions (progress, warning, checkpoint)
+  def handle_info(
+        {:protocol_event, %Event{type: "progress", data: data}},
+        socket
+      ) do
+    progress = %{
+      message: data.message,
+      percent: data.percent,
+      phase: data.phase,
+      timestamp: DateTime.utc_now()
+    }
+
+    {:noreply,
+     socket
+     |> assign(:current_progress, progress)
+     |> prepend_protocol_event("progress", data.message)}
+  end
+
+  def handle_info(
+        {:protocol_event, %Event{type: "warning", data: data}},
+        socket
+      ) do
+    {:noreply, prepend_protocol_event(socket, "warning", data.message)}
+  end
+
+  def handle_info(
+        {:protocol_event, %Event{type: "checkpoint", data: data}},
+        socket
+      ) do
+    {:noreply, prepend_protocol_event(socket, "checkpoint", data.message)}
+  end
+
+  def handle_info({:protocol_event, %Event{}}, socket) do
+    {:noreply, socket}
   end
 
   # Catch-all for unexpected PubSub messages
@@ -221,26 +292,13 @@ defmodule LatticeWeb.SpriteLive.Show do
   end
 
   def handle_event("start_exec", %{"command" => command}, socket) do
-    sprite_id = socket.assigns.sprite_id
+    now = System.monotonic_time(:millisecond)
+    last = socket.assigns[:last_exec_at]
 
-    case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
-      {:ok, session_pid} ->
-        {:ok, state} = ExecSession.get_state(session_pid)
-
-        Phoenix.PubSub.subscribe(
-          Lattice.PubSub,
-          ExecSession.exec_topic(state.session_id)
-        )
-
-        {:noreply,
-         socket
-         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
-         |> assign(:active_session_id, state.session_id)
-         |> assign(:exec_command, "")
-         |> stream(:log_lines, [], reset: true)}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to start session: #{inspect(reason)}")}
+    if last && now - last < 2_000 do
+      {:noreply, socket}
+    else
+      do_start_exec(command, assign(socket, :last_exec_at, now))
     end
   end
 
@@ -248,16 +306,19 @@ defmodule LatticeWeb.SpriteLive.Show do
     # Unsubscribe from old session if any
     if old_sid = socket.assigns[:active_session_id] do
       Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(old_sid))
+      Phoenix.PubSub.unsubscribe(Lattice.PubSub, Events.exec_events_topic(old_sid))
     end
 
-    # Subscribe to new session
+    # Subscribe to new session (output + protocol events)
     Phoenix.PubSub.subscribe(Lattice.PubSub, ExecSession.exec_topic(session_id))
+    Events.subscribe_exec_events(session_id)
 
     log_lines = load_session_output(session_id)
 
     {:noreply,
      socket
      |> assign(:active_session_id, session_id)
+     |> assign(:current_progress, nil)
      |> stream(:log_lines, log_lines, reset: true)}
   end
 
@@ -268,6 +329,7 @@ defmodule LatticeWeb.SpriteLive.Show do
     end
 
     Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(session_id))
+    Phoenix.PubSub.unsubscribe(Lattice.PubSub, Events.exec_events_topic(session_id))
 
     new_active =
       if socket.assigns[:active_session_id] == session_id,
@@ -278,18 +340,25 @@ defmodule LatticeWeb.SpriteLive.Show do
      socket
      |> assign(:exec_sessions, load_exec_sessions(socket.assigns.sprite_id))
      |> assign(:active_session_id, new_active)
+     |> assign(:current_progress, nil)
      |> stream(:log_lines, [], reset: true)}
   end
 
   def handle_event("detach_session", _params, socket) do
     if sid = socket.assigns[:active_session_id] do
       Phoenix.PubSub.unsubscribe(Lattice.PubSub, ExecSession.exec_topic(sid))
+      Phoenix.PubSub.unsubscribe(Lattice.PubSub, Events.exec_events_topic(sid))
     end
 
     {:noreply,
      socket
      |> assign(:active_session_id, nil)
+     |> assign(:current_progress, nil)
      |> stream(:log_lines, [], reset: true)}
+  end
+
+  def handle_event("toggle_skills", _params, socket) do
+    {:noreply, assign(socket, :skills_expanded, !socket.assigns.skills_expanded)}
   end
 
   def handle_event("toggle_pin_to_bottom", _params, socket) do
@@ -347,14 +416,21 @@ defmodule LatticeWeb.SpriteLive.Show do
         </.header>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.state_comparison_panel sprite_state={@sprite_state} />
-          <.health_backoff_panel
+          <.status_panel sprite_state={@sprite_state} />
+          <.observation_panel
             sprite_state={@sprite_state}
             last_reconciliation={@last_reconciliation}
           />
         </div>
 
+        <.progress_status_bar :if={@current_progress} progress={@current_progress} />
+
         <.tags_panel tags={@sprite_state.tags} />
+
+        <.skills_panel
+          skills={@skills}
+          expanded={@skills_expanded}
+        />
 
         <.sprite_log_panel
           sprite_logs={@streams.sprite_logs}
@@ -411,47 +487,24 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   attr :sprite_state, State, required: true
 
-  defp state_comparison_panel(assigns) do
+  defp status_panel(assigns) do
     ~H"""
     <div class="card bg-base-200 shadow-sm">
       <div class="card-body">
         <h2 class="card-title text-base">
-          <.icon name="hero-arrows-right-left" class="size-5" /> State Comparison
+          <.icon name="hero-signal" class="size-5" /> Status
         </h2>
 
-        <div class="grid grid-cols-2 gap-4 mt-2">
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Observed
-            </div>
-            <div class="mt-1">
-              <.state_badge state={@sprite_state.observed_state} />
-            </div>
+        <div class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+            Current Status
           </div>
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Desired
-            </div>
-            <div class="mt-1">
-              <.state_badge state={@sprite_state.desired_state} />
-            </div>
+          <div class="mt-1">
+            <.state_badge state={@sprite_state.status} />
           </div>
         </div>
 
-        <div :if={has_drift?(@sprite_state)} class="alert alert-warning mt-4">
-          <.icon name="hero-exclamation-triangle" class="size-5" />
-          <span>
-            Drift detected: observed <.state_badge state={@sprite_state.observed_state} />
-            differs from desired <.state_badge state={@sprite_state.desired_state} />
-          </span>
-        </div>
-
-        <div :if={!has_drift?(@sprite_state)} class="alert alert-success mt-4">
-          <.icon name="hero-check-circle" class="size-5" />
-          <span>States are in sync.</span>
-        </div>
-
-        <div class="text-xs text-base-content/50 mt-2">
+        <div class="text-xs text-base-content/50 mt-4">
           Last updated: <.relative_time datetime={@sprite_state.updated_at} />
         </div>
       </div>
@@ -462,23 +515,15 @@ defmodule LatticeWeb.SpriteLive.Show do
   attr :sprite_state, State, required: true
   attr :last_reconciliation, ReconciliationResult, default: nil
 
-  defp health_backoff_panel(assigns) do
+  defp observation_panel(assigns) do
     ~H"""
     <div class="card bg-base-200 shadow-sm">
       <div class="card-body">
         <h2 class="card-title text-base">
-          <.icon name="hero-heart" class="size-5" /> Health & Backoff
+          <.icon name="hero-eye" class="size-5" /> Observation
         </h2>
 
         <div class="grid grid-cols-2 gap-4 mt-2">
-          <div>
-            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
-              Health
-            </div>
-            <div class="mt-1">
-              <.health_badge health={@sprite_state.health} />
-            </div>
-          </div>
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Failures
@@ -492,9 +537,6 @@ defmodule LatticeWeb.SpriteLive.Show do
               </span>
             </div>
           </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4 mt-4">
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Backoff
@@ -503,6 +545,9 @@ defmodule LatticeWeb.SpriteLive.Show do
               {format_duration(@sprite_state.backoff_ms)}
             </div>
           </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mt-4">
           <div>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Max Backoff
@@ -511,12 +556,23 @@ defmodule LatticeWeb.SpriteLive.Show do
               {format_duration(@sprite_state.max_backoff_ms)}
             </div>
           </div>
+          <div>
+            <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+              Last Observed
+            </div>
+            <div class="mt-1 text-sm">
+              <span :if={@sprite_state.last_observed_at}>
+                <.relative_time datetime={@sprite_state.last_observed_at} />
+              </span>
+              <span :if={!@sprite_state.last_observed_at} class="text-base-content/40">never</span>
+            </div>
+          </div>
         </div>
 
         <div :if={@last_reconciliation} class="divider my-2"></div>
         <div :if={@last_reconciliation} class="text-sm">
           <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
-            Last Reconciliation
+            Last Observation Cycle
           </div>
           <div class="flex items-center gap-2">
             <.outcome_badge outcome={@last_reconciliation.outcome} />
@@ -796,6 +852,70 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
+  attr :skills, :list, required: true
+  attr :expanded, :boolean, default: false
+
+  defp skills_panel(assigns) do
+    ~H"""
+    <div class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title text-base">
+            <.icon name="hero-puzzle-piece" class="size-5" /> Skills
+            <span :if={@skills != []} class="badge badge-sm badge-ghost">
+              {length(@skills)}
+            </span>
+          </h2>
+          <button
+            :if={@skills != []}
+            phx-click="toggle_skills"
+            class="btn btn-ghost btn-xs"
+          >
+            {if @expanded, do: "Collapse", else: "Expand"}
+          </button>
+        </div>
+
+        <div :if={@skills == []} class="text-center py-4 text-base-content/50">
+          <.icon name="hero-puzzle-piece" class="size-8 mx-auto mb-2" />
+          <p class="text-sm">No skills discovered for this sprite.</p>
+        </div>
+
+        <div :if={@skills != [] and @expanded} class="overflow-x-auto mt-2">
+          <table class="table table-xs table-zebra">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Inputs</th>
+                <th>Outputs</th>
+                <th>Events</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={skill <- @skills} id={"skill-#{skill.name}"}>
+                <td class="font-mono text-xs font-medium">{skill.name}</td>
+                <td class="text-xs">{skill.description || "-"}</td>
+                <td class="text-xs">{length(skill.inputs)}</td>
+                <td class="text-xs">{length(skill.outputs)}</td>
+                <td>
+                  <span :if={skill.produces_events} class="badge badge-xs badge-success">yes</span>
+                  <span :if={!skill.produces_events} class="badge badge-xs badge-ghost">no</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div :if={@skills != [] and !@expanded} class="flex flex-wrap gap-2 mt-2">
+          <span :for={skill <- @skills} class="badge badge-sm badge-outline">
+            {skill.name}
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   attr :sprite_logs, :list, required: true
   attr :pinned_to_bottom, :boolean, default: true
   attr :has_sprite_logs, :boolean, default: false
@@ -917,7 +1037,7 @@ defmodule LatticeWeb.SpriteLive.Show do
             class="input input-bordered input-sm flex-1"
             required
           />
-          <button type="submit" class="btn btn-primary btn-sm">
+          <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Running...">
             <.icon name="hero-play" class="size-4" /> Run
           </button>
         </form>
@@ -1012,6 +1132,26 @@ defmodule LatticeWeb.SpriteLive.Show do
     """
   end
 
+  attr :progress, :map, required: true
+
+  defp progress_status_bar(assigns) do
+    ~H"""
+    <div class="alert alert-info py-2">
+      <.icon name="hero-arrow-path" class="size-4 animate-spin" />
+      <div class="flex-1">
+        <span class="text-sm font-medium">{@progress.message}</span>
+        <progress
+          :if={@progress.percent}
+          class="progress progress-info w-full mt-1"
+          value={@progress.percent}
+          max="100"
+        />
+      </div>
+      <span :if={@progress.phase} class="badge badge-sm badge-ghost">{@progress.phase}</span>
+    </div>
+    """
+  end
+
   # ── Shared Functional Components ─────────────────────────────────
 
   attr :state, :atom, required: true
@@ -1030,16 +1170,6 @@ defmodule LatticeWeb.SpriteLive.Show do
     ~H"""
     <span class={["badge badge-xs", task_state_color(@state)]}>
       {@state}
-    </span>
-    """
-  end
-
-  attr :health, :atom, required: true
-
-  defp health_badge(assigns) do
-    ~H"""
-    <span class={["badge badge-sm", health_color(@health)]}>
-      {@health}
     </span>
     """
   end
@@ -1084,6 +1214,34 @@ defmodule LatticeWeb.SpriteLive.Show do
 
   # ── Private Helpers ────────────────────────────────────────────────
 
+  defp do_start_exec(command, socket) do
+    sprite_id = socket.assigns.sprite_id
+
+    case ExecSupervisor.start_session(sprite_id: sprite_id, command: command) do
+      {:ok, session_pid} ->
+        {:ok, state} = ExecSession.get_state(session_pid)
+        Process.monitor(session_pid)
+
+        Phoenix.PubSub.subscribe(
+          Lattice.PubSub,
+          ExecSession.exec_topic(state.session_id)
+        )
+
+        Events.subscribe_exec_events(state.session_id)
+
+        {:noreply,
+         socket
+         |> assign(:exec_sessions, load_exec_sessions(sprite_id))
+         |> assign(:active_session_id, state.session_id)
+         |> assign(:exec_command, "")
+         |> assign(:current_progress, nil)
+         |> stream(:log_lines, [], reset: true)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to start session: #{inspect(reason)}")}
+    end
+  end
+
   defp fetch_sprite_state(sprite_id) do
     case FleetManager.get_sprite_pid(sprite_id) do
       {:ok, pid} -> Sprite.get_state(pid)
@@ -1118,6 +1276,23 @@ defmodule LatticeWeb.SpriteLive.Show do
       |> Enum.take(@max_events)
 
     assign(socket, :events, events)
+  end
+
+  defp prepend_protocol_event(socket, type, message) do
+    event = %{
+      type: type,
+      message: message,
+      timestamp: DateTime.utc_now(),
+      id: System.unique_integer([:positive])
+    }
+
+    protocol_events =
+      [event | socket.assigns.protocol_events]
+      |> Enum.take(@max_events)
+
+    socket
+    |> assign(:protocol_events, protocol_events)
+    |> prepend_event(event)
   end
 
   defp schedule_refresh do
@@ -1179,14 +1354,20 @@ defmodule LatticeWeb.SpriteLive.Show do
     else
       _ -> []
     end
+  catch
+    :exit, _ -> []
   end
 
   defp load_exec_sessions(sprite_id) do
     ExecSupervisor.list_sessions_for_sprite(sprite_id)
     |> Enum.map(fn {_session_id, pid, _meta} ->
-      case ExecSession.get_state(pid) do
-        {:ok, state} -> state
-        _ -> nil
+      try do
+        case ExecSession.get_state(pid) do
+          {:ok, state} -> state
+          _ -> nil
+        end
+      catch
+        :exit, _ -> nil
       end
     end)
     |> Enum.reject(&is_nil/1)
@@ -1213,7 +1394,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp log_source_class(:exec), do: "text-info"
   defp log_source_class(:reconciliation), do: "text-accent"
   defp log_source_class(:state_change), do: "text-primary"
-  defp log_source_class(:health), do: "text-success"
   defp log_source_class(:service), do: "text-base-content/60"
   defp log_source_class(_), do: "text-base-content/60"
 
@@ -1221,7 +1401,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp format_log_source(:exec), do: "exec"
   defp format_log_source(:reconciliation), do: "recon"
   defp format_log_source(:state_change), do: "state"
-  defp format_log_source(:health), do: "health"
   defp format_log_source(:service), do: "svc"
   defp format_log_source(_), do: "sys"
 
@@ -1229,15 +1408,10 @@ defmodule LatticeWeb.SpriteLive.Show do
     Calendar.strftime(datetime, "%H:%M:%S")
   end
 
-  defp has_drift?(%State{observed_state: same, desired_state: same}), do: false
-  defp has_drift?(%State{}), do: true
-
-  # State colors (matching FleetLive)
-  defp state_color(:hibernating), do: "badge-ghost"
-  defp state_color(:waking), do: "badge-info"
-  defp state_color(:ready), do: "badge-success"
-  defp state_color(:busy), do: "badge-warning"
-  defp state_color(:error), do: "badge-error"
+  # State colors
+  defp state_color(:cold), do: "badge-ghost"
+  defp state_color(:warm), do: "badge-info"
+  defp state_color(:running), do: "badge-success"
   defp state_color(_), do: "badge-ghost"
 
   # Task state colors
@@ -1251,13 +1425,6 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp task_state_color(:rejected), do: "badge-error"
   defp task_state_color(:canceled), do: "badge-ghost"
   defp task_state_color(_), do: "badge-ghost"
-
-  # Health colors (matching FleetLive)
-  defp health_color(:healthy), do: "badge-success"
-  defp health_color(:degraded), do: "badge-warning"
-  defp health_color(:unhealthy), do: "badge-error"
-  defp health_color(:unknown), do: "badge-ghost"
-  defp health_color(_), do: "badge-ghost"
 
   # Outcome colors
   defp outcome_color(:success), do: "badge-success"
@@ -1275,15 +1442,17 @@ defmodule LatticeWeb.SpriteLive.Show do
   defp event_type_color(%ReconciliationResult{outcome: :success}), do: "badge-success"
   defp event_type_color(%ReconciliationResult{outcome: :failure}), do: "badge-error"
   defp event_type_color(%ReconciliationResult{}), do: "badge-ghost"
-  defp event_type_color(%HealthUpdate{}), do: "badge-accent"
   defp event_type_color(%ApprovalNeeded{}), do: "badge-warning"
+  defp event_type_color(%{type: "progress"}), do: "badge-info"
+  defp event_type_color(%{type: "warning"}), do: "badge-warning"
+  defp event_type_color(%{type: "checkpoint"}), do: "badge-success"
   defp event_type_color(_), do: "badge-ghost"
 
   # Event type labels
   defp event_type_label(%StateChange{}), do: "state_change"
   defp event_type_label(%ReconciliationResult{}), do: "reconciliation"
-  defp event_type_label(%HealthUpdate{}), do: "health"
   defp event_type_label(%ApprovalNeeded{}), do: "approval"
+  defp event_type_label(%{type: type}) when type in ~w(progress warning checkpoint), do: type
   defp event_type_label(_), do: "unknown"
 
   # Format event details for the timeline
@@ -1296,14 +1465,11 @@ defmodule LatticeWeb.SpriteLive.Show do
     if e.details, do: "#{base}: #{e.details}", else: base
   end
 
-  defp format_event_details(%HealthUpdate{} = e) do
-    base = "#{e.status} (#{format_duration(e.check_duration_ms)})"
-    if e.message, do: "#{base}: #{e.message}", else: base
-  end
-
   defp format_event_details(%ApprovalNeeded{} = e) do
     "#{e.classification}: #{e.action}"
   end
+
+  defp format_event_details(%{type: _, message: message}), do: message || ""
 
   defp format_event_details(_), do: ""
 
@@ -1327,5 +1493,16 @@ defmodule LatticeWeb.SpriteLive.Show do
       diff < 86_400 -> "#{div(diff, 3600)}h ago"
       true -> "#{div(diff, 86_400)}d ago"
     end
+  end
+
+  defp maybe_discover_skills(socket) do
+    sprite_id = socket.assigns.sprite_id
+
+    case SkillDiscovery.discover(sprite_id) do
+      {:ok, skills} -> assign(socket, :skills, skills)
+      _ -> socket
+    end
+  rescue
+    _ -> socket
   end
 end

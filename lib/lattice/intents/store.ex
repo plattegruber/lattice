@@ -51,6 +51,8 @@ defmodule Lattice.Intents.Store do
   @callback update(String.t(), map()) :: {:ok, Intent.t()} | {:error, term()}
   @callback add_artifact(String.t(), map()) :: {:ok, Intent.t()} | {:error, term()}
   @callback get_history(String.t()) :: {:ok, [Intent.transition_entry()]} | {:error, :not_found}
+  @callback update_plan_step(String.t(), String.t(), atom(), term()) ::
+              {:ok, Intent.t()} | {:error, term()}
 
   # ── Public API ──────────────────────────────────────────────────────
 
@@ -175,6 +177,37 @@ defmodule Lattice.Intents.Store do
   @spec get_history(String.t()) :: {:ok, [Intent.transition_entry()]} | {:error, :not_found}
   def get_history(id) when is_binary(id) do
     impl().get_history(id)
+  end
+
+  @doc """
+  Update the status of a specific step within an intent's plan.
+
+  Bypasses frozen-field immutability checks since step status updates are
+  operational (not structural mutations). Emits telemetry and PubSub events.
+  """
+  @spec update_plan_step(String.t(), String.t(), atom(), term()) ::
+          {:ok, Intent.t()} | {:error, term()}
+  def update_plan_step(intent_id, step_id, status, output \\ nil)
+      when is_binary(intent_id) and is_binary(step_id) and is_atom(status) do
+    case impl().update_plan_step(intent_id, step_id, status, output) do
+      {:ok, intent} = result ->
+        emit_telemetry([:lattice, :intent, :plan_step_updated], %{
+          intent: intent,
+          step_id: step_id,
+          status: status
+        })
+
+        broadcast({:intent_plan_step_updated, intent, step_id, status})
+
+        Audit.log(:intents, :update_plan_step, :safe, :ok, :system,
+          args: [intent_id, step_id, to_string(status)]
+        )
+
+        result
+
+      error ->
+        error
+    end
   end
 
   # ── Private ──────────────────────────────────────────────────────────

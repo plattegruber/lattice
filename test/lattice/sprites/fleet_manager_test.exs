@@ -95,8 +95,8 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
     test "starts configured sprites" do
       configs = [
-        %{id: "fleet-test-001", desired_state: :hibernating},
-        %{id: "fleet-test-002", desired_state: :hibernating}
+        %{id: "fleet-test-001"},
+        %{id: "fleet-test-002"}
       ]
 
       %{fm: fm} = start_fleet_manager(configs)
@@ -110,30 +110,12 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "started sprites are registered in the Registry" do
-      configs = [%{id: "fleet-reg-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-reg-001"}]
 
       %{fm: _fm} = start_fleet_manager(configs)
 
       assert {:ok, pid} = FleetManager.get_sprite_pid("fleet-reg-001")
       assert Process.alive?(pid)
-    end
-
-    test "started sprites respect desired_state from config" do
-      configs = [%{id: "fleet-desired-001", desired_state: :ready}]
-
-      %{fm: fm} = start_fleet_manager(configs)
-
-      [{_id, state}] = FleetManager.list_sprites(fm)
-      assert state.desired_state == :ready
-    end
-
-    test "started sprites default to hibernating desired state" do
-      configs = [%{id: "fleet-default-001"}]
-
-      %{fm: fm} = start_fleet_manager(configs)
-
-      [{_id, state}] = FleetManager.list_sprites(fm)
-      assert state.desired_state == :hibernating
     end
   end
 
@@ -160,7 +142,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
       Lattice.Capabilities.MockSprites
       |> Mox.stub(:list_sprites, fn -> {:error, :connection_refused} end)
 
-      configs = [%{id: "fallback-001", desired_state: :hibernating}]
+      configs = [%{id: "fallback-001"}]
       %{fm: fm} = start_fleet_manager(configs)
 
       sprites = FleetManager.list_sprites(fm)
@@ -175,7 +157,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
   describe "list_sprites/1" do
     test "returns sprite IDs with their current state" do
-      configs = [%{id: "fleet-list-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-list-001"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
@@ -187,7 +169,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
   describe "get_sprite_pid/1" do
     test "returns {:ok, pid} for a known sprite" do
-      configs = [%{id: "fleet-pid-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-pid-001"}]
       start_fleet_manager(configs)
 
       assert {:ok, pid} = FleetManager.get_sprite_pid("fleet-pid-001")
@@ -204,15 +186,15 @@ defmodule Lattice.Sprites.FleetManagerTest do
   describe "fleet_summary/1" do
     test "returns total count and breakdown by state" do
       configs = [
-        %{id: "fleet-sum-001", desired_state: :hibernating},
-        %{id: "fleet-sum-002", desired_state: :hibernating}
+        %{id: "fleet-sum-001"},
+        %{id: "fleet-sum-002"}
       ]
 
       %{fm: fm} = start_fleet_manager(configs)
 
       summary = FleetManager.fleet_summary(fm)
       assert summary.total == 2
-      assert summary.by_state[:hibernating] == 2
+      assert summary.by_state[:cold] == 2
     end
 
     test "returns zeros when fleet is empty" do
@@ -227,25 +209,29 @@ defmodule Lattice.Sprites.FleetManagerTest do
   # ── Fleet-Wide Operations ──────────────────────────────────────────
 
   describe "wake_sprites/2" do
-    test "sets desired state to ready for specified sprites" do
+    test "calls capability wake for specified sprites" do
+      Lattice.Capabilities.MockSprites
+      |> expect(:wake, fn "fleet-wake-001" ->
+        {:ok, %{id: "fleet-wake-001", status: "warm"}}
+      end)
+
       configs = [
-        %{id: "fleet-wake-001", desired_state: :hibernating},
-        %{id: "fleet-wake-002", desired_state: :hibernating}
+        %{id: "fleet-wake-001"},
+        %{id: "fleet-wake-002"}
       ]
 
       %{fm: fm} = start_fleet_manager(configs)
 
       results = FleetManager.wake_sprites(["fleet-wake-001"], fm)
       assert results["fleet-wake-001"] == :ok
-
-      [{_id, state}] =
-        FleetManager.list_sprites(fm)
-        |> Enum.filter(fn {id, _} -> id == "fleet-wake-001" end)
-
-      assert state.desired_state == :ready
     end
 
     test "returns error for unknown sprite IDs" do
+      Lattice.Capabilities.MockSprites
+      |> expect(:wake, fn "unknown-001" ->
+        {:error, :not_found}
+      end)
+
       %{fm: fm} = start_fleet_manager([])
 
       results = FleetManager.wake_sprites(["unknown-001"], fm)
@@ -254,20 +240,18 @@ defmodule Lattice.Sprites.FleetManagerTest do
   end
 
   describe "sleep_sprites/2" do
-    test "sets desired state to hibernating for specified sprites" do
-      configs = [%{id: "fleet-sleep-001", desired_state: :hibernating}]
+    test "calls capability sleep for specified sprites" do
+      Lattice.Capabilities.MockSprites
+      |> expect(:sleep, fn "fleet-sleep-001" ->
+        {:ok, %{id: "fleet-sleep-001", status: "cold"}}
+      end)
+
+      configs = [%{id: "fleet-sleep-001"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
-      # First wake the sprite
-      FleetManager.wake_sprites(["fleet-sleep-001"], fm)
-
-      # Then sleep it
       results = FleetManager.sleep_sprites(["fleet-sleep-001"], fm)
       assert results["fleet-sleep-001"] == :ok
-
-      [{_id, state}] = FleetManager.list_sprites(fm)
-      assert state.desired_state == :hibernating
     end
   end
 
@@ -275,9 +259,9 @@ defmodule Lattice.Sprites.FleetManagerTest do
     test "triggers reconciliation on all sprites" do
       # Stub get_sprite since reconciliation now fetches real API state
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-audit-001", status: :hibernating}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-audit-001", status: :cold}} end)
 
-      configs = [%{id: "fleet-audit-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-audit-001"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
@@ -297,7 +281,12 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
   describe "fleet summary broadcasting" do
     test "broadcasts fleet summary on wake_sprites" do
-      configs = [%{id: "fleet-bc-001", desired_state: :hibernating}]
+      Lattice.Capabilities.MockSprites
+      |> expect(:wake, fn "fleet-bc-001" ->
+        {:ok, %{id: "fleet-bc-001", status: "warm"}}
+      end)
+
+      configs = [%{id: "fleet-bc-001"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
@@ -309,7 +298,12 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "broadcasts fleet summary on sleep_sprites" do
-      configs = [%{id: "fleet-bc-002", desired_state: :hibernating}]
+      Lattice.Capabilities.MockSprites
+      |> expect(:sleep, fn "fleet-bc-002" ->
+        {:ok, %{id: "fleet-bc-002", status: "cold"}}
+      end)
+
+      configs = [%{id: "fleet-bc-002"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
@@ -323,9 +317,9 @@ defmodule Lattice.Sprites.FleetManagerTest do
     test "broadcasts fleet summary on run_audit" do
       # Stub get_sprite since reconciliation now fetches real API state
       Lattice.Capabilities.MockSprites
-      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-bc-003", status: :hibernating}} end)
+      |> stub(:get_sprite, fn _id -> {:ok, %{id: "fleet-bc-003", status: :cold}} end)
 
-      configs = [%{id: "fleet-bc-003", desired_state: :hibernating}]
+      configs = [%{id: "fleet-bc-003"}]
 
       %{fm: fm} = start_fleet_manager(configs)
 
@@ -339,7 +333,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
     test "broadcasts fleet summary after initial discovery" do
       :ok = Events.subscribe_fleet()
 
-      configs = [%{id: "fleet-bc-004", desired_state: :hibernating}]
+      configs = [%{id: "fleet-bc-004"}]
       start_fleet_manager(configs)
 
       assert_receive {:fleet_summary, %{total: 1}}, 1_000
@@ -369,7 +363,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "emits fleet summary telemetry on discovery", %{ref: ref} do
-      configs = [%{id: "fleet-tel-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-tel-001"}]
       start_fleet_manager(configs)
 
       assert_receive {:telemetry, ^ref, [:lattice, :fleet, :summary], %{total: 1}, _metadata},
@@ -400,7 +394,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "returns error for duplicate sprite" do
-      configs = [%{id: "runtime-dup-001", desired_state: :hibernating}]
+      configs = [%{id: "runtime-dup-001"}]
       %{fm: fm} = start_fleet_manager(configs)
 
       assert {:error, :already_exists} = FleetManager.add_sprite("runtime-dup-001", [], fm)
@@ -423,20 +417,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
       summary = FleetManager.fleet_summary(fm)
       assert summary.total == 1
-      assert summary.by_state[:hibernating] == 1
-    end
-
-    test "respects desired_state option" do
-      %{fm: fm} = start_fleet_manager([])
-
-      {:ok, "runtime-ds-001"} =
-        FleetManager.add_sprite("runtime-ds-001", [desired_state: :ready], fm)
-
-      [{_id, state}] =
-        FleetManager.list_sprites(fm)
-        |> Enum.filter(fn {id, _} -> id == "runtime-ds-001" end)
-
-      assert state.desired_state == :ready
+      assert summary.by_state[:cold] == 1
     end
   end
 
@@ -445,8 +426,8 @@ defmodule Lattice.Sprites.FleetManagerTest do
   describe "remove_sprite/2" do
     test "removes a sprite from the fleet" do
       configs = [
-        %{id: "fleet-rm-001", desired_state: :hibernating},
-        %{id: "fleet-rm-002", desired_state: :hibernating}
+        %{id: "fleet-rm-001"},
+        %{id: "fleet-rm-002"}
       ]
 
       %{fm: fm} = start_fleet_manager(configs)
@@ -462,7 +443,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "terminates the sprite GenServer process" do
-      configs = [%{id: "fleet-rm-term-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-rm-term-001"}]
       %{fm: fm} = start_fleet_manager(configs)
 
       {:ok, pid} = FleetManager.get_sprite_pid("fleet-rm-term-001")
@@ -480,7 +461,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
     end
 
     test "broadcasts fleet summary after removing sprite" do
-      configs = [%{id: "fleet-rm-bc-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-rm-bc-001"}]
       %{fm: fm} = start_fleet_manager(configs)
 
       :ok = Events.subscribe_fleet()
@@ -492,8 +473,8 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
     test "removed sprite is no longer in fleet_summary" do
       configs = [
-        %{id: "fleet-rm-sum-001", desired_state: :hibernating},
-        %{id: "fleet-rm-sum-002", desired_state: :hibernating}
+        %{id: "fleet-rm-sum-001"},
+        %{id: "fleet-rm-sum-002"}
       ]
 
       %{fm: fm} = start_fleet_manager(configs)
@@ -509,7 +490,7 @@ defmodule Lattice.Sprites.FleetManagerTest do
 
   describe "Sprite.via/1 integration" do
     test "sprite can be reached via Registry name" do
-      configs = [%{id: "fleet-via-001", desired_state: :hibernating}]
+      configs = [%{id: "fleet-via-001"}]
       start_fleet_manager(configs)
 
       via = Sprite.via("fleet-via-001")

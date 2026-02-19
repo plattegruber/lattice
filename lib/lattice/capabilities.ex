@@ -26,8 +26,8 @@ defmodule Lattice.Capabilities do
 
       config :lattice, :capabilities,
         sprites: Lattice.Capabilities.Sprites.Live,
-        github: Lattice.Capabilities.GitHub.Live,
-        fly: Lattice.Capabilities.Fly.Live,
+        github: Lattice.Capabilities.GitHub.Stub,
+        fly: Lattice.Capabilities.Fly.Stub,
         secret_store: Lattice.Capabilities.SecretStore.Env
 
   ## Adding a New Capability

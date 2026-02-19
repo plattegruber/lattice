@@ -44,7 +44,6 @@ defmodule Lattice.Events do
   """
 
   alias Lattice.Events.ApprovalNeeded
-  alias Lattice.Events.HealthUpdate
   alias Lattice.Events.ReconciliationResult
   alias Lattice.Events.StateChange
   alias Lattice.Intents.Observation
@@ -102,6 +101,12 @@ defmodule Lattice.Events do
   @doc "Returns the PubSub topic for run lifecycle events."
   @spec runs_topic() :: String.t()
   def runs_topic, do: "runs"
+
+  @doc "Returns the PubSub topic for exec session protocol events."
+  @spec exec_events_topic(String.t()) :: String.t()
+  def exec_events_topic(session_id) when is_binary(session_id) do
+    "exec:#{session_id}:events"
+  end
 
   # ── Subscribe ──────────────────────────────────────────────────────
 
@@ -171,6 +176,12 @@ defmodule Lattice.Events do
     Phoenix.PubSub.subscribe(pubsub(), runs_topic())
   end
 
+  @doc "Subscribe the calling process to protocol events for an exec session."
+  @spec subscribe_exec_events(String.t()) :: :ok | {:error, term()}
+  def subscribe_exec_events(session_id) do
+    Phoenix.PubSub.subscribe(pubsub(), exec_events_topic(session_id))
+  end
+
   # ── Broadcast ──────────────────────────────────────────────────────
 
   @doc """
@@ -195,19 +206,6 @@ defmodule Lattice.Events do
   @spec broadcast_reconciliation_result(ReconciliationResult.t()) :: :ok | {:error, term()}
   def broadcast_reconciliation_result(%ReconciliationResult{} = event) do
     emit_telemetry([:lattice, :sprite, :reconciliation], event)
-    broadcast_to_sprite(event.sprite_id, event)
-    broadcast_to_fleet(event)
-  end
-
-  @doc """
-  Broadcast a health update event.
-
-  Emits a Telemetry event and broadcasts to the per-sprite topic and
-  the fleet topic.
-  """
-  @spec broadcast_health_update(HealthUpdate.t()) :: :ok | {:error, term()}
-  def broadcast_health_update(%HealthUpdate{} = event) do
-    emit_telemetry([:lattice, :sprite, :health_update], event)
     broadcast_to_sprite(event.sprite_id, event)
     broadcast_to_fleet(event)
   end
@@ -320,6 +318,42 @@ defmodule Lattice.Events do
     )
 
     Phoenix.PubSub.broadcast(pubsub(), runs_topic(), {:run_failed, run})
+  end
+
+  @doc """
+  Emit an intent blocked event.
+
+  Fires a `[:lattice, :intent, :blocked]` Telemetry event and broadcasts
+  `{:intent_blocked, intent}` on the intent-specific and all-intents topics.
+  """
+  @spec emit_intent_blocked(Lattice.Intents.Intent.t()) :: :ok
+  def emit_intent_blocked(%Lattice.Intents.Intent{} = intent) do
+    :telemetry.execute(
+      [:lattice, :intent, :blocked],
+      %{system_time: System.system_time()},
+      %{intent: intent, blocked_reason: intent.blocked_reason}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent.id), {:intent_blocked, intent})
+    Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), {:intent_blocked, intent})
+  end
+
+  @doc """
+  Emit an intent resumed event.
+
+  Fires a `[:lattice, :intent, :resumed]` Telemetry event and broadcasts
+  `{:intent_resumed, intent}` on the intent-specific and all-intents topics.
+  """
+  @spec emit_intent_resumed(Lattice.Intents.Intent.t()) :: :ok
+  def emit_intent_resumed(%Lattice.Intents.Intent{} = intent) do
+    :telemetry.execute(
+      [:lattice, :intent, :resumed],
+      %{system_time: System.system_time()},
+      %{intent: intent}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent.id), {:intent_resumed, intent})
+    Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), {:intent_resumed, intent})
   end
 
   @doc "Broadcast a log line to a sprite's logs topic."

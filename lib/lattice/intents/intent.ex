@@ -22,7 +22,7 @@ defmodule Lattice.Intents.Intent do
   """
 
   @valid_kinds [:action, :inquiry, :maintenance]
-  @valid_source_types [:sprite, :agent, :cron, :operator]
+  @valid_source_types [:sprite, :agent, :cron, :operator, :webhook]
 
   @type kind :: :action | :inquiry | :maintenance
   @type state ::
@@ -31,12 +31,14 @@ defmodule Lattice.Intents.Intent do
           | :awaiting_approval
           | :approved
           | :running
+          | :blocked
+          | :waiting_for_input
           | :completed
           | :failed
           | :rejected
           | :canceled
   @type classification :: :safe | :controlled | :dangerous | nil
-  @type source :: %{type: :sprite | :agent | :cron | :operator, id: String.t()}
+  @type source :: %{type: :sprite | :agent | :cron | :operator | :webhook, id: String.t()}
   @type transition_entry :: %{
           from: state(),
           to: state(),
@@ -57,6 +59,7 @@ defmodule Lattice.Intents.Intent do
           metadata: map(),
           affected_resources: [String.t()],
           expected_side_effects: [String.t()],
+          plan: Lattice.Intents.Plan.t() | nil,
           rollback_strategy: String.t() | nil,
           transition_log: [transition_entry()],
           inserted_at: DateTime.t(),
@@ -64,7 +67,11 @@ defmodule Lattice.Intents.Intent do
           classified_at: DateTime.t() | nil,
           approved_at: DateTime.t() | nil,
           started_at: DateTime.t() | nil,
-          completed_at: DateTime.t() | nil
+          completed_at: DateTime.t() | nil,
+          blocked_at: DateTime.t() | nil,
+          resumed_at: DateTime.t() | nil,
+          blocked_reason: String.t() | nil,
+          pending_question: map() | nil
         }
 
   @enforce_keys [:id, :kind, :state, :source, :summary, :payload, :inserted_at, :updated_at]
@@ -75,11 +82,16 @@ defmodule Lattice.Intents.Intent do
     :source,
     :summary,
     :payload,
+    :plan,
     :rollback_strategy,
     :classified_at,
     :approved_at,
     :started_at,
     :completed_at,
+    :blocked_at,
+    :resumed_at,
+    :blocked_reason,
+    :pending_question,
     :inserted_at,
     :updated_at,
     classification: nil,

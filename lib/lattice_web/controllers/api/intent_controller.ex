@@ -12,14 +12,15 @@ defmodule LatticeWeb.Api.IntentController do
 
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
+  alias Lattice.Intents.Plan
   alias Lattice.Intents.Store
 
   tags(["Intents"])
   security([%{"BearerAuth" => []}])
 
   @valid_kinds ~w(action inquiry maintenance)
-  @valid_filter_states ~w(proposed classified awaiting_approval approved running completed failed rejected canceled)
-  @valid_source_types ~w(sprite agent cron operator)
+  @valid_filter_states ~w(proposed classified awaiting_approval approved running blocked waiting_for_input completed failed rejected canceled)
+  @valid_source_types ~w(sprite agent cron operator webhook)
 
   # ── GET /api/intents ───────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ defmodule LatticeWeb.Api.IntentController do
             "awaiting_approval",
             "approved",
             "running",
+            "blocked",
+            "waiting_for_input",
             "completed",
             "failed",
             "rejected",
@@ -59,7 +62,7 @@ defmodule LatticeWeb.Api.IntentController do
         in: :query,
         schema: %OpenApiSpex.Schema{
           type: :string,
-          enum: ["sprite", "agent", "cron", "operator"]
+          enum: ["sprite", "agent", "cron", "operator", "webhook"]
         },
         description: "Filter by source type",
         required: false
@@ -489,16 +492,27 @@ defmodule LatticeWeb.Api.IntentController do
   # ── Private: Serialization ────────────────────────────────────────
 
   defp serialize_intent(%Intent{} = intent) do
-    %{
+    base = %{
       id: intent.id,
       kind: intent.kind,
       state: intent.state,
       source: intent.source,
       summary: intent.summary,
       classification: intent.classification,
+      has_plan: intent.plan != nil,
       inserted_at: intent.inserted_at,
       updated_at: intent.updated_at
     }
+
+    if intent.plan do
+      Map.put(base, :plan_summary, %{
+        title: intent.plan.title,
+        step_count: length(intent.plan.steps),
+        version: intent.plan.version
+      })
+    else
+      base
+    end
   end
 
   defp serialize_intent_detail(%Intent{} = intent, history) do
@@ -515,13 +529,40 @@ defmodule LatticeWeb.Api.IntentController do
       affected_resources: intent.affected_resources,
       expected_side_effects: intent.expected_side_effects,
       rollback_strategy: intent.rollback_strategy,
+      plan: serialize_plan(intent.plan),
       transition_log: Enum.map(history, &serialize_transition/1),
       inserted_at: intent.inserted_at,
       updated_at: intent.updated_at,
       classified_at: intent.classified_at,
       approved_at: intent.approved_at,
       started_at: intent.started_at,
-      completed_at: intent.completed_at
+      completed_at: intent.completed_at,
+      blocked_at: intent.blocked_at,
+      resumed_at: intent.resumed_at,
+      blocked_reason: intent.blocked_reason,
+      pending_question: intent.pending_question
+    }
+  end
+
+  defp serialize_plan(nil), do: nil
+
+  defp serialize_plan(plan) do
+    %{
+      title: plan.title,
+      source: plan.source,
+      version: plan.version,
+      rendered_markdown: plan.rendered_markdown,
+      steps:
+        Enum.map(plan.steps, fn step ->
+          %{
+            id: step.id,
+            description: step.description,
+            skill: step.skill,
+            inputs: step.inputs,
+            status: step.status,
+            output: step.output
+          }
+        end)
     }
   end
 
@@ -534,4 +575,106 @@ defmodule LatticeWeb.Api.IntentController do
       reason: entry.reason
     }
   end
+
+  # ── PUT /api/intents/:id/plan ──────────────────────────────────────
+
+  operation(:update_plan,
+    summary: "Attach or update plan",
+    description: "Attaches a structured execution plan to an intent.",
+    parameters: [
+      id: [
+        in: :path,
+        type: :string,
+        description: "Intent identifier",
+        required: true
+      ]
+    ],
+    request_body: {"Plan definition", "application/json", LatticeWeb.Schemas.UpdatePlanRequest},
+    responses: [
+      ok: {"Updated intent", "application/json", LatticeWeb.Schemas.IntentSummaryResponse},
+      not_found: {"Not found", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Validation error", "application/json", LatticeWeb.Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", LatticeWeb.Schemas.UnauthorizedResponse}
+    ]
+  )
+
+  @doc """
+  PUT /api/intents/:id/plan — attach or replace a structured plan.
+
+  Body: `{ "title": "...", "steps": [{ "description": "..." }], "source": "agent" }`
+  """
+  def update_plan(conn, %{"id" => intent_id} = params) do
+    with {:ok, title} <- require_param(params, "title"),
+         {:ok, raw_steps} <- require_param(params, "steps"),
+         {:ok, plan} <- build_plan(title, raw_steps, params),
+         {:ok, updated} <- Pipeline.attach_plan(intent_id, plan) do
+      conn
+      |> put_status(200)
+      |> json(%{
+        data: serialize_intent(updated),
+        timestamp: DateTime.utc_now()
+      })
+    else
+      {:error, :not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{error: "Intent not found", code: "INTENT_NOT_FOUND"})
+
+      {:error, :immutable} ->
+        conn
+        |> put_status(422)
+        |> json(%{
+          error: "Cannot modify plan after approval",
+          code: "INVALID_STATE"
+        })
+
+      {:error, {:missing_field, field}} ->
+        conn
+        |> put_status(422)
+        |> json(%{
+          error: "Missing required field: #{field}",
+          code: "MISSING_FIELD"
+        })
+
+      {:error, reason} ->
+        conn
+        |> put_status(422)
+        |> json(%{
+          error: "Failed to attach plan: #{inspect(reason)}",
+          code: "INVALID_STATE"
+        })
+    end
+  end
+
+  # ── Private: Plan Construction ─────────────────────────────────────
+
+  defp require_param(params, key) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:missing_field, key}}
+    end
+  end
+
+  defp build_plan(title, raw_steps, params) when is_list(raw_steps) do
+    source = parse_plan_source(Map.get(params, "source", "agent"))
+
+    steps =
+      Enum.map(raw_steps, fn step_map ->
+        [
+          description: Map.get(step_map, "description", ""),
+          skill: Map.get(step_map, "skill"),
+          inputs: Map.get(step_map, "inputs", %{})
+        ]
+      end)
+
+    Plan.new(title, steps, source)
+  end
+
+  defp build_plan(_title, _raw_steps, _params), do: {:error, {:missing_field, "steps"}}
+
+  defp parse_plan_source("agent"), do: :agent
+  defp parse_plan_source("operator"), do: :operator
+  defp parse_plan_source("system"), do: :system
+  defp parse_plan_source(_), do: :agent
 end

@@ -15,7 +15,7 @@ defmodule Lattice.Sprites.Logs do
 
   @type log_line :: %{
           id: integer(),
-          source: :service | :exec | :reconciliation | :state_change | :health,
+          source: :service | :exec | :reconciliation | :state_change,
           level: :info | :warn | :error | :debug,
           message: String.t(),
           timestamp: DateTime.t()
@@ -105,20 +105,6 @@ defmodule Lattice.Sprites.Logs do
     details = Map.get(data, :details)
     level = if outcome == :failure, do: :error, else: :info
     msg = "Reconciliation #{outcome}" <> if(details, do: ": #{details}", else: "")
-    {level, msg}
-  end
-
-  defp format_event(:health, %{status: status} = data) do
-    message = Map.get(data, :message)
-
-    level =
-      case status do
-        :unhealthy -> :error
-        :degraded -> :warn
-        _ -> :info
-      end
-
-    msg = "Health: #{status}" <> if(message, do: " - #{message}", else: "")
     {level, msg}
   end
 

@@ -76,7 +76,7 @@ defmodule LatticeWeb.Api.RunControllerTest do
       assert data["command"] == "mix test"
       assert data["mode"] == "exec_ws"
       assert data["status"] == "pending"
-      assert data["artifacts"] == %{}
+      assert data["artifacts"] == []
       assert data["exit_code"] == nil
       assert data["error"] == nil
       assert is_binary(data["inserted_at"])

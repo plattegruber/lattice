@@ -192,6 +192,33 @@ defmodule Lattice.Intents.Pipeline do
     end
   end
 
+  @doc """
+  Attach a structured execution plan to an intent.
+
+  The plan is stored on the intent and the version counter starts at 1.
+  Emits `[:lattice, :intent, :plan_attached]` telemetry.
+  """
+  @spec attach_plan(String.t(), Lattice.Intents.Plan.t()) :: {:ok, Intent.t()} | {:error, term()}
+  def attach_plan(intent_id, %Lattice.Intents.Plan{} = plan) when is_binary(intent_id) do
+    with {:ok, updated} <- Store.update(intent_id, %{plan: plan}) do
+      emit_telemetry([:lattice, :intent, :plan_attached], updated)
+      broadcast(updated, {:intent_plan_attached, updated})
+      {:ok, updated}
+    end
+  end
+
+  @doc """
+  Update the status of a step within an intent's plan.
+
+  Delegates to `Store.update_plan_step/4`, which bypasses frozen-field checks
+  since step status updates are operational.
+  """
+  @spec update_plan_step(String.t(), String.t(), atom(), term()) ::
+          {:ok, Intent.t()} | {:error, term()}
+  def update_plan_step(intent_id, step_id, status, output \\ nil) do
+    Store.update_plan_step(intent_id, step_id, status, output)
+  end
+
   # ── Classification Mapping ──────────────────────────────────────────
 
   @doc """

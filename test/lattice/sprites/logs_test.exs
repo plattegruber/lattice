@@ -85,27 +85,6 @@ defmodule Lattice.Sprites.LogsTest do
       assert line.message =~ "success"
     end
 
-    test "creates log line from health update" do
-      line =
-        Logs.from_event(:health, "sprite-1", %{
-          status: :degraded,
-          message: "high latency"
-        })
-
-      assert line.level == :warn
-      assert line.message =~ "degraded"
-    end
-
-    test "creates log line from unhealthy health update" do
-      line =
-        Logs.from_event(:health, "sprite-1", %{
-          status: :unhealthy,
-          message: "not responding"
-        })
-
-      assert line.level == :error
-    end
-
     test "creates log line from unknown event type" do
       line = Logs.from_event(:unknown, "sprite-1", %{foo: "bar"})
 
