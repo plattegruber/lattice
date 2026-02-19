@@ -581,7 +581,14 @@ defmodule LatticeWeb.IntentLive.Show do
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
               Sprite
             </div>
-            <div class="mt-1 text-sm font-mono">{@task_payload["sprite_name"]}</div>
+            <div class="mt-1 text-sm font-mono">
+              <.link
+                navigate={~p"/sprites/#{@task_payload["sprite_name"]}"}
+                class="link link-primary"
+              >
+                {@task_payload["sprite_name"]}
+              </.link>
+            </div>
           </div>
           <div :if={@task_payload["repo"]}>
             <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">

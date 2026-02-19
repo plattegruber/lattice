@@ -64,6 +64,11 @@ defmodule LatticeWeb.Layouts do
             </.link>
           </li>
           <li>
+            <.link navigate={~p"/audit"} class="font-medium">
+              <.icon name="hero-document-magnifying-glass" class="size-4" /> Audit
+            </.link>
+          </li>
+          <li>
             <.theme_toggle />
           </li>
         </ul>

@@ -128,6 +128,8 @@ defmodule LatticeWeb.Router do
 
     get "/policy/history", PolicyController, :intent_history
     get "/policy/history/:repo", PolicyController, :repo_history
+
+    get "/search", SearchController, :index
   end
 
   # Authenticated LiveView routes
@@ -141,6 +143,7 @@ defmodule LatticeWeb.Router do
       live "/incidents", IncidentsLive
       live "/intents", IntentsLive
       live "/intents/:id", IntentLive.Show
+      live "/audit", AuditLive
     end
   end
 
