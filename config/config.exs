@@ -27,8 +27,8 @@ config :lattice, :fleet, sprites: []
 config :lattice, :fleet_reconcile_fast_ms, 10_000
 config :lattice, :fleet_reconcile_slow_ms, 60_000
 
-# Auth provider — stub for dev, Clerk for production
-config :lattice, :auth, provider: Lattice.Auth.Stub
+# Auth provider — Clerk for all environments (auto-selected in runtime.exs)
+config :lattice, :auth, provider: Lattice.Auth.Clerk
 
 # Safety guardrails — action gating and approval requirements
 config :lattice, :guardrails,

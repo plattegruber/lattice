@@ -106,8 +106,7 @@ defmodule Lattice.MixProject do
         Auth: [
           Lattice.Auth,
           Lattice.Auth.Clerk,
-          Lattice.Auth.Operator,
-          Lattice.Auth.Stub
+          Lattice.Auth.Operator
         ],
         "Web: LiveViews": [
           LatticeWeb.FleetLive,

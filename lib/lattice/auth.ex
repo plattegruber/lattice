@@ -8,19 +8,12 @@ defmodule Lattice.Auth do
 
   ## Implementations
 
-  - `Lattice.Auth.Stub` -- returns a hardcoded dev operator (for local dev
-    and tests when Clerk keys are not configured)
   - `Lattice.Auth.Clerk` -- verifies Clerk JWTs via JWKS and maps Clerk
     users to Operator structs
 
   ## Configuration
 
   In `config/config.exs`:
-
-      config :lattice, :auth,
-        provider: Lattice.Auth.Stub
-
-  In `config/runtime.exs` (when Clerk keys are present):
 
       config :lattice, :auth,
         provider: Lattice.Auth.Clerk
@@ -37,10 +30,6 @@ defmodule Lattice.Auth do
 
   @doc """
   Verify a session token and return the authenticated Operator.
-
-  The token format depends on the implementation:
-  - Stub: any string (ignored, returns hardcoded operator)
-  - Clerk: a Clerk session JWT
   """
   @callback verify_token(String.t()) :: {:ok, Operator.t()} | {:error, term()}
 
@@ -60,6 +49,6 @@ defmodule Lattice.Auth do
 
   defp impl do
     Application.get_env(:lattice, :auth, [])
-    |> Keyword.get(:provider, Lattice.Auth.Stub)
+    |> Keyword.get(:provider, Lattice.Auth.Clerk)
   end
 end

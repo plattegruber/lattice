@@ -73,9 +73,10 @@ if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
     dedup_ttl_ms: :timer.minutes(5)
 end
 
-# Auth provider: use Clerk when secret key is configured, otherwise stub
-if System.get_env("CLERK_SECRET_KEY") do
-  config :lattice, :auth, provider: Lattice.Auth.Clerk
+# Auth provider: Clerk is the default; the secret key is required for prod
+# (test env uses Lattice.MockAuth via config/test.exs)
+if clerk_key = System.get_env("CLERK_SECRET_KEY") do
+  config :lattice, :auth, provider: Lattice.Auth.Clerk, clerk_secret_key: clerk_key
 end
 
 if config_env() == :prod do
