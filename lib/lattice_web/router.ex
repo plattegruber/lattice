@@ -116,6 +116,11 @@ defmodule LatticeWeb.Router do
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show
     post "/runs/:id/answer", RunController, :answer
+
+    get "/policy/profiles", PolicyController, :index
+    get "/policy/profiles/:repo", PolicyController, :show
+    put "/policy/profiles/:repo", PolicyController, :upsert
+    delete "/policy/profiles/:repo", PolicyController, :delete
   end
 
   # Authenticated LiveView routes
