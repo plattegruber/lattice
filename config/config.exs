@@ -11,8 +11,7 @@ config :lattice,
   ecto_repos: [Lattice.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :lattice, Lattice.Repo,
-  migration_primary_key: [type: :binary_id]
+config :lattice, Lattice.Repo, migration_primary_key: [type: :binary_id]
 
 # Capability module implementations — swap per environment
 config :lattice, :capabilities,
@@ -42,6 +41,13 @@ config :lattice, :task_allowlist, auto_approve_repos: []
 
 # Intent system settings
 config :lattice, :intents, auto_propose_rollback: false
+
+# GitHub assignment policy — disabled by default
+config :lattice, :github_assignments,
+  default_reviewer: nil,
+  dangerous_reviewer: nil,
+  assign_governance_issues: false,
+  request_pr_reviews: false
 
 # Webhook configuration
 config :lattice, :webhooks,

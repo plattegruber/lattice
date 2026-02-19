@@ -100,6 +100,18 @@ defmodule Lattice.Capabilities.GitHub do
   @callback create_review_comment(pr_number(), String.t(), String.t(), integer(), keyword()) ::
               {:ok, map()} | {:error, term()}
 
+  @doc "Assign users to an issue."
+  @callback assign_issue(issue_number(), [String.t()]) :: {:ok, issue()} | {:error, term()}
+
+  @doc "Remove assignees from an issue."
+  @callback unassign_issue(issue_number(), [String.t()]) :: {:ok, issue()} | {:error, term()}
+
+  @doc "Request PR review from specific users."
+  @callback request_review(pr_number(), [String.t()]) :: :ok | {:error, term()}
+
+  @doc "List repository collaborators."
+  @callback list_collaborators(keyword()) :: {:ok, [map()]} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -151,6 +163,18 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "Create an inline review comment on a pull request."
   def create_review_comment(pr_number, body, path, line, opts \\ []),
     do: impl().create_review_comment(pr_number, body, path, line, opts)
+
+  @doc "Assign users to an issue."
+  def assign_issue(number, usernames), do: impl().assign_issue(number, usernames)
+
+  @doc "Remove assignees from an issue."
+  def unassign_issue(number, usernames), do: impl().unassign_issue(number, usernames)
+
+  @doc "Request PR review from specific users."
+  def request_review(pr_number, usernames), do: impl().request_review(pr_number, usernames)
+
+  @doc "List repository collaborators."
+  def list_collaborators(opts \\ []), do: impl().list_collaborators(opts)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end
