@@ -357,6 +357,91 @@ defmodule Lattice.Capabilities.GitHub.Live do
     end)
   end
 
+  # ── Reactions & Comments (list) ────────────────────────────────────────
+
+  @impl true
+  def create_comment_reaction(comment_id, reaction) do
+    args = [
+      "api",
+      "-X",
+      "POST",
+      "repos/{owner}/{repo}/issues/comments/#{comment_id}/reactions",
+      "-f",
+      "content=#{reaction}"
+    ]
+
+    timed_cmd(:create_comment_reaction, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        {:error, _} -> {:ok, %{id: nil, content: reaction}}
+      end
+    end)
+  end
+
+  @impl true
+  def create_issue_reaction(number, reaction) do
+    args = [
+      "api",
+      "-X",
+      "POST",
+      "repos/{owner}/{repo}/issues/#{number}/reactions",
+      "-f",
+      "content=#{reaction}"
+    ]
+
+    timed_cmd(:create_issue_reaction, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        {:error, _} -> {:ok, %{id: nil, content: reaction}}
+      end
+    end)
+  end
+
+  @impl true
+  def create_review_comment_reaction(comment_id, reaction) do
+    args = [
+      "api",
+      "-X",
+      "POST",
+      "repos/{owner}/{repo}/pulls/comments/#{comment_id}/reactions",
+      "-f",
+      "content=#{reaction}"
+    ]
+
+    timed_cmd(:create_review_comment_reaction, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        {:error, _} -> {:ok, %{id: nil, content: reaction}}
+      end
+    end)
+  end
+
+  @impl true
+  def list_comments(number) do
+    args = ["api", "repos/{owner}/{repo}/issues/#{number}/comments"]
+
+    timed_cmd(:list_comments, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, comments} when is_list(comments) ->
+          {:ok,
+           Enum.map(comments, fn c ->
+             %{
+               id: c["id"],
+               body: c["body"] || "",
+               user: get_in(c, ["user", "login"]) || "unknown",
+               created_at: c["created_at"]
+             }
+           end)}
+
+        {:ok, _} ->
+          {:ok, []}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
   # ── Private: gh CLI Execution ──────────────────────────────────────────
 
   defp timed_cmd(operation, args, on_success) do

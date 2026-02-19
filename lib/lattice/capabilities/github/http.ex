@@ -556,6 +556,66 @@ defmodule Lattice.Capabilities.GitHub.Http do
     end)
   end
 
+  # ── Reactions ────────────────────────────────────────────────────
+
+  @impl true
+  def create_comment_reaction(comment_id, reaction) do
+    timed(:create_comment_reaction, fn ->
+      case api_post("/repos/#{repo()}/issues/comments/#{comment_id}/reactions", %{
+             content: reaction
+           }) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        error -> error
+      end
+    end)
+  end
+
+  @impl true
+  def create_issue_reaction(number, reaction) do
+    timed(:create_issue_reaction, fn ->
+      case api_post("/repos/#{repo()}/issues/#{number}/reactions", %{content: reaction}) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        error -> error
+      end
+    end)
+  end
+
+  @impl true
+  def create_review_comment_reaction(comment_id, reaction) do
+    timed(:create_review_comment_reaction, fn ->
+      case api_post(
+             "/repos/#{repo()}/pulls/comments/#{comment_id}/reactions",
+             %{content: reaction}
+           ) do
+        {:ok, data} -> {:ok, %{id: data["id"], content: data["content"]}}
+        error -> error
+      end
+    end)
+  end
+
+  # ── Comments (list) ─────────────────────────────────────────────
+
+  @impl true
+  def list_comments(number) do
+    timed(:list_comments, fn ->
+      case api_get("/repos/#{repo()}/issues/#{number}/comments", per_page: 100) do
+        {:ok, comments} when is_list(comments) ->
+          {:ok,
+           Enum.map(comments, fn c ->
+             %{
+               id: c["id"],
+               body: c["body"] || "",
+               user: get_in(c, ["user", "login"]) || "unknown",
+               created_at: c["created_at"]
+             }
+           end)}
+
+        error ->
+          error
+      end
+    end)
+  end
+
   # ── Private: HTTP Helpers ──────────────────────────────────────────
 
   defp api_get(path, query \\ []) do

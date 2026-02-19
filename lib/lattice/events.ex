@@ -116,6 +116,10 @@ defmodule Lattice.Events do
     "exec:#{session_id}:events"
   end
 
+  @doc "Returns the PubSub topic for ambient GitHub events."
+  @spec ambient_topic() :: String.t()
+  def ambient_topic, do: "ambient:github"
+
   # ── Subscribe ──────────────────────────────────────────────────────
 
   @doc "Subscribe the calling process to events for a specific Sprite."
@@ -200,6 +204,12 @@ defmodule Lattice.Events do
   @spec subscribe_prs() :: :ok | {:error, term()}
   def subscribe_prs do
     Phoenix.PubSub.subscribe(pubsub(), prs_topic())
+  end
+
+  @doc "Subscribe the calling process to ambient GitHub events."
+  @spec subscribe_ambient() :: :ok | {:error, term()}
+  def subscribe_ambient do
+    Phoenix.PubSub.subscribe(pubsub(), ambient_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────
@@ -374,6 +384,22 @@ defmodule Lattice.Events do
 
     Phoenix.PubSub.broadcast(pubsub(), intent_topic(intent.id), {:intent_resumed, intent})
     Phoenix.PubSub.broadcast(pubsub(), intents_all_topic(), {:intent_resumed, intent})
+  end
+
+  @doc """
+  Broadcast an ambient GitHub event for processing.
+
+  The event is a map with keys like :type, :surface, :author, :body, :number, etc.
+  """
+  @spec broadcast_ambient_event(map()) :: :ok
+  def broadcast_ambient_event(event) when is_map(event) do
+    :telemetry.execute(
+      [:lattice, :ambient, :event_received],
+      %{system_time: System.system_time()},
+      %{event_type: event[:type], surface: event[:surface]}
+    )
+
+    Phoenix.PubSub.broadcast(pubsub(), ambient_topic(), {:ambient_event, event})
   end
 
   @doc "Broadcast a log line to a sprite's logs topic."

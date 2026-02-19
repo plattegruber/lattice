@@ -50,6 +50,7 @@ defmodule Lattice.Application do
         # Documentation drift detection: completed intents → doc update proposals
         Lattice.Docs.DriftDetector
       ] ++
+        maybe_ambient_responder() ++
         maybe_pr_monitor() ++
         maybe_health_scheduler() ++
         [
@@ -78,6 +79,16 @@ defmodule Lattice.Application do
   def config_change(changed, _new, removed) do
     LatticeWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp maybe_ambient_responder do
+    config = Application.get_env(:lattice, Lattice.Ambient.Responder, [])
+
+    if Keyword.get(config, :enabled, false) do
+      [Lattice.Ambient.Responder]
+    else
+      []
+    end
   end
 
   defp maybe_pr_monitor do

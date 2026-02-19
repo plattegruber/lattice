@@ -248,7 +248,6 @@ defmodule Lattice.Sprites.ExecSession do
     Sprites.spawn(sprite, "sh", ["-c", command], owner: owner)
   end
 
-
   defp handle_output_chunk(state, stream, chunk) do
     broadcast_output(state, stream, chunk)
     state = add_to_buffer(state, stream, chunk)

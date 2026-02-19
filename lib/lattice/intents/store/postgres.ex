@@ -70,11 +70,12 @@ defmodule Lattice.Intents.Store.Postgres do
   @impl true
   def list_by_sprite(sprite_name) when is_binary(sprite_name) do
     query =
-      from i in Schema,
+      from(i in Schema,
         where:
           (i.source_type == "sprite" and i.source_id == ^sprite_name) or
             fragment("?->>'sprite_name' = ?", i.payload, ^sprite_name),
         order_by: [desc: i.updated_at]
+      )
 
     {:ok, query |> Repo.all() |> Enum.map(&Schema.to_intent/1)}
   end

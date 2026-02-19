@@ -62,6 +62,13 @@ config :lattice, :webhooks,
   github_secret: nil,
   dedup_ttl_ms: :timer.minutes(5)
 
+# Ambient responder — disabled by default, enable in runtime.exs when ANTHROPIC_API_KEY is set
+config :lattice, Lattice.Ambient.Responder,
+  enabled: false,
+  bot_login: nil,
+  cooldown_ms: 60_000,
+  eyes_reaction: true
+
 # Configure the endpoint
 config :lattice, LatticeWeb.Endpoint,
   url: [host: "localhost"],

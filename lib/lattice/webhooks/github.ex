@@ -24,6 +24,7 @@ defmodule Lattice.Webhooks.GitHub do
 
   alias Lattice.Capabilities.GitHub.ArtifactLink
   alias Lattice.Capabilities.GitHub.ArtifactRegistry
+  alias Lattice.Events
   alias Lattice.Intents.Governance
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
@@ -49,6 +50,8 @@ defmodule Lattice.Webhooks.GitHub do
   # ── Issues ──────────────────────────────────────────────────────────
 
   defp do_handle("issues", "opened", payload) do
+    maybe_broadcast_ambient(:issue_opened, payload)
+
     if has_trigger_label?(payload) do
       propose_issue_triage(payload)
     else
@@ -66,11 +69,14 @@ defmodule Lattice.Webhooks.GitHub do
     end
   end
 
-  # ── Issue Comments (governance sync) ────────────────────────────────
+  # ── Issue Comments (governance sync + ambient) ──────────────────────
 
   defp do_handle("issue_comment", "created", payload) do
     issue = Map.get(payload, "issue", %{})
     labels = get_label_names(issue)
+
+    # Always broadcast ambient event for non-bot comments
+    maybe_broadcast_ambient(:issue_comment, payload)
 
     cond do
       "intent-awaiting-approval" in labels ->
@@ -84,7 +90,7 @@ defmodule Lattice.Webhooks.GitHub do
     end
   end
 
-  # ── Pull Request Reviews ────────────────────────────────────────────
+  # ── Pull Request Reviews (ambient + existing) ──────────────────────
 
   defp do_handle("pull_request", "review_submitted", payload) do
     review = Map.get(payload, "review", %{})
@@ -95,6 +101,20 @@ defmodule Lattice.Webhooks.GitHub do
     else
       :ignored
     end
+  end
+
+  # ── PR Reviews (ambient) ───────────────────────────────────────────
+
+  defp do_handle("pull_request_review", "submitted", payload) do
+    maybe_broadcast_ambient(:pr_review, payload)
+    :ignored
+  end
+
+  # ── PR Review Comments (ambient) ───────────────────────────────────
+
+  defp do_handle("pull_request_review_comment", "created", payload) do
+    maybe_broadcast_ambient(:pr_review_comment, payload)
+    :ignored
   end
 
   # ── Catch-all ───────────────────────────────────────────────────────
@@ -240,6 +260,87 @@ defmodule Lattice.Webhooks.GitHub do
       [_, intent_id] -> {:ok, intent_id}
       _ -> :error
     end
+  end
+
+  # ── Private: Ambient Broadcasting ──────────────────────────────
+
+  defp maybe_broadcast_ambient(type, payload) do
+    sender = get_in(payload, ["sender", "login"]) || "unknown"
+
+    # Skip bot users to prevent feedback loops
+    if bot_user?(sender) do
+      :ok
+    else
+      event = build_ambient_event(type, payload, sender)
+      Events.broadcast_ambient_event(event)
+    end
+  end
+
+  defp bot_user?(login) do
+    String.ends_with?(login, "[bot]") or login == "github-actions"
+  end
+
+  defp build_ambient_event(:issue_opened, payload, sender) do
+    issue = Map.get(payload, "issue", %{})
+
+    %{
+      type: :issue_opened,
+      surface: :issue,
+      number: Map.get(issue, "number"),
+      body: Map.get(issue, "body", ""),
+      title: Map.get(issue, "title", ""),
+      author: sender,
+      comment_id: nil,
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+    }
+  end
+
+  defp build_ambient_event(:issue_comment, payload, sender) do
+    comment = Map.get(payload, "comment", %{})
+    issue = Map.get(payload, "issue", %{})
+
+    %{
+      type: :issue_comment,
+      surface: :issue,
+      number: Map.get(issue, "number"),
+      body: Map.get(comment, "body", ""),
+      title: Map.get(issue, "title", ""),
+      author: sender,
+      comment_id: Map.get(comment, "id"),
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+    }
+  end
+
+  defp build_ambient_event(:pr_review, payload, sender) do
+    review = Map.get(payload, "review", %{})
+    pr = Map.get(payload, "pull_request", %{})
+
+    %{
+      type: :pr_review,
+      surface: :pr_review,
+      number: Map.get(pr, "number"),
+      body: Map.get(review, "body", ""),
+      title: Map.get(pr, "title", ""),
+      author: sender,
+      comment_id: Map.get(review, "id"),
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+    }
+  end
+
+  defp build_ambient_event(:pr_review_comment, payload, sender) do
+    comment = Map.get(payload, "comment", %{})
+    pr = Map.get(payload, "pull_request", %{})
+
+    %{
+      type: :pr_review_comment,
+      surface: :pr_review_comment,
+      number: Map.get(pr, "number"),
+      body: Map.get(comment, "body", ""),
+      title: Map.get(pr, "title", ""),
+      author: sender,
+      comment_id: Map.get(comment, "id"),
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+    }
   end
 
   defp register_input_artifact(intent_id, kind, ref, url) do

@@ -128,6 +128,21 @@ defmodule Lattice.Capabilities.GitHub do
   @callback update_project_item_field(String.t(), String.t(), String.t(), String.t()) ::
               {:ok, map()} | {:error, term()}
 
+  @doc "Add a reaction to an issue comment."
+  @callback create_comment_reaction(integer(), String.t()) ::
+              {:ok, map()} | {:error, term()}
+
+  @doc "Add a reaction to an issue or PR (top-level body)."
+  @callback create_issue_reaction(issue_number(), String.t()) ::
+              {:ok, map()} | {:error, term()}
+
+  @doc "Add a reaction to a pull request review comment."
+  @callback create_review_comment_reaction(integer(), String.t()) ::
+              {:ok, map()} | {:error, term()}
+
+  @doc "List comments on an issue or PR."
+  @callback list_comments(issue_number()) :: {:ok, [comment()]} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -207,6 +222,21 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "Update a project item's field value."
   def update_project_item_field(project_id, item_id, field_id, value),
     do: impl().update_project_item_field(project_id, item_id, field_id, value)
+
+  @doc "Add a reaction to an issue comment."
+  def create_comment_reaction(comment_id, reaction),
+    do: impl().create_comment_reaction(comment_id, reaction)
+
+  @doc "Add a reaction to an issue or PR (top-level body)."
+  def create_issue_reaction(number, reaction),
+    do: impl().create_issue_reaction(number, reaction)
+
+  @doc "Add a reaction to a pull request review comment."
+  def create_review_comment_reaction(comment_id, reaction),
+    do: impl().create_review_comment_reaction(comment_id, reaction)
+
+  @doc "List comments on an issue or PR."
+  def list_comments(number), do: impl().list_comments(number)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end
