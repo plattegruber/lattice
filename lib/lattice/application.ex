@@ -26,9 +26,11 @@ defmodule Lattice.Application do
       LatticeWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:lattice, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lattice.PubSub},
+      # PostgreSQL persistence (conditionally started)
+      Lattice.Repo,
       # Metadata persistence (key-value store for tags, purpose, labels)
       Lattice.Store.ETS,
-      # Intent persistence
+      # Intent persistence (ETS always available; Postgres delegates through it)
       Lattice.Intents.Store.ETS,
       # Bridge Run lifecycle events to Intent state transitions
       Lattice.Intents.RunBridge,

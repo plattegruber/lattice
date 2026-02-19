@@ -8,7 +8,11 @@
 import Config
 
 config :lattice,
+  ecto_repos: [Lattice.Repo],
   generators: [timestamp_type: :utc_datetime]
+
+config :lattice, Lattice.Repo,
+  migration_primary_key: [type: :binary_id]
 
 # Capability module implementations — swap per environment
 config :lattice, :capabilities,
