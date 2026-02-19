@@ -102,6 +102,10 @@ defmodule Lattice.Events do
   @spec runs_topic() :: String.t()
   def runs_topic, do: "runs"
 
+  @doc "Returns the PubSub topic for artifact association events."
+  @spec artifacts_topic() :: String.t()
+  def artifacts_topic, do: "artifacts"
+
   @doc "Returns the PubSub topic for exec session protocol events."
   @spec exec_events_topic(String.t()) :: String.t()
   def exec_events_topic(session_id) when is_binary(session_id) do
@@ -180,6 +184,12 @@ defmodule Lattice.Events do
   @spec subscribe_exec_events(String.t()) :: :ok | {:error, term()}
   def subscribe_exec_events(session_id) do
     Phoenix.PubSub.subscribe(pubsub(), exec_events_topic(session_id))
+  end
+
+  @doc "Subscribe the calling process to artifact association events."
+  @spec subscribe_artifacts() :: :ok | {:error, term()}
+  def subscribe_artifacts do
+    Phoenix.PubSub.subscribe(pubsub(), artifacts_topic())
   end
 
   # ── Broadcast ──────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ defmodule LatticeWeb.IntentLive.Show do
 
   use LatticeWeb, :live_view
 
+  alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Events
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Lifecycle
@@ -39,6 +40,7 @@ defmodule LatticeWeb.IntentLive.Show do
         if connected?(socket) do
           Events.subscribe_intent(intent_id)
           Events.subscribe_intents()
+          Events.subscribe_artifacts()
           schedule_refresh()
         end
 
@@ -47,6 +49,7 @@ defmodule LatticeWeb.IntentLive.Show do
          |> assign(:page_title, "Intent #{truncate_id(intent_id)}")
          |> assign(:intent_id, intent_id)
          |> assign(:intent, intent)
+         |> assign(:artifact_links, ArtifactRegistry.lookup_by_intent(intent_id))
          |> assign(:log_lines, [])
          |> assign(:not_found, false)}
 
@@ -139,6 +142,13 @@ defmodule LatticeWeb.IntentLive.Show do
       |> Enum.take(-@max_log_lines)
 
     {:noreply, assign(socket, :log_lines, log_lines)}
+  end
+
+  def handle_info(
+        {:artifact_registered, %{intent_id: id}},
+        %{assigns: %{intent_id: id}} = socket
+      ) do
+    {:noreply, assign(socket, :artifact_links, ArtifactRegistry.lookup_by_intent(id))}
   end
 
   def handle_info(:refresh, socket) do
@@ -251,6 +261,8 @@ defmodule LatticeWeb.IntentLive.Show do
         <.payload_panel intent={@intent} />
 
         <.lifecycle_timeline intent={@intent} />
+
+        <.github_links_panel artifact_links={@artifact_links} />
 
         <.artifacts_panel intent={@intent} />
 
@@ -766,6 +778,78 @@ defmodule LatticeWeb.IntentLive.Show do
     </div>
     """
   end
+
+  attr :artifact_links, :list, required: true
+
+  defp github_links_panel(assigns) do
+    grouped =
+      assigns.artifact_links
+      |> Enum.group_by(& &1.kind)
+      |> Enum.sort_by(fn {kind, _} ->
+        case kind do
+          :issue -> 0
+          :pull_request -> 1
+          :branch -> 2
+          :commit -> 3
+        end
+      end)
+
+    assigns = assign(assigns, :grouped, grouped)
+
+    ~H"""
+    <div :if={@artifact_links != []} class="card bg-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-link" class="size-5" /> GitHub Links
+        </h2>
+
+        <div class="space-y-4">
+          <div :for={{kind, links} <- @grouped}>
+            <h3 class="text-sm font-medium text-base-content/70 mb-2">
+              {kind_label(kind)}
+            </h3>
+            <div class="space-y-2">
+              <div
+                :for={link <- links}
+                class="flex items-center gap-2 bg-base-300 rounded-lg p-2"
+              >
+                <span class={["badge badge-xs", role_badge_class(link.role)]}>
+                  {link.role}
+                </span>
+                <span class="font-mono text-sm">{format_ref(link)}</span>
+                <a
+                  :if={link.url}
+                  href={link.url}
+                  target="_blank"
+                  class="link link-primary text-xs ml-auto"
+                >
+                  View on GitHub
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp kind_label(:issue), do: "Issues"
+  defp kind_label(:pull_request), do: "Pull Requests"
+  defp kind_label(:branch), do: "Branches"
+  defp kind_label(:commit), do: "Commits"
+
+  defp role_badge_class(:governance), do: "badge-warning"
+  defp role_badge_class(:output), do: "badge-success"
+  defp role_badge_class(:input), do: "badge-info"
+  defp role_badge_class(:related), do: "badge-ghost"
+  defp role_badge_class(_), do: "badge-ghost"
+
+  defp format_ref(%{kind: :issue, ref: ref}), do: "##{ref}"
+  defp format_ref(%{kind: :pull_request, ref: ref}), do: "PR ##{ref}"
+  defp format_ref(%{kind: :branch, ref: ref}), do: ref
+  defp format_ref(%{kind: :commit, ref: ref}) when is_binary(ref), do: String.slice(ref, 0, 8)
+  defp format_ref(%{ref: ref}), do: to_string(ref)
 
   attr :intent, Intent, required: true
 
