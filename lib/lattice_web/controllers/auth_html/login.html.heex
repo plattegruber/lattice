@@ -4,7 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <meta name="clerk-publishable-key" content={@clerk_publishable_key} />
     <title>Sign In · Lattice</title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script>
@@ -12,6 +11,15 @@
         const theme = localStorage.getItem("phx:theme");
         if (theme) document.documentElement.setAttribute("data-theme", theme);
       })();
+    </script>
+    <script
+      :if={@clerk_js_url}
+      async
+      crossorigin="anonymous"
+      data-clerk-publishable-key={@clerk_publishable_key}
+      src={@clerk_js_url}
+      type="text/javascript"
+    >
     </script>
   </head>
   <body class="h-full flex items-center justify-center bg-base-200">
@@ -22,7 +30,10 @@
       </div>
 
       <div id="clerk-sign-in" class="flex justify-center min-h-[400px]">
-        <div class="loading loading-spinner loading-lg" />
+        <div :if={@clerk_js_url} class="loading loading-spinner loading-lg" />
+        <div :if={!@clerk_js_url} class="alert alert-warning max-w-md">
+          <span>CLERK_PUBLISHABLE_KEY not configured. Set it in your environment.</span>
+        </div>
       </div>
 
       <p class="text-xs opacity-40">
@@ -30,47 +41,35 @@
       </p>
     </div>
 
-    <script>
+    <script :if={@clerk_js_url}>
       (async () => {
-        const publishableKey = document.querySelector("meta[name='clerk-publishable-key']").content;
-        if (!publishableKey) {
-          document.getElementById("clerk-sign-in").innerHTML =
-            '<div class="alert alert-warning max-w-md">' +
-            '<span>CLERK_PUBLISHABLE_KEY not configured. Set it in your environment.</span>' +
-            '</div>';
-          return;
+        // Wait for Clerk JS to load (async script in head)
+        const clerk = await new Promise((resolve) => {
+          const check = () => window.Clerk ? resolve(window.Clerk) : setTimeout(check, 50);
+          check();
+        });
+        await clerk.load();
+
+        if (clerk.user) {
+          // Already signed in — get token and POST to callback
+          const token = await clerk.session.getToken();
+          await postCallback(token);
+        } else {
+          // Mount the sign-in component
+          const container = document.getElementById("clerk-sign-in");
+          container.innerHTML = "";
+          clerk.mountSignIn(container, {
+            afterSignInUrl: window.location.origin + "/auth/callback",
+          });
+
+          // Listen for sign-in completion
+          clerk.addListener(async ({ session }) => {
+            if (session) {
+              const token = await session.getToken();
+              await postCallback(token);
+            }
+          });
         }
-
-        // Load Clerk JS from CDN
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js";
-        script.crossOrigin = "anonymous";
-        script.onload = async () => {
-          const clerk = new window.Clerk(publishableKey);
-          await clerk.load();
-
-          if (clerk.user) {
-            // Already signed in — get token and POST to callback
-            const token = await clerk.session.getToken();
-            await postCallback(token);
-          } else {
-            // Mount the sign-in component
-            const container = document.getElementById("clerk-sign-in");
-            container.innerHTML = "";
-            clerk.mountSignIn(container, {
-              afterSignInUrl: window.location.origin + "/auth/callback",
-            });
-
-            // Listen for sign-in completion
-            clerk.addListener(async ({ session }) => {
-              if (session) {
-                const token = await session.getToken();
-                await postCallback(token);
-              }
-            });
-          }
-        };
-        document.head.appendChild(script);
 
         async function postCallback(token) {
           const csrfToken = document.querySelector("meta[name='csrf-token']").content;

@@ -19,7 +19,14 @@ defmodule LatticeWeb.AuthController do
     else
       conn
       |> put_layout(false)
-      |> render(:login, clerk_publishable_key: clerk_publishable_key())
+      key = clerk_publishable_key()
+
+      conn
+      |> put_layout(false)
+      |> render(:login,
+        clerk_publishable_key: key,
+        clerk_js_url: clerk_js_url(key)
+      )
     end
   end
 
@@ -61,5 +68,21 @@ defmodule LatticeWeb.AuthController do
 
   defp clerk_publishable_key do
     System.get_env("CLERK_PUBLISHABLE_KEY") || ""
+  end
+
+  # Derive the Clerk JS CDN URL from the publishable key.
+  # The key encodes the frontend API domain in base64 after the pk_test_/pk_live_ prefix.
+  defp clerk_js_url(""), do: nil
+
+  defp clerk_js_url(key) do
+    domain =
+      key
+      |> String.replace(~r/^pk_(test|live)_/, "")
+      |> Base.decode64!(padding: false)
+      |> String.trim_trailing("$")
+
+    "https://#{domain}/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  rescue
+    _ -> nil
   end
 end
