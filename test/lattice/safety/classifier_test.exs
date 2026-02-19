@@ -29,6 +29,16 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:github, :get_issue)
     end
 
+    test "classifies github:list_pull_requests as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :list_pull_requests)
+    end
+
+    test "classifies github:get_pull_request as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :get_pull_request)
+    end
+
     test "classifies fly:logs as safe" do
       assert {:ok, %Action{classification: :safe}} = Classifier.classify(:fly, :logs)
     end
@@ -86,6 +96,31 @@ defmodule Lattice.Safety.ClassifierTest do
                Classifier.classify(:github, :create_comment)
     end
 
+    test "classifies github:create_pull_request as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :create_pull_request)
+    end
+
+    test "classifies github:update_pull_request as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :update_pull_request)
+    end
+
+    test "classifies github:merge_pull_request as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :merge_pull_request)
+    end
+
+    test "classifies github:create_branch as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :create_branch)
+    end
+
+    test "classifies github:delete_branch as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :delete_branch)
+    end
+
     # ── Dangerous Actions ──────────────────────────────────────────────
 
     test "classifies sprites:delete_sprite as dangerous" do
@@ -139,6 +174,8 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:sprites, :fetch_logs} in safe_actions
       assert {:github, :list_issues} in safe_actions
       assert {:github, :get_issue} in safe_actions
+      assert {:github, :list_pull_requests} in safe_actions
+      assert {:github, :get_pull_request} in safe_actions
       assert {:fly, :logs} in safe_actions
       assert {:fly, :machine_status} in safe_actions
       assert {:secret_store, :get_secret} in safe_actions
@@ -185,9 +222,9 @@ defmodule Lattice.Safety.ClassifierTest do
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
       assert length(sprites_ops) == 8
 
-      # GitHub: 7 operations
+      # GitHub: 14 operations (7 issue + 7 PR/branch)
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)
-      assert length(github_ops) == 7
+      assert length(github_ops) == 14
 
       # Fly: 3 operations
       fly_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :fly end)
