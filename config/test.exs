@@ -42,8 +42,8 @@ config :lattice, :capabilities,
   fly: Lattice.Capabilities.MockFly,
   secret_store: Lattice.Capabilities.MockSecretStore
 
-# Use stub auth provider in tests (returns a hardcoded dev operator)
-config :lattice, :auth, provider: Lattice.Auth.Stub
+# Use Mox mock for auth in tests (defined in test/test_helper.exs)
+config :lattice, :auth, provider: Lattice.MockAuth
 
 # Empty fleet in tests — individual tests configure their own sprites
 config :lattice, :fleet, sprites: []

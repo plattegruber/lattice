@@ -32,6 +32,12 @@ defmodule LatticeWeb.ConnCase do
   end
 
   setup _tags do
+    # Stub MockAuth so all authenticated API requests succeed by default.
+    # Individual tests can override with Mox.expect/3 if needed.
+    Mox.stub(Lattice.MockAuth, :verify_token, fn _token ->
+      {:ok, %Lattice.Auth.Operator{id: "test-operator", name: "Test Operator", role: :admin}}
+    end)
+
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end
