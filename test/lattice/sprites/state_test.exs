@@ -310,4 +310,64 @@ defmodule Lattice.Sprites.StateTest do
       assert Enum.all?(results, fn r -> r >= 150 and r <= 250 end)
     end
   end
+
+  # ── API Timestamps ──────────────────────────────────────────────────
+
+  describe "update_api_timestamps/2" do
+    test "stores timestamps from API response with string keys" do
+      {:ok, state} = State.new("sprite-001")
+      now = DateTime.utc_now()
+
+      state =
+        State.update_api_timestamps(state, %{
+          "created_at" => DateTime.to_iso8601(now),
+          "updated_at" => DateTime.to_iso8601(now),
+          "last_started_at" => DateTime.to_iso8601(now),
+          "last_active_at" => DateTime.to_iso8601(now)
+        })
+
+      assert %DateTime{} = state.api_created_at
+      assert %DateTime{} = state.api_updated_at
+      assert %DateTime{} = state.last_started_at
+      assert %DateTime{} = state.last_active_at
+    end
+
+    test "ignores nil values without overwriting existing timestamps" do
+      {:ok, state} = State.new("sprite-001")
+      now = DateTime.utc_now()
+
+      state = State.update_api_timestamps(state, %{"created_at" => DateTime.to_iso8601(now)})
+      assert %DateTime{} = state.api_created_at
+
+      # Passing nil should not overwrite
+      state = State.update_api_timestamps(state, %{"created_at" => nil})
+      assert %DateTime{} = state.api_created_at
+    end
+
+    test "handles missing keys gracefully" do
+      {:ok, state} = State.new("sprite-001")
+      state = State.update_api_timestamps(state, %{})
+
+      assert state.api_created_at == nil
+      assert state.api_updated_at == nil
+      assert state.last_started_at == nil
+      assert state.last_active_at == nil
+    end
+
+    test "accepts DateTime values directly" do
+      {:ok, state} = State.new("sprite-001")
+      now = DateTime.utc_now()
+
+      state = State.update_api_timestamps(state, %{"created_at" => now})
+      assert state.api_created_at == now
+    end
+
+    test "defaults to nil for all API timestamp fields" do
+      {:ok, state} = State.new("sprite-001")
+      assert state.api_created_at == nil
+      assert state.api_updated_at == nil
+      assert state.last_started_at == nil
+      assert state.last_active_at == nil
+    end
+  end
 end

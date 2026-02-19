@@ -43,16 +43,20 @@ defmodule Lattice.Sprites.FleetManager do
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
 
+  @default_fast_interval_ms 10_000
+  @default_slow_interval_ms 60_000
+
   defmodule FleetState do
     @moduledoc false
     @type t :: %__MODULE__{
             sprite_ids: [String.t()],
             supervisor: atom() | pid(),
+            fleet_reconcile_ref: reference() | nil,
             started_at: DateTime.t()
           }
 
     @enforce_keys [:supervisor, :started_at]
-    defstruct [:supervisor, :started_at, sprite_ids: []]
+    defstruct [:supervisor, :started_at, :fleet_reconcile_ref, sprite_ids: []]
   end
 
   # ── Public API ──────────────────────────────────────────────────────
@@ -207,6 +211,8 @@ defmodule Lattice.Sprites.FleetManager do
 
     broadcast_fleet_summary(new_state)
 
+    new_state = schedule_fleet_reconcile(new_state)
+
     {:noreply, new_state}
   end
 
@@ -291,6 +297,12 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   @impl true
+  def handle_info(:fleet_reconcile, %FleetState{} = state) do
+    new_state = do_fleet_reconcile(state)
+    new_state = schedule_fleet_reconcile(new_state)
+    {:noreply, new_state}
+  end
+
   def handle_info({:sprite_externally_deleted, sprite_id}, %FleetState{} = state) do
     if sprite_id in state.sprite_ids do
       Logger.info("Removing externally-deleted sprite #{sprite_id} from fleet")
@@ -469,6 +481,96 @@ defmodule Lattice.Sprites.FleetManager do
       Lattice.PubSub,
       Events.fleet_topic(),
       {:fleet_summary, summary}
+    )
+  end
+
+  # ── Fleet Reconciliation Loop ────────────────────────────────────
+
+  defp schedule_fleet_reconcile(%FleetState{} = state) do
+    interval = fleet_reconcile_interval()
+    ref = Process.send_after(self(), :fleet_reconcile, interval)
+    %{state | fleet_reconcile_ref: ref}
+  end
+
+  defp fleet_reconcile_interval do
+    if presence_has_viewers?() do
+      Application.get_env(:lattice, :fleet_reconcile_fast_ms, @default_fast_interval_ms)
+    else
+      Application.get_env(:lattice, :fleet_reconcile_slow_ms, @default_slow_interval_ms)
+    end
+  end
+
+  defp presence_has_viewers? do
+    # Guard against Presence not being started (e.g. in test env)
+    if Process.whereis(LatticeWeb.Presence) do
+      LatticeWeb.Presence.has_viewers?()
+    else
+      false
+    end
+  end
+
+  defp do_fleet_reconcile(%FleetState{} = state) do
+    start_time = System.monotonic_time(:millisecond)
+    capability = sprites_capability()
+
+    if capability && function_exported?(capability, :list_sprites, 0) do
+      case capability.list_sprites() do
+        {:ok, api_sprites} ->
+          api_ids = MapSet.new(api_sprites, fn s -> s[:id] || s["id"] end)
+          known_ids = MapSet.new(state.sprite_ids)
+
+          new_ids = MapSet.difference(api_ids, known_ids)
+          removed_ids = MapSet.difference(known_ids, api_ids)
+
+          # Start new sprites
+          added =
+            api_sprites
+            |> Enum.filter(fn s -> (s[:id] || s["id"]) in new_ids end)
+            |> Enum.map(&api_sprite_to_config/1)
+            |> Enum.map(&start_sprite(&1, state.supervisor))
+            |> Enum.filter(&match?({:ok, _}, &1))
+            |> Enum.map(fn {:ok, id} -> id end)
+
+          # Remove deleted sprites
+          Enum.each(removed_ids, fn id ->
+            case get_sprite_pid(id) do
+              {:ok, pid} -> DynamicSupervisor.terminate_child(state.supervisor, pid)
+              _ -> :ok
+            end
+
+            Lattice.Store.delete(:sprite_metadata, id)
+          end)
+
+          updated_ids =
+            (state.sprite_ids -- MapSet.to_list(removed_ids)) ++ added
+
+          duration = System.monotonic_time(:millisecond) - start_time
+          emit_fleet_reconcile_telemetry(length(added), MapSet.size(removed_ids), duration)
+
+          if added != [] or MapSet.size(removed_ids) > 0 do
+            new_state = %{state | sprite_ids: updated_ids}
+            broadcast_fleet_summary(new_state)
+            new_state
+          else
+            broadcast_fleet_summary(state)
+            state
+          end
+
+        {:error, _reason} ->
+          broadcast_fleet_summary(state)
+          state
+      end
+    else
+      broadcast_fleet_summary(state)
+      state
+    end
+  end
+
+  defp emit_fleet_reconcile_telemetry(added, removed, duration_ms) do
+    :telemetry.execute(
+      [:lattice, :fleet, :reconcile],
+      %{duration_ms: duration_ms, added: added, removed: removed},
+      %{}
     )
   end
 end

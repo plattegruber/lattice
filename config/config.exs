@@ -20,6 +20,10 @@ config :lattice, :capabilities,
 # Fleet configuration — sprites to discover and manage at boot
 config :lattice, :fleet, sprites: []
 
+# Fleet reconciliation intervals (adaptive: fast when viewers present, slow otherwise)
+config :lattice, :fleet_reconcile_fast_ms, 10_000
+config :lattice, :fleet_reconcile_slow_ms, 60_000
+
 # Auth provider — stub for dev, Clerk for production
 config :lattice, :auth, provider: Lattice.Auth.Stub
 
