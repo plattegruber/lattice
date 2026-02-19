@@ -22,9 +22,12 @@ end
 
 # Database configuration from DATABASE_URL
 if database_url = System.get_env("DATABASE_URL") do
+  maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
+
   config :lattice, Lattice.Repo,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    socket_options: maybe_ipv6
 
   # Use Postgres-backed intent store in prod when DATABASE_URL is set
   config :lattice, :intent_store, Lattice.Intents.Store.Postgres
