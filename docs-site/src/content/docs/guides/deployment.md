@@ -36,13 +36,17 @@ fly secrets set SECRET_KEY_BASE="$(mix phx.gen.secret)"
 fly secrets set SPRITES_API_BASE="https://your-sprites-api.example.com"
 fly secrets set SPRITES_API_TOKEN="your-token"
 
-# GitHub HITL integration
+# GitHub repo (can also be connected via the UI at /settings/repository)
 fly secrets set GITHUB_REPO="owner/repo"
-fly secrets set GITHUB_TOKEN="ghp_your-token"
 
-# Clerk authentication (optional)
+# Clerk authentication (required for login)
 fly secrets set CLERK_SECRET_KEY="sk_your-key"
+fly secrets set CLERK_PUBLISHABLE_KEY="pk_your-key"
 ```
+
+:::note
+`GITHUB_TOKEN` and `GITHUB_WEBHOOK_SECRET` are no longer needed. Operators sign in via Clerk (GitHub OAuth), and Lattice uses their OAuth token for GitHub API calls. Webhooks are auto-created when a repo is connected via `/settings/repository`.
+:::
 
 ### 3. Deploy
 
@@ -62,11 +66,11 @@ The application builds using the `Dockerfile` in the repository root and deploys
 | `PHX_SERVER` | Enable HTTP server | Set automatically by Fly |
 | `SPRITES_API_BASE` | Sprites API URL | `fly secrets set` |
 | `SPRITES_API_TOKEN` | Sprites API auth | `fly secrets set` |
-| `GITHUB_REPO` | GitHub repo for HITL | `fly secrets set` |
-| `GITHUB_TOKEN` | GitHub API token | `fly secrets set` |
+| `GITHUB_REPO` | GitHub repo for HITL | `fly secrets set` or via UI |
 | `FLY_APP` | Fly app name | Auto-set by Fly |
 | `FLY_ORG` | Fly organization | `fly secrets set` |
-| `CLERK_SECRET_KEY` | Clerk auth key | `fly secrets set` |
+| `CLERK_SECRET_KEY` | Clerk Backend API key | `fly secrets set` |
+| `CLERK_PUBLISHABLE_KEY` | Clerk JS frontend key | `fly secrets set` |
 | `LATTICE_INSTANCE_NAME` | Instance identifier | `fly secrets set` |
 
 ### Capability Auto-Selection
@@ -74,7 +78,7 @@ The application builds using the `Dockerfile` in the repository root and deploys
 Lattice automatically selects live or stub implementations based on which credentials are present:
 
 - `SPRITES_API_TOKEN` present --> uses `Lattice.Capabilities.Sprites.Live`
-- `GITHUB_REPO` present --> uses `Lattice.Capabilities.GitHub.Live`
+- `GITHUB_REPO` present --> uses `Lattice.Capabilities.GitHub.Http` (direct HTTP API calls)
 - `FLY_APP` present --> uses `Lattice.Capabilities.Fly.Live`
 
 When credentials are absent, stub implementations are used (suitable for development).

@@ -13,7 +13,7 @@ Start the server and visit [http://localhost:4000](http://localhost:4000) in you
 mix phx.server
 ```
 
-The dashboard requires authentication when Clerk is configured. In development (stub auth mode), all routes are accessible without credentials.
+The dashboard requires authentication via Clerk. Visiting any authenticated route without a session redirects to `/login`, where operators sign in with GitHub via Clerk's hosted UI. In development (stub auth mode), all routes are accessible without credentials.
 
 ## Views
 
@@ -71,18 +71,33 @@ The incidents view shows safety audit entries:
 - **Filtering** -- by capability, classification level, result status
 - **Real-time stream** -- new audit entries appear as they are logged
 
+### Repository Settings (`/settings/repository`)
+
+Connect or disconnect a GitHub repository:
+
+- **Current connection** -- shows the connected repo, who connected it, and when
+- **Repo picker** -- lists your accessible GitHub repos (fetched via your OAuth token)
+- **Connect** -- sets the active repo and auto-creates a webhook for events
+- **Disconnect** -- removes the webhook and clears the repo binding
+
+When a repo is connected, it appears as a badge in the navbar next to the Lattice logo.
+
 ## Navigation
+
+The navbar includes navigation links, a connected repo badge, and a user menu (name, role, settings, sign out).
 
 The authenticated LiveView routes are:
 
 | Path | View | Purpose |
 |------|------|---------|
+| `/login` | Login | Clerk sign-in page (unauthenticated) |
 | `/sprites` | Fleet | Fleet overview and sprite management |
 | `/sprites/:id` | Sprite Detail | Individual sprite state and history |
 | `/intents` | Intents | All intents with lifecycle tracking |
 | `/intents/:id` | Intent Detail | Single intent with full transition log |
 | `/approvals` | Approvals | Pending human approvals |
 | `/incidents` | Incidents | Safety audit trail |
+| `/settings/repository` | Settings | GitHub repo connection management |
 
 ## Real-Time Updates
 

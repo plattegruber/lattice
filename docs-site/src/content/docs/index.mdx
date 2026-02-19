@@ -64,14 +64,17 @@ Lattice uses environment variables to configure external integrations. None are 
 |----------|---------|----------|
 | `SPRITES_API_BASE` | Sprites API base URL | For live sprites |
 | `SPRITES_API_TOKEN` | Sprites API auth token | For live sprites |
-| `GITHUB_REPO` | GitHub repo (e.g., `owner/repo`) | For GitHub HITL |
+| `GITHUB_REPO` | GitHub repo (e.g., `owner/repo`) | For GitHub HITL (or connect via UI) |
 | `FLY_APP` | Fly.io application name | For Fly capability |
 | `FLY_ORG` | Fly.io organization | For Fly capability |
 | `SECRET_KEY_BASE` | Phoenix secret key | Production only |
-| `CLERK_SECRET_KEY` | Clerk auth provider key | For Clerk auth |
+| `CLERK_SECRET_KEY` | Clerk Backend API key | For login |
+| `CLERK_PUBLISHABLE_KEY` | Clerk frontend JS key | For login |
 | `LATTICE_INSTANCE_NAME` | Instance identifier | Optional |
 
 When credentials are not present, Lattice automatically falls back to stub implementations for each capability.
+
+In production, operators sign in via Clerk (GitHub OAuth) at `/login`. Their GitHub OAuth token is used for all GitHub API interactions, so a separate `GITHUB_TOKEN` is not needed. Repos can be connected through the UI at `/settings/repository`, which also auto-creates webhooks.
 
 ## Next Steps
 

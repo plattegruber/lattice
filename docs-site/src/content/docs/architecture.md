@@ -114,17 +114,20 @@ Each capability follows this pattern:
 ```
 Lattice.Capabilities.<Name>      (behaviour definition)
 ├── Lattice.Capabilities.<Name>.Live   (real implementation)
+├── Lattice.Capabilities.<Name>.Http   (HTTP-based implementation)
 └── Lattice.Capabilities.<Name>.Stub   (test/dev implementation)
 ```
 
 ### Available Capabilities
 
-| Capability | Behaviour | Purpose |
-|-----------|-----------|---------|
-| Sprites | `Lattice.Capabilities.Sprites` | Interact with the Sprites API (list, wake, sleep, exec) |
-| GitHub | `Lattice.Capabilities.GitHub` | GitHub issues, labels, comments for HITL workflows |
-| Fly | `Lattice.Capabilities.Fly` | Fly.io operations (logs, status, deploy) |
-| Secret Store | `Lattice.Capabilities.SecretStore` | Secure credential access |
+| Capability | Behaviour | Live Implementation | Purpose |
+|-----------|-----------|---------------------|---------|
+| Sprites | `Lattice.Capabilities.Sprites` | `.Live` | Interact with the Sprites API (list, wake, sleep, exec) |
+| GitHub | `Lattice.Capabilities.GitHub` | `.Http` | GitHub issues, labels, comments for HITL workflows |
+| Fly | `Lattice.Capabilities.Fly` | `.Live` | Fly.io operations (logs, status, deploy) |
+| Secret Store | `Lattice.Capabilities.SecretStore` | `.Env` | Secure credential access |
+
+The GitHub capability uses `GitHub.Http` (direct HTTP API calls via `:httpc`) rather than the `gh` CLI, so it works in any environment including Fly.io containers.
 
 ### Auto-Selection
 
@@ -154,15 +157,18 @@ See the [Intents](/lattice/concepts/intents/) concept page for full details.
 
 ## Authentication
 
-Lattice uses Clerk for authentication:
+Lattice uses Clerk for authentication with GitHub OAuth:
 
-- **Clerk** (`Lattice.Auth.Clerk`) -- JWT verification via Clerk's JWKS endpoint
+- **Login** -- operators visit `/login`, sign in with GitHub via Clerk's hosted UI
+- **Session** -- Clerk JS obtains a JWT, POSTs it to `/auth/callback`, which verifies the token and creates a Phoenix session
+- **Token verification** -- `Lattice.Auth.Clerk` verifies JWTs via Clerk's JWKS endpoint
+- **GitHub token** -- `Lattice.Auth.ClerkGitHub` fetches the operator's GitHub OAuth token from Clerk's Backend API, enabling GitHub API calls on behalf of the operator
 
-The `CLERK_SECRET_KEY` environment variable must be set for authenticated requests. Tests use a Mox mock (`Lattice.MockAuth`).
+Required env vars: `CLERK_SECRET_KEY` (backend API), `CLERK_PUBLISHABLE_KEY` (frontend JS). Tests use a Mox mock (`Lattice.MockAuth`).
 
 For the REST API, authentication uses bearer tokens via the `Authorization: Bearer <token>` header, validated by the `LatticeWeb.Plugs.Auth` plug.
 
-For LiveView routes, authentication is enforced by the `LatticeWeb.Hooks.AuthHook` on mount.
+For LiveView routes, authentication is enforced by the `LatticeWeb.Hooks.AuthHook` on mount, which redirects unauthenticated users to `/login`.
 
 ## Tech Stack
 
