@@ -29,6 +29,7 @@ defmodule Lattice.Intents.Governance do
   alias Lattice.Capabilities.GitHub
   alias Lattice.Capabilities.GitHub.ArtifactLink
   alias Lattice.Capabilities.GitHub.ArtifactRegistry
+  alias Lattice.Capabilities.GitHub.AssignmentPolicy
   alias Lattice.Capabilities.GitHub.Comments
   alias Lattice.Intents.Governance.Labels, as: GovLabels
   alias Lattice.Intents.Intent
@@ -71,6 +72,7 @@ defmodule Lattice.Intents.Governance do
             )
 
             register_artifact(intent.id, :issue, issue.number, :governance, issue[:url])
+            AssignmentPolicy.auto_assign_governance(issue.number, intent.classification)
 
             {:ok, updated}
 

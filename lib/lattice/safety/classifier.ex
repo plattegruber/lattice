@@ -68,6 +68,11 @@ defmodule Lattice.Safety.Classifier do
     {:github, :list_reviews} => :safe,
     {:github, :list_review_comments} => :safe,
     {:github, :create_review_comment} => :controlled,
+    # GitHub — Assignments
+    {:github, :assign_issue} => :controlled,
+    {:github, :unassign_issue} => :controlled,
+    {:github, :request_review} => :controlled,
+    {:github, :list_collaborators} => :safe,
     # Fly.io
     {:fly, :logs} => :safe,
     {:fly, :machine_status} => :safe,

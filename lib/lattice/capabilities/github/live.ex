@@ -557,6 +557,57 @@ defmodule Lattice.Capabilities.GitHub.Live do
     }
   end
 
+  # ── Assignment & Review Request Callbacks ──────────────────────────────
+
+  @impl true
+  def assign_issue(number, usernames) when is_list(usernames) do
+    assignees = Enum.join(usernames, ",")
+    args = ["issue", "edit", to_string(number), "--add-assignee", assignees]
+
+    timed_cmd(:assign_issue, args, fn _output ->
+      get_issue(number)
+    end)
+  end
+
+  @impl true
+  def unassign_issue(number, usernames) when is_list(usernames) do
+    assignees = Enum.join(usernames, ",")
+    args = ["issue", "edit", to_string(number), "--remove-assignee", assignees]
+
+    timed_cmd(:unassign_issue, args, fn _output ->
+      get_issue(number)
+    end)
+  end
+
+  @impl true
+  def request_review(pr_number, usernames) when is_list(usernames) do
+    reviewers = Enum.join(usernames, ",")
+    args = ["pr", "edit", to_string(pr_number), "--add-reviewer", reviewers]
+
+    timed_cmd(:request_review, args, fn _output ->
+      {:ok, :ok}
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @impl true
+  def list_collaborators(_opts) do
+    args = ["api", "repos/{owner}/{repo}/collaborators", "--paginate", "--jq", ".[].login"]
+
+    timed_cmd(:list_collaborators, args, fn output ->
+      usernames =
+        output
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      {:ok, Enum.map(usernames, fn login -> %{login: login} end)}
+    end)
+  end
+
   # ── Private: Configuration ─────────────────────────────────────────────
 
   defp repo do
