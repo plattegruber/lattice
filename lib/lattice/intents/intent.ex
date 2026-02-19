@@ -21,10 +21,10 @@ defmodule Lattice.Intents.Intent do
                            ↘ approved ──────────────────────────────↗
   """
 
-  @valid_kinds [:action, :inquiry, :maintenance]
+  @core_kinds [:action, :inquiry, :maintenance]
   @valid_source_types [:sprite, :agent, :cron, :operator, :webhook, :system]
 
-  @type kind :: :action | :inquiry | :maintenance
+  @type kind :: atom()
   @type state ::
           :proposed
           | :classified
@@ -210,11 +210,45 @@ defmodule Lattice.Intents.Intent do
     end
   end
 
+  @doc """
+  Create a new intent with any registered kind.
+
+  Uses the kind registry to validate the kind name. Payload validation
+  against kind-specific required fields is advisory (logged, not blocking).
+  """
+  @spec new(kind(), source(), keyword()) :: {:ok, t()} | {:error, term()}
+  def new(kind, source, opts) when is_atom(kind) do
+    alias Lattice.Intents.Kind, as: KindRegistry
+
+    with :ok <- validate_required(opts, :summary),
+         :ok <- validate_required(opts, :payload) do
+      case KindRegistry.validate_payload(kind, Keyword.fetch!(opts, :payload)) do
+        {:warn, missing} ->
+          require Logger
+
+          Logger.warning(
+            "Intent kind #{kind} missing recommended payload fields: #{inspect(missing)}"
+          )
+
+        :ok ->
+          :ok
+      end
+
+      build(kind, source, opts)
+    end
+  end
+
   # ── Public Helpers ───────────────────────────────────────────────────
 
-  @doc "Returns the list of valid intent kinds."
+  @doc "Returns the list of core intent kinds."
   @spec valid_kinds() :: [kind()]
-  def valid_kinds, do: @valid_kinds
+  def valid_kinds, do: @core_kinds
+
+  @doc "Returns all registered intent kinds (core + extended)."
+  @spec registered_kinds() :: [kind()]
+  def registered_kinds do
+    Lattice.Intents.Kind.registered()
+  end
 
   @doc "Returns the list of valid source types."
   @spec valid_source_types() :: [atom()]

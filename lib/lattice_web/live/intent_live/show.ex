@@ -983,10 +983,12 @@ defmodule LatticeWeb.IntentLive.Show do
   defp format_source(%{type: type, id: id}), do: "#{type}:#{id}"
   defp format_source(_), do: "unknown"
 
-  defp format_kind(:action), do: "Action"
-  defp format_kind(:inquiry), do: "Inquiry"
-  defp format_kind(:maintenance), do: "Maintenance"
-  defp format_kind(kind), do: to_string(kind) |> String.capitalize()
+  defp format_kind(kind) do
+    case Lattice.Intents.Kind.description(kind) do
+      {:ok, desc} -> desc
+      {:error, _} -> kind |> to_string() |> String.replace("_", " ") |> String.capitalize()
+    end
+  end
 
   defp format_actor(nil), do: "-"
   defp format_actor(:pipeline), do: "pipeline"
