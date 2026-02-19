@@ -8,6 +8,8 @@ defmodule Lattice.Protocol.EventHandler do
 
   require Logger
 
+  alias Lattice.Capabilities.GitHub.ArtifactLink
+  alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Protocol.Event
   alias Lattice.Protocol.Events.Artifact
   alias Lattice.Protocol.Events.Assumption
@@ -40,6 +42,8 @@ defmodule Lattice.Protocol.EventHandler do
       "runs",
       {:run_artifact_added, updated_run, artifact}
     )
+
+    maybe_register_github_artifact(run, artifact)
 
     {:ok, updated_run}
   end
@@ -111,5 +115,62 @@ defmodule Lattice.Protocol.EventHandler do
   def handle_event(%Event{}, %Run{} = run) do
     # Other event types handled by their respective modules
     {:ok, run}
+  end
+
+  # ── Private: GitHub Artifact Registration ────────────────────────
+
+  @github_artifact_kinds %{
+    "pr_url" => :pull_request,
+    "pull_request" => :pull_request,
+    "issue_url" => :issue,
+    "issue" => :issue,
+    "branch" => :branch,
+    "commit" => :commit,
+    "commit_sha" => :commit
+  }
+
+  defp maybe_register_github_artifact(%Run{} = run, artifact) do
+    kind_str = to_string(artifact.kind)
+
+    case Map.get(@github_artifact_kinds, kind_str) do
+      nil ->
+        :ok
+
+      link_kind ->
+        ref = extract_ref(link_kind, artifact)
+
+        if ref do
+          link =
+            ArtifactLink.new(%{
+              intent_id: run.intent_id,
+              run_id: run.id,
+              kind: link_kind,
+              ref: ref,
+              url: artifact.url,
+              role: :output
+            })
+
+          ArtifactRegistry.register(link)
+        end
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp extract_ref(:pull_request, artifact), do: extract_number_from_url(artifact.url)
+  defp extract_ref(:issue, artifact), do: extract_number_from_url(artifact.url)
+
+  defp extract_ref(:branch, artifact),
+    do: artifact.url || Map.get(artifact.metadata || %{}, :name)
+
+  defp extract_ref(:commit, artifact), do: artifact.url || Map.get(artifact.metadata || %{}, :sha)
+
+  defp extract_number_from_url(nil), do: nil
+
+  defp extract_number_from_url(url) when is_binary(url) do
+    case Regex.run(~r/\/(\d+)(?:$|\?)/, url) do
+      [_, number] -> String.to_integer(number)
+      _ -> url
+    end
   end
 end

@@ -22,6 +22,8 @@ defmodule Lattice.Webhooks.GitHub do
 
   require Logger
 
+  alias Lattice.Capabilities.GitHub.ArtifactLink
+  alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Intents.Governance
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
@@ -127,7 +129,15 @@ defmodule Lattice.Webhooks.GitHub do
            metadata: %{webhook_event: "issues", webhook_sender: sender}
          ) do
       {:ok, intent} ->
-        Pipeline.propose(intent)
+        case Pipeline.propose(intent) do
+          {:ok, proposed} = result ->
+            issue_url = get_in(payload, ["issue", "html_url"])
+            register_input_artifact(proposed.id, :issue, issue_number, issue_url)
+            result
+
+          error ->
+            error
+        end
 
       {:error, _} = error ->
         error
@@ -161,7 +171,15 @@ defmodule Lattice.Webhooks.GitHub do
            metadata: %{webhook_event: "pull_request", webhook_sender: reviewer}
          ) do
       {:ok, intent} ->
-        Pipeline.propose(intent)
+        case Pipeline.propose(intent) do
+          {:ok, proposed} = result ->
+            pr_url = get_in(payload, ["pull_request", "html_url"])
+            register_input_artifact(proposed.id, :pull_request, pr_number, pr_url)
+            result
+
+          error ->
+            error
+        end
 
       {:error, _} = error ->
         error
@@ -222,5 +240,20 @@ defmodule Lattice.Webhooks.GitHub do
       [_, intent_id] -> {:ok, intent_id}
       _ -> :error
     end
+  end
+
+  defp register_input_artifact(intent_id, kind, ref, url) do
+    link =
+      ArtifactLink.new(%{
+        intent_id: intent_id,
+        kind: kind,
+        ref: ref,
+        url: url,
+        role: :input
+      })
+
+    ArtifactRegistry.register(link)
+  rescue
+    _ -> :ok
   end
 end

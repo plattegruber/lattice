@@ -27,6 +27,8 @@ defmodule Lattice.Intents.Governance do
   """
 
   alias Lattice.Capabilities.GitHub
+  alias Lattice.Capabilities.GitHub.ArtifactLink
+  alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Capabilities.GitHub.Comments
   alias Lattice.Intents.Governance.Labels, as: GovLabels
   alias Lattice.Intents.Intent
@@ -67,6 +69,8 @@ defmodule Lattice.Intents.Governance do
             Audit.log(:governance, :create_issue, :controlled, :ok, :system,
               args: [intent.id, issue.number]
             )
+
+            register_artifact(intent.id, :issue, issue.number, :governance, issue[:url])
 
             {:ok, updated}
 
@@ -475,5 +479,20 @@ defmodule Lattice.Intents.Governance do
       :error ->
         {:error, :no_governance_issue}
     end
+  end
+
+  # ── Private: Artifact Registration ─────────────────────────────
+
+  defp register_artifact(intent_id, kind, ref, role, url) do
+    link =
+      ArtifactLink.new(%{
+        intent_id: intent_id,
+        kind: kind,
+        ref: ref,
+        role: role,
+        url: url
+      })
+
+    ArtifactRegistry.register(link)
   end
 end

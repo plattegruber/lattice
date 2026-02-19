@@ -36,6 +36,8 @@ defmodule Lattice.Application do
       Lattice.Intents.RunBridge,
       # Webhook deduplication (ETS-backed with TTL sweep)
       Lattice.Webhooks.Dedup,
+      # GitHub artifact association registry (ETS-backed)
+      Lattice.Capabilities.GitHub.ArtifactRegistry,
       # Sprite process infrastructure
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
