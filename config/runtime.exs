@@ -20,6 +20,16 @@ if System.get_env("PHX_SERVER") do
   config :lattice, LatticeWeb.Endpoint, server: true
 end
 
+# Database configuration from DATABASE_URL
+if database_url = System.get_env("DATABASE_URL") do
+  config :lattice, Lattice.Repo,
+    url: database_url,
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+
+  # Use Postgres-backed intent store in prod when DATABASE_URL is set
+  config :lattice, :intent_store, Lattice.Intents.Store.Postgres
+end
+
 config :lattice, LatticeWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
@@ -50,7 +60,6 @@ capabilities =
   else
     capabilities
   end
-
 
 config :lattice, :capabilities, capabilities
 

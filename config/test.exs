@@ -1,5 +1,17 @@
 import Config
 
+# Database — use sandbox for async-safe tests
+config :lattice, Lattice.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  database: "lattice_test#{System.get_env("MIX_TEST_PARTITION")}",
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: System.schedulers_online() * 2
+
+# Keep ETS as default intent store for tests (fast, no DB needed)
+config :lattice, :intent_store, Lattice.Intents.Store.ETS
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :lattice, LatticeWeb.Endpoint,
