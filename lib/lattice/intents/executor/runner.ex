@@ -28,6 +28,7 @@ defmodule Lattice.Intents.Executor.Runner do
   alias Lattice.Intents.ExecutionResult
   alias Lattice.Intents.Executor.Router
   alias Lattice.Intents.Intent
+  alias Lattice.Intents.Rollback
   alias Lattice.Intents.Store
 
   # ── Public API ───────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ defmodule Lattice.Intents.Executor.Runner do
          }) do
       {:ok, failed} ->
         emit_failed(failed, result.error)
+        maybe_propose_rollback(failed)
         {:ok, failed}
 
       {:error, _} = error ->
@@ -166,6 +168,7 @@ defmodule Lattice.Intents.Executor.Runner do
          }) do
       {:ok, failed} ->
         emit_failed(failed, reason)
+        maybe_propose_rollback(failed)
         {:ok, failed}
 
       {:error, _} = error ->
@@ -191,6 +194,21 @@ defmodule Lattice.Intents.Executor.Runner do
       executor: result.executor,
       artifact_count: length(result.artifacts)
     }
+  end
+
+  defp maybe_propose_rollback(%Intent{rollback_strategy: nil}), do: :ok
+  defp maybe_propose_rollback(%Intent{rollback_for: existing}) when not is_nil(existing), do: :ok
+
+  defp maybe_propose_rollback(%Intent{} = failed) do
+    if Rollback.auto_propose_enabled?() do
+      case Rollback.propose_rollback(failed) do
+        {:ok, rollback} ->
+          Logger.info("Proposed rollback intent #{rollback.id} for failed intent #{failed.id}")
+
+        {:error, reason} ->
+          Logger.warning("Failed to propose rollback for intent #{failed.id}: #{inspect(reason)}")
+      end
+    end
   end
 
   # ── Event Emission ────────────────────────────────────────────────

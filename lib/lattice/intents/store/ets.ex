@@ -307,6 +307,7 @@ defmodule Lattice.Intents.Store.ETS do
         {:plan, value}, acc -> %{acc | plan: value}
         {:blocked_reason, value}, acc -> %{acc | blocked_reason: value}
         {:pending_question, value}, acc -> %{acc | pending_question: value}
+        {:rollback_for, value}, acc -> %{acc | rollback_for: value}
         _unknown, acc -> acc
       end)
       |> Map.put(:updated_at, now)

@@ -254,6 +254,8 @@ defmodule LatticeWeb.IntentLive.Show do
 
         <.artifacts_panel intent={@intent} />
 
+        <.rollback_panel intent={@intent} />
+
         <div :if={@intent.source.type == :sprite} class="mt-2">
           <.link
             navigate={~p"/sprites/#{@intent.source.id}"}
@@ -852,6 +854,55 @@ defmodule LatticeWeb.IntentLive.Show do
             <span class="flex-1">{step.description}</span>
             <span :if={step.skill} class="badge badge-xs badge-outline">{step.skill}</span>
           </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :intent, Intent, required: true
+
+  defp rollback_panel(assigns) do
+    rollback_intent_id = get_in(assigns.intent.metadata, [:rollback_intent_id])
+    rollback_for = assigns.intent.rollback_for
+
+    assigns =
+      assigns
+      |> assign(:rollback_intent_id, rollback_intent_id)
+      |> assign(:rollback_for, rollback_for)
+
+    ~H"""
+    <div
+      :if={@rollback_for || @rollback_intent_id}
+      class="card bg-base-200 shadow-sm border border-warning/30"
+    >
+      <div class="card-body">
+        <h2 class="card-title text-base">
+          <.icon name="hero-arrow-uturn-left" class="size-5" /> Rollback
+        </h2>
+
+        <div :if={@rollback_for} class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Rollback for
+          </div>
+          <.link
+            navigate={~p"/intents/#{@rollback_for}"}
+            class="link link-primary text-sm font-mono"
+          >
+            {truncate_id(@rollback_for)}
+          </.link>
+        </div>
+
+        <div :if={@rollback_intent_id} class="mt-2">
+          <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">
+            Rollback intent
+          </div>
+          <.link
+            navigate={~p"/intents/#{@rollback_intent_id}"}
+            class="link link-primary text-sm font-mono"
+          >
+            {truncate_id(@rollback_intent_id)}
+          </.link>
         </div>
       </div>
     </div>

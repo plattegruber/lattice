@@ -529,6 +529,8 @@ defmodule LatticeWeb.Api.IntentController do
       affected_resources: intent.affected_resources,
       expected_side_effects: intent.expected_side_effects,
       rollback_strategy: intent.rollback_strategy,
+      rollback_for: intent.rollback_for,
+      rollback_intent_id: get_in(intent.metadata, [:rollback_intent_id]),
       plan: serialize_plan(intent.plan),
       transition_log: Enum.map(history, &serialize_transition/1),
       inserted_at: intent.inserted_at,
