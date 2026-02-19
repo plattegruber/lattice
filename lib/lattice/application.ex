@@ -40,7 +40,9 @@ defmodule Lattice.Application do
         # GitHub artifact association registry (ETS-backed)
         Lattice.Capabilities.GitHub.ArtifactRegistry,
         # PR lifecycle tracker (ETS-backed, subscribes to artifact events)
-        Lattice.PRs.Tracker
+        Lattice.PRs.Tracker,
+        # Post summary comments on PRs after fixup runs complete
+        Lattice.PRs.PostFixupCommenter
       ] ++
         maybe_pr_monitor() ++
         [
