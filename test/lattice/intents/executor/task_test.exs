@@ -354,6 +354,64 @@ defmodule Lattice.Intents.Executor.TaskTest do
     end
   end
 
+  # ── Draft PR and Issue Linking ──────────────────────────────────────
+
+  describe "build_script/2 draft support" do
+    test "includes --draft flag when draft is true" do
+      payload = task_payload(%{"draft" => true})
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      assert script =~ "--draft"
+    end
+
+    test "does not include --draft flag when draft is false" do
+      payload = task_payload(%{"draft" => false})
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      refute script =~ "--draft"
+    end
+
+    test "does not include --draft flag when draft is not set" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      refute script =~ "--draft"
+    end
+  end
+
+  describe "build_script/2 issue linking" do
+    test "includes Fixes #N in PR body when issue_number is set" do
+      payload = task_payload(%{"issue_number" => 42})
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      assert script =~ "Fixes #42"
+    end
+
+    test "does not include issue reference when issue_number is nil" do
+      payload = task_payload()
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      refute script =~ "Fixes #"
+      refute script =~ "Part of #"
+    end
+
+    test "appends Part of #N to custom pr_body that doesn't reference the issue" do
+      payload = task_payload(%{"pr_body" => "Custom body", "issue_number" => 99})
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      assert script =~ "Custom body"
+      assert script =~ "Part of #99"
+    end
+
+    test "does not duplicate issue reference if already in pr_body" do
+      payload = task_payload(%{"pr_body" => "Fixes #99", "issue_number" => 99})
+      script = TaskExecutor.build_script(payload, default_task_payload_struct(payload))
+
+      assert script =~ "Fixes #99"
+      refute script =~ "Part of #99"
+    end
+  end
+
   # ── escape_single_quotes/1 ──────────────────────────────────────────
 
   describe "escape_single_quotes/1" do
