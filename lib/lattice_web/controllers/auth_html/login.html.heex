@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
+    <meta name="clerk-publishable-key" content={@clerk_publishable_key} />
     <title>Sign In · Lattice</title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script>
@@ -31,7 +32,7 @@
 
     <script>
       (async () => {
-        const publishableKey = "<%= @clerk_publishable_key %>";
+        const publishableKey = document.querySelector("meta[name='clerk-publishable-key']").content;
         if (!publishableKey) {
           document.getElementById("clerk-sign-in").innerHTML =
             '<div class="alert alert-warning max-w-md">' +
