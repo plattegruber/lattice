@@ -55,6 +55,7 @@ Lattice is an **Elixir/Phoenix control plane for managing AI coding agents ("Spr
 | Auth | Bearer token (current) / Clerk integration available |
 | Deployment | Fly.io + Fly Scheduled Machines |
 | CI | GitHub Actions |
+| Docs | Mintlify (https://lattice-d13ddd84.mintlify.app/) |
 
 ## Project Structure (target)
 

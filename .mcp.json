@@ -3,6 +3,10 @@
     "flyio": {
       "command": "flyctl",
       "args": ["mcp", "server"]
+    },
+    "mintlify-docs": {
+      "command": "npx",
+      "args": ["-y", "mintlify-mcp", "-p", "lattice-d13ddd84"]
     }
   }
 }
