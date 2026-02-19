@@ -13,7 +13,11 @@ defmodule LatticeWeb.AuthControllerTest do
     test "redirects to /sprites if already authenticated", %{conn: conn} do
       conn =
         conn
-        |> init_test_session(%{"auth_token" => "valid-token"})
+        |> init_test_session(%{
+          "operator_id" => "user_123",
+          "operator_name" => "Ada",
+          "operator_role" => "operator"
+        })
         |> get(~p"/login")
 
       assert redirected_to(conn) == "/sprites"
@@ -83,7 +87,11 @@ defmodule LatticeWeb.AuthControllerTest do
     test "redirects to /sprites when authenticated", %{conn: conn} do
       conn =
         conn
-        |> init_test_session(%{"auth_token" => "valid-token"})
+        |> init_test_session(%{
+          "operator_id" => "user_123",
+          "operator_name" => "Ada",
+          "operator_role" => "operator"
+        })
         |> get(~p"/")
 
       assert redirected_to(conn) == "/sprites"

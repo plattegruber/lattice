@@ -5,7 +5,7 @@ defmodule LatticeWeb.PageController do
   use LatticeWeb, :controller
 
   def home(conn, _params) do
-    if get_session(conn, "auth_token") do
+    if get_session(conn, "operator_id") do
       redirect(conn, to: ~p"/sprites")
     else
       redirect(conn, to: ~p"/login")

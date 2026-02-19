@@ -31,7 +31,6 @@ defmodule LatticeWeb.Hooks.AuthHook do
   import Phoenix.LiveView
   import Phoenix.Component
 
-  alias Lattice.Auth
   alias Lattice.Auth.Operator
 
   @doc false
@@ -60,13 +59,16 @@ defmodule LatticeWeb.Hooks.AuthHook do
   # ── Private ──────────────────────────────────────────────────────────
 
   defp authenticate(session, socket) do
-    token = Map.get(session, "auth_token", "stub")
-
-    case Auth.verify_token(token) do
-      {:ok, operator} ->
-        {:cont, assign(socket, :current_operator, operator)}
-
-      {:error, _reason} ->
+    # Prefer session-stored operator data (survives JWT expiration).
+    # Clerk JWTs are short-lived (~60s), but the callback stores operator
+    # info in the Phoenix session after initial verification.
+    with operator_id when is_binary(operator_id) <- Map.get(session, "operator_id"),
+         name when is_binary(name) <- Map.get(session, "operator_name"),
+         role_str when is_binary(role_str) <- Map.get(session, "operator_role"),
+         {:ok, operator} <- Operator.new(operator_id, name, String.to_existing_atom(role_str)) do
+      {:cont, assign(socket, :current_operator, operator)}
+    else
+      _ ->
         {:halt, redirect(socket, to: "/login")}
     end
   end

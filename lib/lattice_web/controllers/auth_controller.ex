@@ -14,11 +14,11 @@ defmodule LatticeWeb.AuthController do
   Render the login page with Clerk's sign-in component.
   """
   def login(conn, _params) do
-    if get_session(conn, "auth_token") do
+    if get_session(conn, "operator_id") do
       redirect(conn, to: ~p"/sprites")
     else
-      conn
-      |> put_layout(false)
+      # Clear any stale session data (e.g. expired JWT without operator info)
+      conn = delete_session(conn, "auth_token")
       key = clerk_publishable_key()
 
       conn
