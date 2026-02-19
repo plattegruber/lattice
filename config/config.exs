@@ -27,8 +27,8 @@ config :lattice, :fleet, sprites: []
 config :lattice, :fleet_reconcile_fast_ms, 10_000
 config :lattice, :fleet_reconcile_slow_ms, 60_000
 
-# Auth provider — Clerk for all environments (auto-selected in runtime.exs)
-config :lattice, :auth, provider: Lattice.Auth.Clerk
+# Auth provider — Noop by default, Clerk activated in runtime.exs when CLERK_SECRET_KEY is set
+config :lattice, :auth, provider: Lattice.Auth.Noop
 
 # Safety guardrails — action gating and approval requirements
 config :lattice, :guardrails,
