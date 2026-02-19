@@ -56,6 +56,14 @@ defmodule Lattice.Safety.Classifier do
     {:github, :add_label} => :controlled,
     {:github, :remove_label} => :controlled,
     {:github, :create_comment} => :controlled,
+    # GitHub — PRs & Branches
+    {:github, :list_pull_requests} => :safe,
+    {:github, :get_pull_request} => :safe,
+    {:github, :create_pull_request} => :controlled,
+    {:github, :update_pull_request} => :controlled,
+    {:github, :merge_pull_request} => :controlled,
+    {:github, :create_branch} => :controlled,
+    {:github, :delete_branch} => :controlled,
     # Fly.io
     {:fly, :logs} => :safe,
     {:fly, :machine_status} => :safe,

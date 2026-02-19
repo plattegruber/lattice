@@ -30,6 +30,21 @@ defmodule Lattice.Capabilities.GitHub do
   @typedoc "A map representing a GitHub comment."
   @type comment :: map()
 
+  @typedoc "A pull request number."
+  @type pr_number :: pos_integer()
+
+  @typedoc "Attributes for creating or updating a pull request."
+  @type pr_attrs :: map()
+
+  @typedoc "A map representing a GitHub pull request."
+  @type pull_request :: map()
+
+  @typedoc "Filter options for listing pull requests."
+  @type pr_list_opts :: keyword()
+
+  @typedoc "A git branch name."
+  @type branch_name :: String.t()
+
   @doc "Create a new GitHub issue with the given attributes."
   @callback create_issue(String.t(), issue_attrs()) :: {:ok, issue()} | {:error, term()}
 
@@ -52,6 +67,29 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "Get a single issue by number."
   @callback get_issue(issue_number()) :: {:ok, issue()} | {:error, term()}
 
+  @doc "Create a pull request."
+  @callback create_pull_request(pr_attrs()) :: {:ok, pull_request()} | {:error, term()}
+
+  @doc "Get a pull request by number."
+  @callback get_pull_request(pr_number()) :: {:ok, pull_request()} | {:error, term()}
+
+  @doc "Update an existing pull request."
+  @callback update_pull_request(pr_number(), pr_attrs()) ::
+              {:ok, pull_request()} | {:error, term()}
+
+  @doc "Merge a pull request."
+  @callback merge_pull_request(pr_number(), keyword()) ::
+              {:ok, pull_request()} | {:error, term()}
+
+  @doc "List pull requests, optionally filtered."
+  @callback list_pull_requests(pr_list_opts()) :: {:ok, [pull_request()]} | {:error, term()}
+
+  @doc "Create a new branch from a base ref."
+  @callback create_branch(branch_name(), branch_name()) :: :ok | {:error, term()}
+
+  @doc "Delete a branch."
+  @callback delete_branch(branch_name()) :: :ok | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -72,6 +110,27 @@ defmodule Lattice.Capabilities.GitHub do
 
   @doc "Get a single issue by number."
   def get_issue(number), do: impl().get_issue(number)
+
+  @doc "Create a pull request."
+  def create_pull_request(attrs), do: impl().create_pull_request(attrs)
+
+  @doc "Get a pull request by number."
+  def get_pull_request(number), do: impl().get_pull_request(number)
+
+  @doc "Update an existing pull request."
+  def update_pull_request(number, attrs), do: impl().update_pull_request(number, attrs)
+
+  @doc "Merge a pull request."
+  def merge_pull_request(number, opts \\ []), do: impl().merge_pull_request(number, opts)
+
+  @doc "List pull requests, optionally filtered."
+  def list_pull_requests(opts \\ []), do: impl().list_pull_requests(opts)
+
+  @doc "Create a new branch from a base ref."
+  def create_branch(name, base), do: impl().create_branch(name, base)
+
+  @doc "Delete a branch."
+  def delete_branch(name), do: impl().delete_branch(name)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end

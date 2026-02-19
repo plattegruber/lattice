@@ -147,6 +147,146 @@ defmodule Lattice.Capabilities.GitHub.Live do
     end)
   end
 
+  # ── PR & Branch Callbacks ───────────────────────────────────────────────
+
+  @pr_json_fields "number,title,body,state,headRefName,baseRefName,mergeable,labels,reviews,url"
+
+  @impl true
+  def create_pull_request(attrs) do
+    title = Map.fetch!(attrs, :title)
+    head = Map.fetch!(attrs, :head)
+    base = Map.fetch!(attrs, :base)
+    body = Map.get(attrs, :body, "")
+
+    args = ["pr", "create", "--title", title, "--head", head, "--base", base, "--body", body]
+    args = if Map.get(attrs, :draft, false), do: args ++ ["--draft"], else: args
+
+    timed_cmd(:create_pull_request, args, fn output ->
+      parse_pr_from_create_output(output)
+    end)
+  end
+
+  @impl true
+  def get_pull_request(number) do
+    args = ["pr", "view", to_string(number), "--json", @pr_json_fields]
+
+    timed_cmd(:get_pull_request, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, data} when is_map(data) -> {:ok, parse_pr_from_json(data)}
+        {:error, _} -> {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def update_pull_request(number, attrs) do
+    args =
+      ["pr", "edit", to_string(number)]
+      |> maybe_add_flag(attrs, :title, "--title")
+      |> maybe_add_flag(attrs, :body, "--body")
+      |> maybe_add_flag(attrs, :base, "--base")
+
+    timed_cmd(:update_pull_request, args, fn _output ->
+      get_pull_request(number)
+    end)
+  end
+
+  @impl true
+  def merge_pull_request(number, opts) do
+    method = Keyword.get(opts, :method, :merge)
+    delete_branch = Keyword.get(opts, :delete_branch, false)
+
+    method_flag =
+      case method do
+        :squash -> "--squash"
+        :rebase -> "--rebase"
+        _ -> "--merge"
+      end
+
+    args = ["pr", "merge", to_string(number), method_flag, "--admin"]
+    args = if delete_branch, do: args ++ ["--delete-branch"], else: args
+
+    timed_cmd(:merge_pull_request, args, fn _output ->
+      get_pull_request(number)
+    end)
+  end
+
+  @impl true
+  def list_pull_requests(opts) do
+    state = Keyword.get(opts, :state, "open")
+    base = Keyword.get(opts, :base)
+    head = Keyword.get(opts, :head)
+    limit = Keyword.get(opts, :limit, 100)
+
+    args = [
+      "pr",
+      "list",
+      "--state",
+      state,
+      "--limit",
+      to_string(limit),
+      "--json",
+      @pr_json_fields
+    ]
+
+    args = if base, do: args ++ ["--base", base], else: args
+    args = if head, do: args ++ ["--head", head], else: args
+
+    timed_cmd(:list_pull_requests, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, prs} when is_list(prs) ->
+          {:ok, Enum.map(prs, &parse_pr_from_json/1)}
+
+        {:ok, _} ->
+          {:ok, []}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def create_branch(name, base) do
+    # First, resolve the base ref to a SHA
+    sha_args = ["api", "repos/{owner}/{repo}/git/ref/heads/#{base}", "--jq", ".object.sha"]
+
+    timed_cmd(:create_branch, sha_args, fn sha_output ->
+      sha = String.trim(sha_output)
+
+      create_args = [
+        "api",
+        "repos/{owner}/{repo}/git/refs",
+        "-f",
+        "ref=refs/heads/#{name}",
+        "-f",
+        "sha=#{sha}"
+      ]
+
+      case run_gh(create_args ++ ["--repo", repo()]) do
+        {:ok, _} -> {:ok, :ok}
+        {:error, _} = error -> error
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @impl true
+  def delete_branch(name) do
+    args = ["api", "-X", "DELETE", "repos/{owner}/{repo}/git/refs/heads/#{name}"]
+
+    timed_cmd(:delete_branch, args, fn _output ->
+      {:ok, :ok}
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
   # ── Private: gh CLI Execution ──────────────────────────────────────────
 
   defp timed_cmd(operation, args, on_success) do
@@ -297,6 +437,54 @@ defmodule Lattice.Capabilities.GitHub.Live do
         body: comment["body"] || ""
       }
     end)
+  end
+
+  # ── Private: PR Parsing ───────────────────────────────────────────────
+
+  defp parse_pr_from_create_output(output) do
+    # gh pr create outputs a URL like: https://github.com/owner/repo/pull/42
+    case Regex.run(~r|/pull/(\d+)|, output) do
+      [_, number_str] ->
+        number = String.to_integer(number_str)
+        get_pull_request_raw(number)
+
+      nil ->
+        case Jason.decode(output) do
+          {:ok, data} when is_map(data) -> {:ok, parse_pr_from_json(data)}
+          _ -> {:error, {:unexpected_output, output}}
+        end
+    end
+  end
+
+  defp get_pull_request_raw(number) do
+    repo = repo()
+    args = ["pr", "view", to_string(number), "--json", @pr_json_fields, "--repo", repo]
+
+    case run_gh(args) do
+      {:ok, json} ->
+        case Jason.decode(json) do
+          {:ok, data} when is_map(data) -> {:ok, parse_pr_from_json(data)}
+          {:error, _} -> {:error, {:invalid_json, json}}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc false
+  def parse_pr_from_json(data) when is_map(data) do
+    %{
+      number: data["number"],
+      title: data["title"],
+      body: data["body"] || "",
+      state: data["state"] || "OPEN",
+      head: data["headRefName"],
+      base: data["baseRefName"],
+      mergeable: data["mergeable"],
+      labels: extract_label_names(data["labels"] || []),
+      url: data["url"]
+    }
   end
 
   # ── Private: Configuration ─────────────────────────────────────────────
