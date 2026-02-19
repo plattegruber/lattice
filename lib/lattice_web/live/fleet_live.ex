@@ -130,6 +130,8 @@ defmodule LatticeWeb.FleetLive do
           <p class="text-sm mt-1">Sprites will appear here once configured.</p>
         </div>
       </div>
+
+      <.capabilities_panel />
     </div>
     """
   end
@@ -216,4 +218,127 @@ defmodule LatticeWeb.FleetLive do
   defp api_or_internal_timestamp(state) do
     state.api_updated_at || state.last_active_at || state.updated_at
   end
+
+  defp capabilities_panel(assigns) do
+    ~H"""
+    <div class="collapse collapse-arrow bg-base-200 border border-base-300">
+      <input type="checkbox" />
+      <div class="collapse-title font-medium">
+        <.icon name="hero-signal" class="size-4" /> System Capabilities
+      </div>
+      <div class="collapse-content">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+          <.capability_card
+            title="Fleet Management"
+            status={:active}
+            description="Real-time sprite lifecycle, observation, reconciliation"
+          />
+          <.capability_card
+            title="Intent Pipeline"
+            status={:active}
+            description="Propose, classify, gate, approve, execute intents"
+          />
+          <.capability_card
+            title="GitHub HITL"
+            status={:active}
+            description="Issue-based approval workflows, artifact tracking"
+          />
+          <.capability_card
+            title="Safety & Audit"
+            status={:active}
+            description="Action classification, gating, audit logging"
+          />
+          <.capability_card
+            title="Health Detection"
+            status={:active}
+            description="Anomaly detection, auto-remediation proposals"
+          />
+          <.capability_card
+            title="Policy Engine"
+            status={:active}
+            description="Repo profiles, rules, path auto-approve"
+          />
+          <.capability_card
+            title="Planning & Dialogue"
+            status={:active}
+            description="Structured plans, clarifying questions, plan execution"
+          />
+          <.capability_card
+            title="Project Decomposition"
+            status={:active}
+            description="Epics, tasks, dependency tracking, progress rollup"
+          />
+          <.capability_card
+            title="Doc Drift Detection"
+            status={:active}
+            description="Detects when code changes outpace documentation"
+          />
+          <.capability_card
+            title="Exec Sessions"
+            status={:active}
+            description="WebSocket-backed command execution on sprites"
+          />
+          <.capability_card
+            title="LLM Integration"
+            status={:planned}
+            description="AI-powered issue triage, plan generation, code review"
+          />
+          <.capability_card
+            title="Figma UI"
+            status={:planned}
+            description="Custom visual design from Figma mockup"
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :status, :atom, required: true
+  attr :description, :string, required: true
+
+  defp capability_card(assigns) do
+    ~H"""
+    <div class={[
+      "card card-compact border",
+      capability_card_class(@status)
+    ]}>
+      <div class="card-body">
+        <div class="flex items-center gap-2">
+          <span class={["size-2 rounded-full", capability_dot_class(@status)]} />
+          <h3 class={["card-title text-sm", capability_text_class(@status)]}>
+            {@title}
+          </h3>
+        </div>
+        <p class={["text-xs", capability_desc_class(@status)]}>
+          {@description}
+        </p>
+        <div class="mt-1">
+          <span class={["badge badge-xs", capability_badge_class(@status)]}>
+            {capability_label(@status)}
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp capability_card_class(:active), do: "border-base-300 bg-base-100"
+  defp capability_card_class(:planned), do: "border-base-300/50 bg-base-200/50 opacity-60"
+
+  defp capability_dot_class(:active), do: "bg-success"
+  defp capability_dot_class(:planned), do: "bg-base-content/30"
+
+  defp capability_text_class(:active), do: ""
+  defp capability_text_class(:planned), do: "text-base-content/50"
+
+  defp capability_desc_class(:active), do: "text-base-content/70"
+  defp capability_desc_class(:planned), do: "text-base-content/40"
+
+  defp capability_badge_class(:active), do: "badge-success"
+  defp capability_badge_class(:planned), do: "badge-ghost"
+
+  defp capability_label(:active), do: "Active"
+  defp capability_label(:planned), do: "Planned"
 end

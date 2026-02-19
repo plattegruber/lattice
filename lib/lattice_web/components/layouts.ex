@@ -39,33 +39,54 @@ defmodule LatticeWeb.Layouts do
       <div class="flex-1">
         <.link navigate={~p"/sprites"} class="flex items-center gap-2 font-bold text-lg">
           <.icon name="hero-cube-transparent" class="size-6" /> Lattice
+          <span class="badge badge-xs badge-ghost font-normal text-[10px]">control plane</span>
         </.link>
       </div>
       <div class="flex-none">
         <ul class="menu menu-horizontal px-1 space-x-1 items-center">
           <li>
             <.link navigate={~p"/sprites"} class="font-medium">
-              <.icon name="hero-squares-2x2" class="size-4" /> Fleet
+              <span class="relative">
+                <.icon name="hero-squares-2x2" class="size-4" />
+                <span class="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success" />
+              </span>
+              Fleet
             </.link>
           </li>
           <li>
             <.link navigate={~p"/approvals"} class="font-medium">
-              <.icon name="hero-shield-check" class="size-4" /> Approvals
+              <span class="relative">
+                <.icon name="hero-shield-check" class="size-4" />
+                <span class="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success" />
+              </span>
+              Approvals
             </.link>
           </li>
           <li>
             <.link navigate={~p"/intents"} class="font-medium">
-              <.icon name="hero-clipboard-document-list" class="size-4" /> Intents
+              <span class="relative">
+                <.icon name="hero-clipboard-document-list" class="size-4" />
+                <span class="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success" />
+              </span>
+              Intents
             </.link>
           </li>
           <li>
             <.link navigate={~p"/incidents"} class="font-medium">
-              <.icon name="hero-exclamation-triangle" class="size-4" /> Incidents
+              <span class="relative">
+                <.icon name="hero-exclamation-triangle" class="size-4" />
+                <span class="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success" />
+              </span>
+              Incidents
             </.link>
           </li>
           <li>
             <.link navigate={~p"/audit"} class="font-medium">
-              <.icon name="hero-document-magnifying-glass" class="size-4" /> Audit
+              <span class="relative">
+                <.icon name="hero-document-magnifying-glass" class="size-4" />
+                <span class="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success" />
+              </span>
+              Audit
             </.link>
           </li>
           <li>
