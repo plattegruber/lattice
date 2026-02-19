@@ -67,6 +67,7 @@ defmodule LatticeWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+    get "/debug", DebugController, :index
   end
 
   # Webhook routes -- authenticated via HMAC signature, not bearer token
