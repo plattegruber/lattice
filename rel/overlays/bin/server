@@ -3,7 +3,7 @@ set -eu
 
 cd -P -- "$(dirname -- "$0")"
 
-# Run migrations before starting the server
-./lattice eval "Lattice.Release.migrate"
+# Run migrations before starting the server (non-blocking: DNS may not be ready)
+./lattice eval "Lattice.Release.migrate" || echo "Migration failed (will retry on next deploy), starting server anyway..."
 
 PHX_SERVER=true exec ./lattice start
