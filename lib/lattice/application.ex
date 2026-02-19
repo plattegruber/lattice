@@ -44,7 +44,9 @@ defmodule Lattice.Application do
         # Post summary comments on PRs after fixup runs complete
         Lattice.PRs.PostFixupCommenter,
         # Health detection: observation → intent pipeline
-        Lattice.Health.Detector
+        Lattice.Health.Detector,
+        # Health remediation: approved detect → remediate intent
+        Lattice.Health.Remediator
       ] ++
         maybe_pr_monitor() ++
         maybe_health_scheduler() ++
