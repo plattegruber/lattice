@@ -1,0 +1,144 @@
+---
+title: "Sprites"
+description: "Sprite management API endpoints."
+---
+
+## List Sprites
+
+```bash
+GET /api/sprites
+```
+
+Returns all managed sprites with their current state.
+
+```json
+{
+  "data": [
+    {
+      "id": "sprite-001",
+      "name": "atlas",
+      "status": "running",
+      "desired_state": "ready",
+      "health": "ok"
+    }
+  ],
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+## Get Sprite Detail
+
+```bash
+GET /api/sprites/:id
+```
+
+Returns full detail for a single sprite including state, health, and metadata.
+
+**Error:** `404` with code `SPRITE_NOT_FOUND` if the sprite does not exist.
+
+## Create Sprite
+
+```bash
+POST /api/sprites
+```
+
+**Request body:**
+
+```json
+{
+  "id": "sprite-003",
+  "desired_state": "hibernating"
+}
+```
+
+## Wake Sprite
+
+```bash
+POST /api/sprites/:id/wake
+```
+
+Sets the sprite's desired state to `:ready`, triggering reconciliation to wake it.
+
+## Sleep Sprite
+
+```bash
+POST /api/sprites/:id/sleep
+```
+
+Sets the sprite's desired state to `:hibernating`.
+
+## Update Tags
+
+```bash
+PUT /api/sprites/:id/tags
+```
+
+**Request body:**
+
+```json
+{
+  "tags": {
+    "team": "platform",
+    "environment": "staging"
+  }
+}
+```
+
+## Delete Sprite
+
+```bash
+DELETE /api/sprites/:id
+```
+
+<Warning>
+This is classified as a **dangerous** action and may require approval.
+</Warning>
+
+## Trigger Reconciliation
+
+```bash
+POST /api/sprites/:id/reconcile
+```
+
+Forces an immediate reconciliation cycle without waiting for the scheduled interval.
+
+## Start Exec Session
+
+```bash
+POST /api/sprites/:id/exec
+```
+
+Starts a WebSocket-backed command execution session on the sprite.
+
+**Request body:**
+
+```json
+{
+  "command": "ls -la /workspace"
+}
+```
+
+## List Exec Sessions
+
+```bash
+GET /api/sprites/:id/sessions
+```
+
+Returns all active exec sessions for a sprite.
+
+## Create Task
+
+```bash
+POST /api/sprites/:name/tasks
+```
+
+Creates a task on the named sprite.
+
+**Request body:**
+
+```json
+{
+  "description": "Run test suite",
+  "skill": "test-runner"
+}
+```

@@ -1,0 +1,108 @@
+---
+title: "Quickstart"
+description: "Get Lattice running locally in minutes."
+---
+
+## Prerequisites
+
+- **Erlang/OTP 27+**
+- **Elixir 1.18+**
+- **PostgreSQL 14+** (optional -- ETS is used by default)
+- **Node.js** (for Phoenix asset pipeline)
+
+## Setup
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/plattegruber/lattice.git
+cd lattice
+```
+
+### 2. Install Dependencies
+
+```bash
+mix setup
+```
+
+This installs Elixir and Node dependencies and compiles the project.
+
+### 3. Configure Environment
+
+No environment variables are required for local development. Lattice automatically falls back to stub implementations for all external capabilities (Sprites API, GitHub, Fly.io).
+
+For live integrations, set the following in your shell or `.env`:
+
+```bash
+export SPRITES_API_BASE="https://api.sprites.dev"
+export SPRITES_API_TOKEN="your-token"
+export GITHUB_REPO="owner/repo"
+export GITHUB_TOKEN="ghp_your-token"
+```
+
+### 4. Start the Server
+
+```bash
+mix phx.server
+```
+
+Or with an interactive shell:
+
+```bash
+iex -S mix phx.server
+```
+
+## Verify
+
+### Health Endpoint
+
+```bash
+curl -s http://localhost:4000/health | jq
+```
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-02-17T12:00:00Z",
+  "instance": {
+    "name": "lattice-dev",
+    "environment": "dev"
+  }
+}
+```
+
+### API Check
+
+```bash
+curl -H "Authorization: Bearer test-token" \
+  http://localhost:4000/api/fleet | jq
+```
+
+```json
+{
+  "data": {
+    "total": 0,
+    "by_state": {}
+  },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+Visit [http://localhost:4000](http://localhost:4000) to see the LiveView dashboard.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the system design and OTP process model.
+  </Card>
+  <Card title="Sprites" icon="cube" href="/concepts/sprites">
+    Learn about the Sprite process model for AI agents.
+  </Card>
+  <Card title="API Reference" icon="code" href="/guides/api">
+    Explore the REST API endpoints.
+  </Card>
+  <Card title="Deployment" icon="cloud" href="/guides/deployment">
+    Deploy to Fly.io with Scheduled Machines.
+  </Card>
+</CardGroup>

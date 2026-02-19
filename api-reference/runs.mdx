@@ -1,0 +1,64 @@
+---
+title: "Runs"
+description: "Run management API endpoints."
+---
+
+Runs represent the execution of an approved intent on a sprite. They track the progress and output of skill execution.
+
+## List Runs
+
+```bash
+GET /api/runs
+```
+
+Returns all runs, optionally filtered.
+
+**Query parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `intent_id` | Filter by parent intent |
+| `sprite_name` | Filter by sprite |
+| `status` | Filter by status (`running`, `completed`, `failed`, `blocked`) |
+
+```json
+{
+  "data": [
+    {
+      "id": "run_xyz789",
+      "intent_id": "intent_abc123",
+      "sprite_name": "atlas",
+      "status": "completed",
+      "started_at": "2026-02-17T12:00:00Z",
+      "completed_at": "2026-02-17T12:01:30Z"
+    }
+  ],
+  "timestamp": "2026-02-17T12:02:00Z"
+}
+```
+
+## Get Run Detail
+
+```bash
+GET /api/runs/:id
+```
+
+Returns full detail for a run including output, events, and timing.
+
+## Answer Blocked Run
+
+```bash
+POST /api/runs/:id/answer
+```
+
+Provides an answer to a run that is blocked waiting for human input (e.g., a `question` event from the sprite).
+
+**Request body:**
+
+```json
+{
+  "answer": "Yes, proceed with the migration"
+}
+```
+
+The run resumes execution after receiving the answer.

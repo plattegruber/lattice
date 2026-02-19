@@ -1,0 +1,62 @@
+---
+title: "Introduction"
+description: "Lattice is a control plane for managing AI coding agents (Sprites). Real-time fleet operations with safety guardrails."
+---
+
+Lattice is an **Elixir/Phoenix control plane for AI coding agents**. It manages secure sandboxes called Sprites with real-time monitoring, governed workflows, and safety controls.
+
+<Info>
+**Sprites emit signals. Lattice makes decisions.**
+
+Sprites are the execution layer -- they run skills and produce artifacts. Lattice is the control plane -- it classifies actions, enforces safety gates, and requires human approval for dangerous operations.
+</Info>
+
+## What Lattice Does
+
+<CardGroup cols={2}>
+  <Card title="Fleet Management" icon="server">
+    Real-time LiveView dashboard for monitoring and managing your entire fleet of Sprites. See what every agent is doing at a glance.
+  </Card>
+  <Card title="Governed Workflows" icon="shield-check">
+    Every action flows through the Intent pipeline: propose, classify, gate, execute, audit. Nothing happens without an Intent.
+  </Card>
+  <Card title="Safety Pipeline" icon="lock">
+    Actions are classified as safe, controlled, or dangerous. Dangerous actions require human approval via GitHub issues.
+  </Card>
+  <Card title="Real-time Observability" icon="chart-line">
+    Telemetry + PubSub powers the event-driven dashboard. LiveView subscribes and renders projections. No polling, ever.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+```
+GitHub / API / Cron
+        ↓
+   Intent proposed
+        ↓
+   Classify (safe / controlled / dangerous)
+        ↓
+   Gate (allow / deny / await approval)
+        ↓
+   Execute on Sprite
+        ↓
+   Skills → Artifacts + Events
+```
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Lattice running locally in minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the system design and process model.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Explore the REST API for programmatic access.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    See what's shipped and what's planned.
+  </Card>
+</CardGroup>

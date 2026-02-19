@@ -1,0 +1,47 @@
+---
+title: "Safety"
+description: "The classify-gate-audit pipeline that governs every action in Lattice."
+---
+
+Safety is a first-class architectural concern in Lattice. Every action flows through a three-stage pipeline:
+
+```
+Action → Classify → Gate → Execute (or deny) → Audit (always)
+```
+
+## Three Safety Levels
+
+### Safe
+
+Read-only operations with no side effects. Always allowed, never require approval.
+
+**Examples:** listing sprites, fetching logs, reading issues
+
+### Controlled
+
+Operations that mutate state in a bounded way. Require configuration opt-in and optionally human approval.
+
+**Examples:** waking a sprite, creating a GitHub issue, executing a command
+
+### Dangerous
+
+Operations with infrastructure-level impact. Always require both configuration opt-in **and** human approval.
+
+**Examples:** deploying to production
+
+## How It Works
+
+1. **Classify** -- The Classifier maps `{capability, operation}` pairs to a safety level. Unknown operations default to `:controlled`.
+
+2. **Gate** -- The Gate checks configuration flags to decide whether the action can proceed:
+   - Safe → always allowed
+   - Controlled → allowed if `allow_controlled: true`, may need approval
+   - Dangerous → allowed only if `allow_dangerous: true`, always needs approval
+
+3. **Audit** -- Every action is logged with full context (capability, operation, classification, result, actor, sanitized arguments).
+
+## Human-in-the-Loop
+
+When an action requires approval, Lattice creates a GitHub issue. The operator reviews and adds an `approved` label to authorize execution. This is the HITL pattern -- GitHub issues serve as the approval substrate because operators already live in GitHub.
+
+See the [Safety & Guardrails guide](/guides/safety) for full configuration details and code examples.

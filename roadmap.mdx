@@ -1,0 +1,69 @@
+---
+title: "Roadmap"
+description: "What's shipped, what's in progress, and what's planned for Lattice."
+---
+
+## Shipped
+
+### Foundation
+- Capability module architecture with behaviour-based interfaces
+- Event-driven observability (Telemetry + PubSub)
+- Safety framework (classify, gate, audit)
+- CI/CD pipeline with GitHub Actions
+
+### Fleet Operations
+- Sprite GenServer lifecycle management
+- Fleet Manager with DynamicSupervisor + Registry
+- Reconciliation loop with exponential backoff
+- Health assessment and anomaly detection
+- Real-time LiveView fleet dashboard
+
+### Intent System
+- Intent state machine (proposed → classified → approved → running → completed)
+- Safety classification pipeline
+- ETS-backed intent persistence
+- PostgreSQL intent persistence (parallel store)
+- Intent kinds: action, inquiry, maintenance, doc_update
+
+### Governance
+- GitHub human-in-the-loop approval workflows
+- PR monitoring and production workflows
+- Approval queue LiveView
+- Policy engine with repo profiles and path-based auto-approve
+
+### Observability
+- Incidents LiveView with audit trail
+- Searchable audit log
+- Cross-entity navigation (sprite ↔ intent linking)
+- Real-time Presence tracking
+
+### Infrastructure
+- Fly.io deployment with auto-stop/auto-start
+- Scheduled Machines for automated audits
+- Exec sessions (WebSocket-backed command execution)
+
+### Planning & Projects
+- Planning context with Q&A tracking
+- Dialogue engine for clarifying questions
+- Plan executor for child intent creation
+- Project decomposition with epics, tasks, and dependencies
+- Structured plan attachments for intents
+
+### Safety & Documentation
+- Documentation drift detection
+- Doc gate for doc-update proposals
+- Health detection with auto-remediation proposals
+
+## Planned
+
+### LLM Integration
+AI-powered capabilities including:
+- Issue triage and classification
+- Plan generation from project descriptions
+- Code review assistance
+- Natural language intent creation
+
+### Custom Visual Design
+- Figma-based UI refresh
+- Custom component library
+- Mobile-responsive dashboard redesign

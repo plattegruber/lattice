@@ -1,0 +1,83 @@
+---
+title: "Sprites"
+description: "Understanding the Sprite process model -- GenServers that represent AI coding agents."
+---
+
+A **Sprite** is a secure sandbox that exposes composable skills. Each Sprite represents a single AI coding agent, modeled as an OTP GenServer process managed by the [Fleet Manager](/concepts/fleet-management).
+
+<Info>
+Sprites are the execution layer. They run skills, emit events, and return results. They do **not** make governance decisions -- that's Lattice's job.
+</Info>
+
+## Sprite as Process
+
+Every Sprite gets its own GenServer that:
+
+- **Owns its state** -- an internal `%Lattice.Sprites.State{}` struct tracking desired vs. observed state
+- **Runs a reconciliation loop** -- periodically compares desired state against real observed state from the Sprites API
+- **Emits events** -- Telemetry events and PubSub broadcasts on every state transition
+- **Handles backoff** -- exponential backoff with jitter on reconciliation failures
+- **Computes health** -- broadcasts health assessments after each reconciliation cycle
+
+## Lifecycle States
+
+Each Sprite has both a **desired state** (what you want) and an **observed state** (what the API reports). The reconciliation loop drives observed toward desired.
+
+| State | Meaning |
+|-------|---------|
+| `:cold` / `:hibernating` | Sprite is sleeping, not consuming resources |
+| `:warm` / `:waking` | Sprite is warming up, transitioning to ready |
+| `:running` / `:ready` | Sprite is running and available for work |
+| `:busy` | Sprite is actively executing a task |
+| `:error` | Sprite is in an error state |
+
+## Reconciliation
+
+The reconciliation loop runs on a configurable interval (default: 5 seconds). Each cycle:
+
+1. **Fetch** -- calls the Sprites API to get the real observed state
+2. **Compare** -- checks if observed matches desired
+3. **Act** -- if they differ, calls the appropriate capability to drive the transition
+4. **Emit** -- publishes a `ReconciliationResult` event with the outcome
+5. **Health** -- computes and broadcasts a health assessment
+
+### Backoff on Failure
+
+When reconciliation fails, the Sprite applies exponential backoff with jitter:
+
+- Base backoff starts at 1 second
+- Each consecutive failure doubles the delay (up to 60 seconds max)
+- Jitter prevents thundering herd when multiple sprites fail simultaneously
+- On success, the backoff resets to the normal interval
+
+### Health Assessment
+
+| Health | Condition |
+|--------|-----------|
+| `:ok` | Observed matches desired |
+| `:converging` | Action taken, waiting for effect |
+| `:degraded` | Retrying after consecutive failures |
+| `:error` | Max retries exceeded |
+
+## Event Protocol
+
+Sprites communicate with Lattice through structured JSON events prefixed with `LATTICE_EVENT`:
+
+| Event Type | Purpose |
+|-----------|---------|
+| `artifact` | File or output produced |
+| `question` | Needs human input |
+| `assumption` | Assumption made during execution |
+| `blocked` | Cannot proceed |
+| `progress` | Status update |
+| `warning` | Non-fatal issue detected |
+| `checkpoint` | Milestone reached |
+
+## Security Model
+
+Sprites operate within strict boundaries:
+
+- Filesystem access restricted to `/workspace` and `/skills`
+- Network access limited to approved endpoints
+- Authentication via scoped, time-limited tokens
+- All actions audit-logged

@@ -1,0 +1,81 @@
+---
+title: "Fleet Management"
+description: "How the Fleet Manager coordinates Sprite lifecycle and provides fleet-wide operations."
+---
+
+The **Fleet Manager** is the central coordinator for all Sprite processes. It owns all Sprite processes and provides fleet-wide operations for discovery, control, and real-time monitoring.
+
+## Supervision Tree
+
+```
+Application Supervisor
+├── Lattice.Sprites.Registry            (process lookup by sprite_id)
+├── Lattice.Sprites.DynamicSupervisor   (supervises individual Sprites)
+└── Lattice.Sprites.FleetManager        (discovery + coordination)
+```
+
+- **Registry** -- maps sprite IDs to PIDs, enabling `via` tuple addressing
+- **DynamicSupervisor** -- supervises each Sprite GenServer, restarting on crash
+- **FleetManager** -- reads configuration, starts sprites, provides fleet operations
+
+## Fleet Operations
+
+### Querying
+
+```elixir
+# List all sprites with their current state
+sprites = FleetManager.list_sprites()
+# => [{"sprite-001", %State{...}}, {"sprite-002", %State{...}}]
+
+# Get a fleet summary (counts by state)
+summary = FleetManager.fleet_summary()
+# => %{total: 3, by_state: %{hibernating: 2, ready: 1}}
+```
+
+### Controlling
+
+```elixir
+# Wake specific sprites
+results = FleetManager.wake_sprites(["sprite-001", "sprite-003"])
+
+# Put sprites to sleep
+results = FleetManager.sleep_sprites(["sprite-002"])
+
+# Trigger fleet-wide reconciliation audit
+:ok = FleetManager.run_audit()
+```
+
+### Fleet Audit
+
+The `run_audit/0` function triggers an immediate reconciliation cycle on every managed sprite. This is useful for:
+
+- Verifying all sprites match their desired state after a deployment
+- Recovery from infrastructure events
+- Periodic health checks via [Scheduled Machines](/guides/deployment#scheduled-machines)
+
+## Reconciliation
+
+Each Sprite runs its own reconciliation loop. The Fleet Manager provides the orchestration layer that:
+
+1. Discovers sprites from configuration on startup
+2. Starts a GenServer for each sprite under the DynamicSupervisor
+3. Computes fleet-wide summaries after state changes
+4. Broadcasts summaries via PubSub for the [Dashboard](/guides/dashboard)
+
+## Events
+
+After every fleet-mutating operation, the Fleet Manager:
+
+1. Computes a fresh fleet summary
+2. Emits a `[:lattice, :fleet, :summary]` Telemetry event
+3. Broadcasts `{:fleet_summary, summary}` on the `"sprites:fleet"` PubSub topic
+
+## Real-Time Dashboard
+
+The [Fleet Dashboard](/guides/dashboard#fleet-view-sprites) subscribes to the `"sprites:fleet"` topic and updates instantly when:
+
+- A sprite changes state
+- A reconciliation completes
+- The fleet composition changes
+
+This is a LiveView that renders PubSub projections -- it never polls.

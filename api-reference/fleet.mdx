@@ -1,0 +1,48 @@
+---
+title: "Fleet"
+description: "Fleet management API endpoints."
+---
+
+## Get Fleet Summary
+
+<ParamField path="none" />
+
+```bash
+GET /api/fleet
+```
+
+Returns total sprite count and breakdown by observed state.
+
+**Response:**
+
+```json
+{
+  "data": {
+    "total": 3,
+    "by_state": {
+      "cold": 2,
+      "running": 1
+    }
+  },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+## Trigger Fleet Audit
+
+```bash
+POST /api/fleet/audit
+```
+
+Triggers an immediate reconciliation cycle on every managed sprite.
+
+**Response:**
+
+```json
+{
+  "data": {
+    "status": "ok"
+  },
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```

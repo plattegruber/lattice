@@ -1,0 +1,110 @@
+---
+title: "Intents"
+description: "Intent management API endpoints."
+---
+
+## List Intents
+
+```bash
+GET /api/intents
+```
+
+Returns all intents in the system.
+
+```json
+{
+  "data": [
+    {
+      "id": "intent_abc123",
+      "kind": "action",
+      "state": "completed",
+      "summary": "Wake sprite for deployment",
+      "classification": "controlled"
+    }
+  ],
+  "timestamp": "2026-02-17T12:00:00Z"
+}
+```
+
+## Get Intent Detail
+
+```bash
+GET /api/intents/:id
+```
+
+Returns full detail including transition log, payload, and metadata.
+
+**Error:** `404` with code `INTENT_NOT_FOUND` if the intent does not exist.
+
+## Create Intent
+
+```bash
+POST /api/intents
+```
+
+Creates a new intent and submits it through the classification pipeline.
+
+**Request body:**
+
+```json
+{
+  "kind": "action",
+  "source": {
+    "type": "operator",
+    "id": "operator-1"
+  },
+  "summary": "Wake sprite for deployment",
+  "payload": {
+    "capability": "sprites",
+    "operation": "wake"
+  },
+  "affected_resources": ["sprite-001"],
+  "expected_side_effects": ["sprite-001 transitions to waking"]
+}
+```
+
+The intent is automatically classified and gated. Safe actions advance to `:approved` immediately. Controlled or dangerous actions may require human approval.
+
+## Approve Intent
+
+```bash
+POST /api/intents/:id/approve
+```
+
+Approves an intent in `:awaiting_approval` state.
+
+**Optional request body:**
+
+```json
+{
+  "actor": "operator-1",
+  "reason": "Approved for production deploy"
+}
+```
+
+**Error:** `422` with code `INVALID_STATE_TRANSITION` if the intent is not awaiting approval.
+
+## Reject Intent
+
+```bash
+POST /api/intents/:id/reject
+```
+
+Rejects an intent in `:awaiting_approval` state.
+
+**Optional request body:**
+
+```json
+{
+  "actor": "operator-1",
+  "reason": "Not needed at this time"
+}
+```
+
+## Cancel Intent
+
+```bash
+POST /api/intents/:id/cancel
+```
+
+Cancels an intent from any pre-execution state (`:proposed`, `:classified`, `:awaiting_approval`, `:approved`).
