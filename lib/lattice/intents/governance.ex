@@ -27,6 +27,7 @@ defmodule Lattice.Intents.Governance do
   """
 
   alias Lattice.Capabilities.GitHub
+  alias Lattice.Capabilities.GitHub.Comments
   alias Lattice.Intents.Governance.Labels, as: GovLabels
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
@@ -120,7 +121,7 @@ defmodule Lattice.Intents.Governance do
   def post_outcome(%Intent{metadata: metadata} = intent, result) do
     case Map.fetch(metadata, :governance_issue) do
       {:ok, issue_number} ->
-        body = format_outcome_comment(intent, result)
+        body = Comments.summary_comment(intent, result)
 
         case GitHub.create_comment(issue_number, body) do
           {:ok, comment} ->
@@ -138,6 +139,46 @@ defmodule Lattice.Intents.Governance do
         {:error, :no_governance_issue}
     end
   end
+
+  @doc """
+  Post a question comment on the governance issue when an intent
+  enters `:waiting_for_input` state.
+
+  Returns `{:ok, comment}` or `{:error, reason}`.
+  """
+  @spec post_question(Intent.t()) :: {:ok, map()} | {:error, term()}
+  def post_question(%Intent{metadata: metadata, pending_question: question} = intent)
+      when not is_nil(question) do
+    case Map.fetch(metadata, :governance_issue) do
+      {:ok, issue_number} ->
+        body = Comments.question_comment(intent, question)
+        GitHub.create_comment(issue_number, body)
+
+      :error ->
+        {:error, :no_governance_issue}
+    end
+  end
+
+  def post_question(%Intent{}), do: {:error, :no_pending_question}
+
+  @doc """
+  Post a plan comment on the governance issue when a plan is attached.
+
+  Returns `{:ok, comment}` or `{:error, reason}`.
+  """
+  @spec post_plan(Intent.t()) :: {:ok, map()} | {:error, term()}
+  def post_plan(%Intent{metadata: metadata, plan: plan} = intent) when not is_nil(plan) do
+    case Map.fetch(metadata, :governance_issue) do
+      {:ok, issue_number} ->
+        body = Comments.plan_comment(intent, plan)
+        GitHub.create_comment(issue_number, body)
+
+      :error ->
+        {:error, :no_governance_issue}
+    end
+  end
+
+  def post_plan(%Intent{}), do: {:error, :no_plan}
 
   @doc """
   Close the governance issue when the intent reaches a terminal state.
@@ -434,34 +475,5 @@ defmodule Lattice.Intents.Governance do
       :error ->
         {:error, :no_governance_issue}
     end
-  end
-
-  # ── Private: Outcome Formatting ──────────────────────────────────
-
-  defp format_outcome_comment(%Intent{} = intent, result) do
-    status = Map.get(result, :status, :unknown)
-    output = Map.get(result, :output)
-    error = Map.get(result, :error)
-    duration_ms = Map.get(result, :duration_ms)
-
-    status_emoji =
-      case status do
-        :success -> "Completed"
-        :failure -> "Failed"
-        _ -> "Unknown"
-      end
-
-    sections = [
-      "## Execution Outcome: #{status_emoji}",
-      "**Intent:** #{intent.id}",
-      if(duration_ms, do: "**Duration:** #{duration_ms}ms"),
-      if(output, do: "**Output:** #{inspect(output)}"),
-      if(error, do: "**Error:** #{inspect(error)}"),
-      "\n---\n_Posted by Lattice governance._"
-    ]
-
-    sections
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
   end
 end

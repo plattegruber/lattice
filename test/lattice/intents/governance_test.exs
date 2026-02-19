@@ -320,9 +320,8 @@ defmodule Lattice.Intents.GovernanceTest do
 
       Lattice.Capabilities.MockGitHub
       |> expect(:create_comment, fn 42, body ->
-        assert body =~ "Execution Outcome"
-        assert body =~ "Completed"
-        assert body =~ "1500ms"
+        assert body =~ "Execution Completed"
+        assert body =~ "1.5s"
         assert body =~ "deployed"
 
         {:ok, %{id: 1, body: body, issue_number: 42}}
