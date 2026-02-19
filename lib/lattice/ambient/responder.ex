@@ -174,7 +174,9 @@ defmodule Lattice.Ambient.Responder do
   # ── Private: Response Posting ───────────────────────────────────
 
   defp post_response(%{surface: :issue, number: number}, text) when not is_nil(number) do
-    case GitHub.create_comment(number, text) do
+    body = "#{text}\n\n<!-- lattice:ambient -->"
+
+    case GitHub.create_comment(number, body) do
       {:ok, _} ->
         Logger.info("Ambient: posted comment on issue ##{number}")
 
@@ -184,8 +186,9 @@ defmodule Lattice.Ambient.Responder do
   end
 
   defp post_response(%{surface: :pr_review, number: number}, text) when not is_nil(number) do
-    # PR comments go through the issues API
-    case GitHub.create_comment(number, text) do
+    body = "#{text}\n\n<!-- lattice:ambient -->"
+
+    case GitHub.create_comment(number, body) do
       {:ok, _} ->
         Logger.info("Ambient: posted comment on PR ##{number}")
 
@@ -196,8 +199,9 @@ defmodule Lattice.Ambient.Responder do
 
   defp post_response(%{surface: :pr_review_comment, number: number}, text)
        when not is_nil(number) do
-    # Reply goes to the PR conversation
-    case GitHub.create_comment(number, text) do
+    body = "#{text}\n\n<!-- lattice:ambient -->"
+
+    case GitHub.create_comment(number, body) do
       {:ok, _} ->
         Logger.info("Ambient: posted comment on PR ##{number}")
 

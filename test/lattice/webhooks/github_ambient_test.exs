@@ -85,6 +85,57 @@ defmodule Lattice.Webhooks.GitHubAmbientTest do
 
       refute_receive {:ambient_event, _}, 100
     end
+
+    test "does not broadcast ambient event for comments with lattice sentinel markers" do
+      payload = %{
+        "action" => "created",
+        "issue" => %{
+          "number" => 10,
+          "title" => "Some issue",
+          "body" => "Normal issue",
+          "labels" => []
+        },
+        "comment" => %{
+          "id" => 888,
+          "body" => "Here is my response\n\n<!-- lattice:ambient -->"
+        },
+        "repository" => %{"full_name" => "org/repo"},
+        "sender" => %{"login" => "real-human"}
+      }
+
+      WebhookHandler.handle_event("issue_comment", payload)
+
+      refute_receive {:ambient_event, _}, 100
+    end
+
+    test "does not broadcast ambient event for configured bot login" do
+      Application.put_env(:lattice, Lattice.Ambient.Responder,
+        enabled: true,
+        bot_login: "lattice-operator",
+        cooldown_ms: 60_000,
+        eyes_reaction: true
+      )
+
+      payload = %{
+        "action" => "created",
+        "issue" => %{
+          "number" => 10,
+          "title" => "Some issue",
+          "body" => "Normal issue",
+          "labels" => []
+        },
+        "comment" => %{
+          "id" => 777,
+          "body" => "Just a normal comment"
+        },
+        "repository" => %{"full_name" => "org/repo"},
+        "sender" => %{"login" => "lattice-operator"}
+      }
+
+      WebhookHandler.handle_event("issue_comment", payload)
+
+      refute_receive {:ambient_event, _}, 100
+    end
   end
 
   describe "ambient broadcasting for issues.opened" do

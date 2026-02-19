@@ -266,9 +266,10 @@ defmodule Lattice.Webhooks.GitHub do
 
   defp maybe_broadcast_ambient(type, payload) do
     sender = get_in(payload, ["sender", "login"]) || "unknown"
+    body = extract_body(type, payload)
 
-    # Skip bot users to prevent feedback loops
-    if bot_user?(sender) do
+    # Skip bot users, configured bot login, and Lattice's own comments
+    if skip_ambient?(sender, body) do
       :ok
     else
       event = build_ambient_event(type, payload, sender)
@@ -276,8 +277,41 @@ defmodule Lattice.Webhooks.GitHub do
     end
   end
 
+  defp skip_ambient?(sender, body) do
+    bot_user?(sender) or lattice_user?(sender) or lattice_comment?(body)
+  end
+
   defp bot_user?(login) do
     String.ends_with?(login, "[bot]") or login == "github-actions"
+  end
+
+  defp lattice_user?(login) do
+    configured_login = responder_bot_login()
+    not is_nil(configured_login) and login == configured_login
+  end
+
+  defp lattice_comment?(body) when is_binary(body) do
+    # Lattice comments contain sentinel markers like <!-- lattice:... -->
+    String.contains?(body, "<!-- lattice:")
+  end
+
+  defp lattice_comment?(_), do: false
+
+  defp extract_body(:issue_opened, payload),
+    do: get_in(payload, ["issue", "body"]) || ""
+
+  defp extract_body(:issue_comment, payload),
+    do: get_in(payload, ["comment", "body"]) || ""
+
+  defp extract_body(:pr_review, payload),
+    do: get_in(payload, ["review", "body"]) || ""
+
+  defp extract_body(:pr_review_comment, payload),
+    do: get_in(payload, ["comment", "body"]) || ""
+
+  defp responder_bot_login do
+    Application.get_env(:lattice, Lattice.Ambient.Responder, [])
+    |> Keyword.get(:bot_login)
   end
 
   defp build_ambient_event(:issue_opened, payload, sender) do
