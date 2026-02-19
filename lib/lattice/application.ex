@@ -47,6 +47,7 @@ defmodule Lattice.Application do
         Lattice.Health.Detector
       ] ++
         maybe_pr_monitor() ++
+        maybe_health_scheduler() ++
         [
           # Sprite process infrastructure
           {Registry, keys: :unique, name: Lattice.Sprites.Registry},
@@ -80,6 +81,16 @@ defmodule Lattice.Application do
 
     if Keyword.get(config, :enabled, false) do
       [Lattice.PRs.Monitor]
+    else
+      []
+    end
+  end
+
+  defp maybe_health_scheduler do
+    config = Application.get_env(:lattice, Lattice.Health.Scheduler, [])
+
+    if Keyword.get(config, :enabled, false) do
+      [Lattice.Health.Scheduler]
     else
       []
     end
