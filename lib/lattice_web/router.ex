@@ -121,6 +121,13 @@ defmodule LatticeWeb.Router do
     get "/policy/profiles/:repo", PolicyController, :show
     put "/policy/profiles/:repo", PolicyController, :upsert
     delete "/policy/profiles/:repo", PolicyController, :delete
+
+    get "/policy/purposes", PolicyController, :list_purposes
+    get "/policy/purposes/:name", PolicyController, :show_purpose
+    put "/policy/purposes/:name", PolicyController, :upsert_purpose
+
+    get "/policy/history", PolicyController, :intent_history
+    get "/policy/history/:repo", PolicyController, :repo_history
   end
 
   # Authenticated LiveView routes
