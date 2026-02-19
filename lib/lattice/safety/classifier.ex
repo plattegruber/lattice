@@ -73,6 +73,12 @@ defmodule Lattice.Safety.Classifier do
     {:github, :unassign_issue} => :controlled,
     {:github, :request_review} => :controlled,
     {:github, :list_collaborators} => :safe,
+    # GitHub — Projects v2
+    {:github, :list_projects} => :safe,
+    {:github, :get_project} => :safe,
+    {:github, :list_project_items} => :safe,
+    {:github, :add_to_project} => :controlled,
+    {:github, :update_project_item_field} => :controlled,
     # Fly.io
     {:fly, :logs} => :safe,
     {:fly, :machine_status} => :safe,

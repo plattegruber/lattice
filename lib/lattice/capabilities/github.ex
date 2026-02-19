@@ -112,6 +112,22 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "List repository collaborators."
   @callback list_collaborators(keyword()) :: {:ok, [map()]} | {:error, term()}
 
+  @doc "List projects for the repo/org."
+  @callback list_projects(keyword()) :: {:ok, [map()]} | {:error, term()}
+
+  @doc "Get a project with fields and items."
+  @callback get_project(String.t()) :: {:ok, map()} | {:error, term()}
+
+  @doc "List items in a project."
+  @callback list_project_items(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+
+  @doc "Add an issue or PR to a project."
+  @callback add_to_project(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+
+  @doc "Update a project item's field value."
+  @callback update_project_item_field(String.t(), String.t(), String.t(), String.t()) ::
+              {:ok, map()} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -175,6 +191,22 @@ defmodule Lattice.Capabilities.GitHub do
 
   @doc "List repository collaborators."
   def list_collaborators(opts \\ []), do: impl().list_collaborators(opts)
+
+  @doc "List projects for the repo/org."
+  def list_projects(opts \\ []), do: impl().list_projects(opts)
+
+  @doc "Get a project with fields and items."
+  def get_project(project_id), do: impl().get_project(project_id)
+
+  @doc "List items in a project."
+  def list_project_items(project_id, opts \\ []), do: impl().list_project_items(project_id, opts)
+
+  @doc "Add an issue or PR to a project."
+  def add_to_project(project_id, content_id), do: impl().add_to_project(project_id, content_id)
+
+  @doc "Update a project item's field value."
+  def update_project_item_field(project_id, item_id, field_id, value),
+    do: impl().update_project_item_field(project_id, item_id, field_id, value)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end

@@ -557,6 +557,222 @@ defmodule Lattice.Capabilities.GitHub.Live do
     }
   end
 
+  # ── Projects v2 Callbacks (GraphQL) ───────────────────────────────────
+
+  alias Lattice.Capabilities.GitHub.Project
+  alias Lattice.Capabilities.GitHub.ProjectItem
+
+  @impl true
+  def list_projects(_opts) do
+    [owner, _repo_name] = String.split(repo(), "/")
+
+    query = """
+    query($owner: String!, $first: Int!) {
+      user(login: $owner) {
+        projectsV2(first: $first) {
+          nodes { id title shortDescription url }
+        }
+      }
+    }
+    """
+
+    args = [
+      "api",
+      "graphql",
+      "-f",
+      "query=#{query}",
+      "-f",
+      "owner=#{owner}",
+      "-F",
+      "first=20"
+    ]
+
+    timed_cmd(:list_projects, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, %{"data" => data}} ->
+          nodes =
+            get_in(data, ["user", "projectsV2", "nodes"]) ||
+              get_in(data, ["organization", "projectsV2", "nodes"]) || []
+
+          {:ok, Enum.map(nodes, &Project.from_graphql/1)}
+
+        {:ok, %{"errors" => errors}} ->
+          {:error, {:graphql_errors, errors}}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def get_project(project_id) do
+    query = """
+    query($id: ID!) {
+      node(id: $id) {
+        ... on ProjectV2 {
+          id title shortDescription url
+          fields(first: 30) {
+            nodes { ... on ProjectV2FieldCommon { id name dataType } }
+          }
+        }
+      }
+    }
+    """
+
+    args = ["api", "graphql", "-f", "query=#{query}", "-f", "id=#{project_id}"]
+
+    timed_cmd(:get_project, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, %{"data" => %{"node" => node}}} when not is_nil(node) ->
+          {:ok, Project.from_graphql(node)}
+
+        {:ok, %{"data" => %{"node" => nil}}} ->
+          {:error, :not_found}
+
+        {:ok, %{"errors" => errors}} ->
+          {:error, {:graphql_errors, errors}}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def list_project_items(project_id, _opts) do
+    query = """
+    query($id: ID!, $first: Int!) {
+      node(id: $id) {
+        ... on ProjectV2 {
+          items(first: $first) {
+            nodes {
+              id
+              content { ... on Issue { id title __typename } ... on PullRequest { id title __typename } ... on DraftIssue { id title __typename } }
+              fieldValues(first: 10) {
+                nodes {
+                  ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
+                  ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
+                  ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { name } } }
+                  ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
+                  ... on ProjectV2ItemFieldIterationValue { title field { ... on ProjectV2FieldCommon { name } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    args = [
+      "api",
+      "graphql",
+      "-f",
+      "query=#{query}",
+      "-f",
+      "id=#{project_id}",
+      "-F",
+      "first=50"
+    ]
+
+    timed_cmd(:list_project_items, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, %{"data" => %{"node" => %{"items" => %{"nodes" => nodes}}}}}
+        when is_list(nodes) ->
+          {:ok, Enum.map(nodes, &ProjectItem.from_graphql/1)}
+
+        {:ok, %{"data" => %{"node" => nil}}} ->
+          {:error, :not_found}
+
+        {:ok, %{"errors" => errors}} ->
+          {:error, {:graphql_errors, errors}}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def add_to_project(project_id, content_id) do
+    query = """
+    mutation($projectId: ID!, $contentId: ID!) {
+      addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+        item { id }
+      }
+    }
+    """
+
+    args = [
+      "api",
+      "graphql",
+      "-f",
+      "query=#{query}",
+      "-f",
+      "projectId=#{project_id}",
+      "-f",
+      "contentId=#{content_id}"
+    ]
+
+    timed_cmd(:add_to_project, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, %{"data" => %{"addProjectV2ItemById" => %{"item" => %{"id" => item_id}}}}} ->
+          {:ok, %{item_id: item_id}}
+
+        {:ok, %{"errors" => errors}} ->
+          {:error, {:graphql_errors, errors}}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def update_project_item_field(project_id, item_id, field_id, value) do
+    query = """
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId
+        itemId: $itemId
+        fieldId: $fieldId
+        value: $value
+      }) {
+        projectV2Item { id }
+      }
+    }
+    """
+
+    args = [
+      "api",
+      "graphql",
+      "-f",
+      "query=#{query}",
+      "-f",
+      "projectId=#{project_id}",
+      "-f",
+      "itemId=#{item_id}",
+      "-f",
+      "fieldId=#{field_id}",
+      "-f",
+      "value={\"singleSelectOptionId\": \"#{value}\"}"
+    ]
+
+    timed_cmd(:update_project_item_field, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, %{"data" => %{"updateProjectV2ItemFieldValue" => %{"projectV2Item" => item}}}} ->
+          {:ok, %{item_id: item["id"]}}
+
+        {:ok, %{"errors" => errors}} ->
+          {:error, {:graphql_errors, errors}}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
   # ── Assignment & Review Request Callbacks ──────────────────────────────
 
   @impl true

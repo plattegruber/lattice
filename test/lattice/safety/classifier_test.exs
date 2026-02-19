@@ -156,6 +156,31 @@ defmodule Lattice.Safety.ClassifierTest do
                Classifier.classify(:github, :list_collaborators)
     end
 
+    test "classifies github:list_projects as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :list_projects)
+    end
+
+    test "classifies github:get_project as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :get_project)
+    end
+
+    test "classifies github:list_project_items as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :list_project_items)
+    end
+
+    test "classifies github:add_to_project as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :add_to_project)
+    end
+
+    test "classifies github:update_project_item_field as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :update_project_item_field)
+    end
+
     # ── Dangerous Actions ──────────────────────────────────────────────
 
     test "classifies sprites:delete_sprite as dangerous" do
@@ -214,6 +239,9 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:github, :list_reviews} in safe_actions
       assert {:github, :list_review_comments} in safe_actions
       assert {:github, :list_collaborators} in safe_actions
+      assert {:github, :list_projects} in safe_actions
+      assert {:github, :get_project} in safe_actions
+      assert {:github, :list_project_items} in safe_actions
       assert {:fly, :logs} in safe_actions
       assert {:fly, :machine_status} in safe_actions
       assert {:secret_store, :get_secret} in safe_actions
@@ -260,9 +288,9 @@ defmodule Lattice.Safety.ClassifierTest do
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
       assert length(sprites_ops) == 8
 
-      # GitHub: 21 operations (7 issue + 7 PR/branch + 3 reviews + 4 assignments)
+      # GitHub: 26 operations (7 issue + 7 PR/branch + 3 reviews + 4 assignments + 5 projects)
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)
-      assert length(github_ops) == 21
+      assert length(github_ops) == 26
 
       # Fly: 3 operations
       fly_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :fly end)

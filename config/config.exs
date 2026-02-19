@@ -49,6 +49,14 @@ config :lattice, :github_assignments,
   assign_governance_issues: false,
   request_pr_reviews: false
 
+# GitHub Projects v2 integration — disabled by default
+config :lattice, :github_projects,
+  default_project_id: nil,
+  auto_add_governance_issues: false,
+  auto_add_output_prs: false,
+  status_field_id: nil,
+  status_mapping: %{}
+
 # Webhook configuration
 config :lattice, :webhooks,
   github_secret: nil,
