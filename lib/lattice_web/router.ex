@@ -129,6 +129,12 @@ defmodule LatticeWeb.Router do
     get "/policy/history", PolicyController, :intent_history
     get "/policy/history/:repo", PolicyController, :repo_history
 
+    get "/projects", ProjectController, :index
+    post "/projects", ProjectController, :create
+    get "/projects/:id", ProjectController, :show
+    post "/projects/:id/decompose", ProjectController, :decompose
+    delete "/projects/:id", ProjectController, :delete
+
     get "/search", SearchController, :index
   end
 
