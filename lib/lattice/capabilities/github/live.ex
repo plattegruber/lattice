@@ -287,6 +287,76 @@ defmodule Lattice.Capabilities.GitHub.Live do
     end
   end
 
+  # ── Review Callbacks ────────────────────────────────────────────────────
+
+  alias Lattice.Capabilities.GitHub.Review
+  alias Lattice.Capabilities.GitHub.ReviewComment
+
+  @impl true
+  def list_reviews(pr_number) do
+    args = ["api", "repos/{owner}/{repo}/pulls/#{pr_number}/reviews"]
+
+    timed_cmd(:list_reviews, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, reviews} when is_list(reviews) ->
+          {:ok, Enum.map(reviews, &Review.from_json/1)}
+
+        {:ok, _} ->
+          {:ok, []}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def list_review_comments(pr_number) do
+    args = ["api", "repos/{owner}/{repo}/pulls/#{pr_number}/comments"]
+
+    timed_cmd(:list_review_comments, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, comments} when is_list(comments) ->
+          {:ok, Enum.map(comments, &ReviewComment.from_json/1)}
+
+        {:ok, _} ->
+          {:ok, []}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
+  @impl true
+  def create_review_comment(pr_number, body, path, line, opts) do
+    commit_id = Keyword.get(opts, :commit_id)
+    side = Keyword.get(opts, :side, "RIGHT")
+
+    args =
+      [
+        "api",
+        "repos/{owner}/{repo}/pulls/#{pr_number}/comments",
+        "-f",
+        "body=#{body}",
+        "-f",
+        "path=#{path}",
+        "-f",
+        "line=#{line}",
+        "-f",
+        "side=#{side}"
+      ]
+
+    args = if commit_id, do: args ++ ["-f", "commit_id=#{commit_id}"], else: args
+
+    timed_cmd(:create_review_comment, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, data} when is_map(data) -> {:ok, ReviewComment.from_json(data)}
+        {:error, _} -> {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
   # ── Private: gh CLI Execution ──────────────────────────────────────────
 
   defp timed_cmd(operation, args, on_success) do

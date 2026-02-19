@@ -64,6 +64,10 @@ defmodule Lattice.Safety.Classifier do
     {:github, :merge_pull_request} => :controlled,
     {:github, :create_branch} => :controlled,
     {:github, :delete_branch} => :controlled,
+    # GitHub — Reviews
+    {:github, :list_reviews} => :safe,
+    {:github, :list_review_comments} => :safe,
+    {:github, :create_review_comment} => :controlled,
     # Fly.io
     {:fly, :logs} => :safe,
     {:fly, :machine_status} => :safe,
