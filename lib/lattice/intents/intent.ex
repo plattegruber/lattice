@@ -22,7 +22,7 @@ defmodule Lattice.Intents.Intent do
   """
 
   @valid_kinds [:action, :inquiry, :maintenance]
-  @valid_source_types [:sprite, :agent, :cron, :operator, :webhook]
+  @valid_source_types [:sprite, :agent, :cron, :operator, :webhook, :system]
 
   @type kind :: :action | :inquiry | :maintenance
   @type state ::
@@ -38,7 +38,10 @@ defmodule Lattice.Intents.Intent do
           | :rejected
           | :canceled
   @type classification :: :safe | :controlled | :dangerous | nil
-  @type source :: %{type: :sprite | :agent | :cron | :operator | :webhook, id: String.t()}
+  @type source :: %{
+          type: :sprite | :agent | :cron | :operator | :webhook | :system,
+          id: String.t()
+        }
   @type transition_entry :: %{
           from: state(),
           to: state(),
@@ -61,6 +64,7 @@ defmodule Lattice.Intents.Intent do
           expected_side_effects: [String.t()],
           plan: Lattice.Intents.Plan.t() | nil,
           rollback_strategy: String.t() | nil,
+          rollback_for: String.t() | nil,
           transition_log: [transition_entry()],
           inserted_at: DateTime.t(),
           updated_at: DateTime.t(),
@@ -84,6 +88,7 @@ defmodule Lattice.Intents.Intent do
     :payload,
     :plan,
     :rollback_strategy,
+    :rollback_for,
     :classified_at,
     :approved_at,
     :started_at,
@@ -244,6 +249,7 @@ defmodule Lattice.Intents.Intent do
          affected_resources: Keyword.get(opts, :affected_resources, []),
          expected_side_effects: Keyword.get(opts, :expected_side_effects, []),
          rollback_strategy: Keyword.get(opts, :rollback_strategy),
+         rollback_for: Keyword.get(opts, :rollback_for),
          inserted_at: now,
          updated_at: now
        }}

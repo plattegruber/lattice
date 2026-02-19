@@ -32,6 +32,9 @@ config :lattice, :guardrails,
 # Task allowlist — repos that auto-approve task intents
 config :lattice, :task_allowlist, auto_approve_repos: []
 
+# Intent system settings
+config :lattice, :intents, auto_propose_rollback: false
+
 # Webhook configuration
 config :lattice, :webhooks,
   github_secret: nil,

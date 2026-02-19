@@ -407,6 +407,35 @@ defmodule Lattice.Intents.Governance do
     """
   end
 
+  @doc """
+  Post a comment on the original intent's governance issue linking to the
+  rollback intent. Called when a rollback intent is proposed.
+
+  Returns `{:ok, comment}` or `{:error, reason}`.
+  """
+  @spec post_rollback_link(Intent.t(), Intent.t()) :: {:ok, map()} | {:error, term()}
+  def post_rollback_link(%Intent{metadata: metadata} = _original, %Intent{} = rollback) do
+    case Map.fetch(metadata, :governance_issue) do
+      {:ok, issue_number} ->
+        body = """
+        ## Rollback Proposed
+
+        A rollback intent has been created: `#{rollback.id}`
+
+        **Summary:** #{rollback.summary}
+        **Classification:** #{rollback.classification || "pending"}
+
+        ---
+        _Posted by Lattice governance._
+        """
+
+        GitHub.create_comment(issue_number, body)
+
+      :error ->
+        {:error, :no_governance_issue}
+    end
+  end
+
   # ── Private: Outcome Formatting ──────────────────────────────────
 
   defp format_outcome_comment(%Intent{} = intent, result) do
