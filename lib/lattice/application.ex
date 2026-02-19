@@ -38,6 +38,8 @@ defmodule Lattice.Application do
       Lattice.Webhooks.Dedup,
       # GitHub artifact association registry (ETS-backed)
       Lattice.Capabilities.GitHub.ArtifactRegistry,
+      # PR lifecycle tracker (ETS-backed, subscribes to artifact events)
+      Lattice.PRs.Tracker,
       # Sprite process infrastructure
       {Registry, keys: :unique, name: Lattice.Sprites.Registry},
       {DynamicSupervisor, name: Lattice.Sprites.DynamicSupervisor, strategy: :one_for_one},
