@@ -90,6 +90,16 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "Delete a branch."
   @callback delete_branch(branch_name()) :: :ok | {:error, term()}
 
+  @doc "List reviews on a pull request."
+  @callback list_reviews(pr_number()) :: {:ok, [map()]} | {:error, term()}
+
+  @doc "List inline review comments on a pull request."
+  @callback list_review_comments(pr_number()) :: {:ok, [map()]} | {:error, term()}
+
+  @doc "Create an inline review comment on a pull request."
+  @callback create_review_comment(pr_number(), String.t(), String.t(), integer(), keyword()) ::
+              {:ok, map()} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -131,6 +141,16 @@ defmodule Lattice.Capabilities.GitHub do
 
   @doc "Delete a branch."
   def delete_branch(name), do: impl().delete_branch(name)
+
+  @doc "List reviews on a pull request."
+  def list_reviews(pr_number), do: impl().list_reviews(pr_number)
+
+  @doc "List inline review comments on a pull request."
+  def list_review_comments(pr_number), do: impl().list_review_comments(pr_number)
+
+  @doc "Create an inline review comment on a pull request."
+  def create_review_comment(pr_number, body, path, line, opts \\ []),
+    do: impl().create_review_comment(pr_number, body, path, line, opts)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end

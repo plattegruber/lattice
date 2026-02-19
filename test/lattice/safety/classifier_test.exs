@@ -121,6 +121,21 @@ defmodule Lattice.Safety.ClassifierTest do
                Classifier.classify(:github, :delete_branch)
     end
 
+    test "classifies github:list_reviews as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :list_reviews)
+    end
+
+    test "classifies github:list_review_comments as safe" do
+      assert {:ok, %Action{classification: :safe}} =
+               Classifier.classify(:github, :list_review_comments)
+    end
+
+    test "classifies github:create_review_comment as controlled" do
+      assert {:ok, %Action{classification: :controlled}} =
+               Classifier.classify(:github, :create_review_comment)
+    end
+
     # ── Dangerous Actions ──────────────────────────────────────────────
 
     test "classifies sprites:delete_sprite as dangerous" do
@@ -176,6 +191,8 @@ defmodule Lattice.Safety.ClassifierTest do
       assert {:github, :get_issue} in safe_actions
       assert {:github, :list_pull_requests} in safe_actions
       assert {:github, :get_pull_request} in safe_actions
+      assert {:github, :list_reviews} in safe_actions
+      assert {:github, :list_review_comments} in safe_actions
       assert {:fly, :logs} in safe_actions
       assert {:fly, :machine_status} in safe_actions
       assert {:secret_store, :get_secret} in safe_actions
@@ -222,9 +239,9 @@ defmodule Lattice.Safety.ClassifierTest do
       sprites_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :sprites end)
       assert length(sprites_ops) == 8
 
-      # GitHub: 14 operations (7 issue + 7 PR/branch)
+      # GitHub: 17 operations (7 issue + 7 PR/branch + 3 reviews)
       github_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :github end)
-      assert length(github_ops) == 14
+      assert length(github_ops) == 17
 
       # Fly: 3 operations
       fly_ops = Enum.filter(all, fn {{cap, _op}, _class} -> cap == :fly end)
