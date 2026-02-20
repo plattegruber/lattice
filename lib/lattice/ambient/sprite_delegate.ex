@@ -23,6 +23,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   alias Lattice.Capabilities.GitHub.AppAuth
   alias Lattice.Capabilities.Sprites
+  alias Lattice.Sprites.ExecSession
 
   @max_retries 2
   @retry_delay_ms 3_000
@@ -34,14 +35,13 @@ defmodule Lattice.Ambient.SpriteDelegate do
   """
   @spec handle(event :: map(), thread_context :: [map()]) :: {:ok, String.t()} | {:error, term()}
   def handle(event, thread_context) do
-    unless enabled?() do
+    if enabled?() do
+      with {:ok, sprite_name} <- ensure_sprite() do
+        run_claude_code(sprite_name, event, thread_context)
+      end
+    else
       Logger.warning("SpriteDelegate: delegation disabled, falling back to error")
       {:error, :delegation_disabled}
-    else
-      with {:ok, sprite_name} <- ensure_sprite(),
-           {:ok, response} <- run_claude_code(sprite_name, event, thread_context) do
-        {:ok, response}
-      end
     end
   end
 
@@ -280,21 +280,22 @@ defmodule Lattice.Ambient.SpriteDelegate do
       claude_cmd =
         "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
 
-      case run_streaming_exec(sprite_name, claude_cmd) do
-        {:ok, %{output: output}} ->
-          Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes")
-
-          if String.trim(output) == "" do
-            {:error, :empty_response}
-          else
-            {:ok, String.trim(output)}
-          end
-
-        {:error, reason} = err ->
-          Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
-          err
-      end
+      sprite_name
+      |> run_streaming_exec(claude_cmd)
+      |> process_claude_output()
     end
+  end
+
+  defp process_claude_output({:ok, %{output: output}}) do
+    Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes")
+    trimmed = String.trim(output)
+
+    if trimmed == "", do: {:error, :empty_response}, else: {:ok, trimmed}
+  end
+
+  defp process_claude_output({:error, reason} = err) do
+    Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
+    err
   end
 
   # ── Private: Retry Logic ─────────────────────────────────────────
@@ -344,9 +345,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   defp collect_streaming_output(session_pid) do
     ref = Process.monitor(session_pid)
-    {:ok, session_state} = Lattice.Sprites.ExecSession.get_state(session_pid)
+    {:ok, session_state} = ExecSession.get_state(session_pid)
     session_id = session_state.session_id
-    topic = Lattice.Sprites.ExecSession.exec_topic(session_id)
+    topic = ExecSession.exec_topic(session_id)
 
     Phoenix.PubSub.subscribe(Lattice.PubSub, topic)
     result = collect_loop(ref, [])
@@ -393,9 +394,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   defp build_prompt(event, thread_context) do
     thread_text =
-      thread_context
-      |> Enum.map(fn c -> "**#{c[:user] || "unknown"}**: #{c[:body] || ""}" end)
-      |> Enum.join("\n\n")
+      Enum.map_join(thread_context, "\n\n", fn c ->
+        "**#{c[:user] || "unknown"}**: #{c[:body] || ""}"
+      end)
 
     thread_section =
       if thread_text != "" do

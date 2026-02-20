@@ -71,7 +71,7 @@ defmodule Lattice.Ambient.Responder do
   @impl true
   def handle_info({:ambient_event, event}, state) do
     # Skip events from our own bot user
-    if is_self?(event, state) do
+    if self_event?(event, state) do
       {:noreply, state}
     else
       state = process_event(event, state)
@@ -358,31 +358,26 @@ defmodule Lattice.Ambient.Responder do
   end
 
   defp add_rocket_reaction(event) do
-    case reaction_target(event) do
-      {:comment, comment_id} ->
-        case GitHub.create_comment_reaction(comment_id, "rocket") do
-          {:ok, %{id: id}} -> id
-          _ -> nil
-        end
-
-      {:issue, number} ->
-        case GitHub.create_issue_reaction(number, "rocket") do
-          {:ok, %{id: id}} -> id
-          _ -> nil
-        end
-
-      {:review_comment, comment_id} ->
-        case GitHub.create_review_comment_reaction(comment_id, "rocket") do
-          {:ok, %{id: id}} -> id
-          _ -> nil
-        end
-
-      :none ->
-        nil
-    end
+    event
+    |> reaction_target()
+    |> create_rocket()
   rescue
     _ -> nil
   end
+
+  defp create_rocket({:comment, comment_id}),
+    do: extract_reaction_id(GitHub.create_comment_reaction(comment_id, "rocket"))
+
+  defp create_rocket({:issue, number}),
+    do: extract_reaction_id(GitHub.create_issue_reaction(number, "rocket"))
+
+  defp create_rocket({:review_comment, comment_id}),
+    do: extract_reaction_id(GitHub.create_review_comment_reaction(comment_id, "rocket"))
+
+  defp create_rocket(:none), do: nil
+
+  defp extract_reaction_id({:ok, %{id: id}}), do: id
+  defp extract_reaction_id(_), do: nil
 
   defp remove_rocket_reaction(_event, nil), do: :ok
 
@@ -484,7 +479,7 @@ defmodule Lattice.Ambient.Responder do
 
   # ── Private: Self-Detection ─────────────────────────────────────
 
-  defp is_self?(%{author: author}, %State{bot_login: bot_login}) do
+  defp self_event?(%{author: author}, %State{bot_login: bot_login}) do
     not is_nil(bot_login) and author == bot_login
   end
 
