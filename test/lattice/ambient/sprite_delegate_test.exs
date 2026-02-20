@@ -135,8 +135,15 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git pull"
         {:ok, %{output: "Already up to date.", exit_code: 0}}
       end)
+      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "cat > /tmp/ambient_prompt.txt"
+        assert cmd =~ "printf"
+        assert cmd =~ "ambient_prompt.txt.b64"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "base64 -d"
+        assert cmd =~ "ambient_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
       |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
@@ -154,8 +161,14 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       Lattice.Capabilities.MockSprites
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "cat > /tmp/ambient_prompt.txt"
+        assert cmd =~ "printf"
+        assert cmd =~ "ambient_prompt.txt.b64"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "base64 -d"
         {:ok, %{output: "", exit_code: 0}}
       end)
       |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
@@ -187,8 +200,14 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "plattegruber/lattice"
         {:ok, %{output: "Cloning into...", exit_code: 0}}
       end)
+      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "new-ambient", cmd ->
-        assert cmd =~ "cat > /tmp/ambient_prompt.txt"
+        assert cmd =~ "printf"
+        assert cmd =~ "ambient_prompt.txt.b64"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "new-ambient", cmd ->
+        assert cmd =~ "base64 -d"
         {:ok, %{output: "", exit_code: 0}}
       end)
       |> expect(:exec_ws, fn "new-ambient", cmd, _opts ->
@@ -223,6 +242,8 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     test "returns error on empty claude response" do
       Lattice.Capabilities.MockSprites
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
@@ -278,9 +299,15 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git checkout -b lattice/issue-55-add-dark-mode-support"
         {:ok, %{output: "Switched to new branch", exit_code: 0}}
       end)
-      # run_implementation — write prompt
+      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "cat > /tmp/implement_prompt.txt"
+        assert cmd =~ "printf"
+        assert cmd =~ "implement_prompt.txt.b64"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "base64 -d"
+        assert cmd =~ "implement_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
       # run_implementation — run claude via streaming exec
@@ -325,6 +352,10 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       end)
       |> expect(:exec, fn "test-ambient", _cmd ->
         {:ok, %{output: "Switched to new branch", exit_code: 0}}
+      end)
+      # write_prompt_file: write b64, then decode
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "", exit_code: 0}}
       end)
       |> expect(:exec, fn "test-ambient", _cmd ->
         {:ok, %{output: "", exit_code: 0}}

@@ -88,10 +88,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     prompt = build_implementation_prompt(event, thread_context)
     work_dir = work_dir()
 
-    write_cmd =
-      "cat > /tmp/implement_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
-
-    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd) do
+    with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
       claude_cmd =
         "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
 
@@ -272,11 +269,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     prompt = build_prompt(event, thread_context)
     work_dir = work_dir()
 
-    # Write prompt to a temp file on the sprite to avoid shell escaping issues
-    write_cmd =
-      "cat > /tmp/ambient_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
-
-    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd) do
+    with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
       claude_cmd =
         "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
 
@@ -296,6 +289,46 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp process_claude_output({:error, reason} = err) do
     Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
     err
+  end
+
+  # ── Private: Prompt File Writing ─────────────────────────────────
+
+  defp write_prompt_file(sprite_name, prompt, path) do
+    # Base64 encode to avoid any shell escaping issues with heredocs.
+    # The prompt may contain backticks, quotes, $, etc. from GitHub content.
+    encoded = Base.encode64(prompt)
+
+    # Split into chunks to avoid hitting command-line length limits
+    chunks = chunk_string(encoded, 50_000)
+
+    # First chunk creates/overwrites the staging file, rest append
+    [{first, :write} | rest] =
+      [{hd(chunks), :write} | Enum.map(tl(chunks), &{&1, :append})]
+
+    with {:ok, _} <-
+           exec_with_retry(sprite_name, "printf '%s' '#{first}' > #{path}.b64"),
+         {:ok, _} <- append_chunks(sprite_name, rest, path),
+         {:ok, _} <- exec_with_retry(sprite_name, "base64 -d #{path}.b64 > #{path}") do
+      {:ok, nil}
+    end
+  end
+
+  defp append_chunks(_sprite_name, [], _path), do: {:ok, nil}
+
+  defp append_chunks(sprite_name, [{chunk, :append} | rest], path) do
+    case exec_with_retry(sprite_name, "printf '%s' '#{chunk}' >> #{path}.b64") do
+      {:ok, _} -> append_chunks(sprite_name, rest, path)
+      err -> err
+    end
+  end
+
+  defp chunk_string(str, size) do
+    str
+    |> Stream.unfold(fn
+      "" -> nil
+      s -> String.split_at(s, size)
+    end)
+    |> Enum.to_list()
   end
 
   # ── Private: Retry Logic ─────────────────────────────────────────
