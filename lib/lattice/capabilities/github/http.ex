@@ -638,22 +638,30 @@ defmodule Lattice.Capabilities.GitHub.Http do
   @impl true
   def list_comments(number) do
     timed(:list_comments, fn ->
-      case api_get("/repos/#{repo()}/issues/#{number}/comments", per_page: 100) do
-        {:ok, comments} when is_list(comments) ->
-          {:ok,
-           Enum.map(comments, fn c ->
-             %{
-               id: c["id"],
-               body: c["body"] || "",
-               user: get_in(c, ["user", "login"]) || "unknown",
-               created_at: c["created_at"]
-             }
-           end)}
-
-        error ->
-          error
-      end
+      fetch_all_comments(number, 1, [])
     end)
+  end
+
+  defp fetch_all_comments(number, page, acc) do
+    case api_get("/repos/#{repo()}/issues/#{number}/comments", per_page: 100, page: page) do
+      {:ok, comments} when is_list(comments) ->
+        parsed = Enum.map(comments, &parse_comment/1)
+        all = acc ++ parsed
+
+        if length(comments) < 100, do: {:ok, all}, else: fetch_all_comments(number, page + 1, all)
+
+      error ->
+        if acc == [], do: error, else: {:ok, acc}
+    end
+  end
+
+  defp parse_comment(c) do
+    %{
+      id: c["id"],
+      body: c["body"] || "",
+      user: get_in(c, ["user", "login"]) || "unknown",
+      created_at: c["created_at"]
+    }
   end
 
   # ── Private: HTTP Helpers ──────────────────────────────────────────

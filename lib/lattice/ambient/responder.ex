@@ -463,10 +463,7 @@ defmodule Lattice.Ambient.Responder do
        when surface in [:issue, :pr_review, :pr_review_comment] and not is_nil(number) do
     case GitHub.list_comments(number) do
       {:ok, comments} ->
-        # Take last 10 comments for context window management
-        comments
-        |> Enum.take(-10)
-        |> Enum.map(fn c ->
+        Enum.map(comments, fn c ->
           %{user: c[:user] || c.user, body: c[:body] || c.body}
         end)
 
