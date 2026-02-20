@@ -399,7 +399,7 @@ defmodule Lattice.Events do
       %{event_type: event[:type], surface: event[:surface]}
     )
 
-    Phoenix.PubSub.broadcast(pubsub(), ambient_topic(), {:ambient_event, event})
+    Phoenix.PubSub.local_broadcast(pubsub(), ambient_topic(), {:ambient_event, event})
   end
 
   @doc "Broadcast a log line to a sprite's logs topic."

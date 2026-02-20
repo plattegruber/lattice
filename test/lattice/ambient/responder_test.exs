@@ -143,6 +143,7 @@ defmodule Lattice.Ambient.ResponderTest do
   describe "delegation task completion" do
     test "posts response and records cooldown on successful delegation" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 500, 42 -> :ok end)
       |> expect(:create_comment, fn number, body ->
         assert number == 42
         assert body =~ "The fleet manager explained"
@@ -165,9 +166,9 @@ defmodule Lattice.Ambient.ResponderTest do
       ref = make_ref()
       responder = Process.whereis(Responder)
 
-      # Inject the active task into state via sys
+      # Inject the active task into state via sys (new 3-tuple format with rocket_id)
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:delegate, event, 42})}
       end)
 
       # Send the task result message
@@ -181,6 +182,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "adds confused reaction on delegation failure" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 500, 42 -> :ok end)
       |> expect(:create_comment_reaction, fn 500, "confused" ->
         {:ok, %{id: 1, content: "confused"}}
       end)
@@ -200,7 +202,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:delegate, event, 42})}
       end)
 
       send(responder, {ref, {:error, :delegation_disabled}})
@@ -209,6 +211,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "adds confused reaction on delegation crash (DOWN message)" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 500, 42 -> :ok end)
       |> expect(:create_comment_reaction, fn 500, "confused" ->
         {:ok, %{id: 1, content: "confused"}}
       end)
@@ -229,7 +232,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:delegate, event, 42})}
       end)
 
       send(responder, {:DOWN, ref, :process, pid, :killed})
@@ -251,6 +254,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "creates PR and comments on issue on successful implementation" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_pull_request, fn attrs ->
         assert attrs.head == "lattice/issue-99-add-dark-mode"
         assert attrs.base == "main"
@@ -268,7 +272,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
       send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
@@ -281,6 +285,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "posts helpful comment when no changes produced" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_comment, fn 99, body ->
         assert body =~ "couldn't produce any code changes"
         assert body =~ "lattice:ambient:implement"
@@ -291,7 +296,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
       send(responder, {ref, {:error, :no_changes}})
@@ -300,6 +305,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "adds confused reaction and error comment on implementation failure" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_comment_reaction, fn 600, "confused" ->
         {:ok, %{id: 1, content: "confused"}}
       end)
@@ -313,7 +319,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
       send(responder, {ref, {:error, :sprite_error}})
@@ -322,6 +328,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "handles DOWN for implementation tasks" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_comment_reaction, fn 600, "confused" ->
         {:ok, %{id: 1, content: "confused"}}
       end)
@@ -331,7 +338,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
       send(responder, {:DOWN, ref, :process, pid, :killed})
@@ -340,6 +347,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
     test "comments with branch name when PR creation fails" do
       Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_pull_request, fn _attrs ->
         {:error, :validation_failed}
       end)
@@ -353,7 +361,7 @@ defmodule Lattice.Ambient.ResponderTest do
       responder = Process.whereis(Responder)
 
       :sys.replace_state(responder, fn state ->
-        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
       send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
