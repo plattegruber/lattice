@@ -33,12 +33,14 @@ defmodule Lattice.Ambient.Responder do
   require Logger
 
   alias Lattice.Ambient.Claude
+  alias Lattice.Ambient.SpriteDelegate
   alias Lattice.Capabilities.GitHub
   alias Lattice.Events
 
   defmodule State do
     @moduledoc false
     defstruct cooldowns: %{},
+              active_tasks: %{},
               bot_login: nil,
               cooldown_ms: 60_000,
               eyes_reaction: true
@@ -77,6 +79,37 @@ defmodule Lattice.Ambient.Responder do
     end
   end
 
+  # Task completion: sprite delegation returned a result
+  def handle_info({ref, result}, %State{active_tasks: tasks} = state)
+      when is_map_key(tasks, ref) do
+    Process.demonitor(ref, [:flush])
+    {event, tasks} = Map.pop(tasks, ref)
+    state = %{state | active_tasks: tasks}
+
+    case result do
+      {:ok, response_text} ->
+        Logger.info("Ambient: delegation succeeded for #{thread_key(event)}")
+        post_response(event, response_text)
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, reason} ->
+        Logger.warning("Ambient: delegation failed for #{thread_key(event)}: #{inspect(reason)}")
+        add_confused_reaction(event)
+        {:noreply, state}
+    end
+  end
+
+  # Task crash: sprite delegation process died
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{active_tasks: tasks} = state)
+      when is_map_key(tasks, ref) do
+    {event, tasks} = Map.pop(tasks, ref)
+    state = %{state | active_tasks: tasks}
+
+    Logger.error("Ambient: delegation crashed for #{thread_key(event)}: #{inspect(reason)}")
+    add_confused_reaction(event)
+    {:noreply, state}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # ── Private: Event Processing ───────────────────────────────────
@@ -98,16 +131,30 @@ defmodule Lattice.Ambient.Responder do
 
       # Step 3: Classify with Claude
       case Claude.classify(event, thread_context) do
+        {:ok, :delegate, _} ->
+          Logger.info("Ambient: classify=delegate on #{thread_key}")
+
+          task =
+            Task.Supervisor.async_nolink(
+              Lattice.Ambient.TaskSupervisor,
+              fn -> SpriteDelegate.handle(event, thread_context) end
+            )
+
+          put_in(state.active_tasks[task.ref], event)
+
         {:ok, :respond, response_text} ->
+          Logger.info("Ambient: classify=respond on #{thread_key}")
           post_response(event, response_text)
           record_cooldown(thread_key, state)
 
         {:ok, :react, _} ->
+          Logger.info("Ambient: classify=react on #{thread_key}")
           add_thumbsup_reaction(event)
           record_cooldown(thread_key, state)
 
         {:ok, :ignore, _} ->
-          Logger.debug("Ambient: ignoring event on #{thread_key}")
+          Logger.info("Ambient: classify=ignore on #{thread_key}")
+          add_thumbsup_reaction(event)
           state
 
         {:error, reason} ->
@@ -155,6 +202,25 @@ defmodule Lattice.Ambient.Responder do
   rescue
     e ->
       Logger.warning("Ambient: failed to add 👍 reaction: #{inspect(e)}")
+  end
+
+  defp add_confused_reaction(event) do
+    case reaction_target(event) do
+      {:comment, comment_id} ->
+        GitHub.create_comment_reaction(comment_id, "confused")
+
+      {:issue, number} ->
+        GitHub.create_issue_reaction(number, "confused")
+
+      {:review_comment, comment_id} ->
+        GitHub.create_review_comment_reaction(comment_id, "confused")
+
+      :none ->
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("Ambient: failed to add confused reaction: #{inspect(e)}")
   end
 
   defp reaction_target(%{type: :issue_comment, comment_id: id}) when not is_nil(id),

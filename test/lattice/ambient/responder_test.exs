@@ -10,6 +10,9 @@ defmodule Lattice.Ambient.ResponderTest do
   setup :verify_on_exit!
 
   setup do
+    # Start the TaskSupervisor (needed for delegation)
+    start_supervised!({Task.Supervisor, name: Lattice.Ambient.TaskSupervisor})
+
     # Start the responder for each test
     Application.put_env(:lattice, Lattice.Ambient.Responder,
       enabled: true,
@@ -48,10 +51,11 @@ defmodule Lattice.Ambient.ResponderTest do
 
   describe "cooldown" do
     test "processes first event, second within cooldown does not call list_comments again" do
-      # Claude returns :ignore (no API key), so after list_comments the flow ends.
+      # Claude returns :ignore (no API key), so after list_comments the flow ends with a 👍.
       # The second event on the same thread should be skipped entirely (no list_comments call).
       Lattice.Capabilities.MockGitHub
       |> expect(:list_comments, 1, fn _number -> {:ok, []} end)
+      |> expect(:create_comment_reaction, 1, fn _id, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
 
       event = %{
         type: :issue_comment,
@@ -78,6 +82,7 @@ defmodule Lattice.Ambient.ResponderTest do
     test "handles issue_comment events" do
       Lattice.Capabilities.MockGitHub
       |> expect(:list_comments, fn _number -> {:ok, []} end)
+      |> expect(:create_comment_reaction, fn _id, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
 
       event = %{
         type: :issue_comment,
@@ -97,6 +102,7 @@ defmodule Lattice.Ambient.ResponderTest do
     test "handles issue_opened events" do
       Lattice.Capabilities.MockGitHub
       |> expect(:list_comments, fn _number -> {:ok, []} end)
+      |> expect(:create_issue_reaction, fn _number, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
 
       event = %{
         type: :issue_opened,
@@ -116,6 +122,7 @@ defmodule Lattice.Ambient.ResponderTest do
     test "handles pr_review events" do
       Lattice.Capabilities.MockGitHub
       |> expect(:list_comments, fn _number -> {:ok, []} end)
+      |> expect(:create_comment_reaction, fn _id, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
 
       event = %{
         type: :pr_review,
@@ -129,6 +136,103 @@ defmodule Lattice.Ambient.ResponderTest do
       }
 
       send(Process.whereis(Responder), {:ambient_event, event})
+      Process.sleep(100)
+    end
+  end
+
+  describe "delegation task completion" do
+    test "posts response and records cooldown on successful delegation" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment, fn number, body ->
+        assert number == 42
+        assert body =~ "The fleet manager explained"
+        assert body =~ "lattice:ambient"
+        {:ok, %{id: 1}}
+      end)
+
+      event = %{
+        type: :issue_comment,
+        surface: :issue,
+        number: 42,
+        body: "How does the fleet manager work?",
+        title: "Question",
+        author: "dev",
+        comment_id: 500,
+        repo: "org/repo"
+      }
+
+      # Simulate: put a task ref in active_tasks, then send the result message
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      # Inject the active task into state via sys
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+      end)
+
+      # Send the task result message
+      send(responder, {ref, {:ok, "The fleet manager explained"}})
+      Process.sleep(100)
+
+      # Verify cooldown was recorded in state
+      state = :sys.get_state(responder)
+      assert Map.has_key?(state.cooldowns, "issue:42")
+    end
+
+    test "adds confused reaction on delegation failure" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment_reaction, fn 500, "confused" ->
+        {:ok, %{id: 1, content: "confused"}}
+      end)
+
+      event = %{
+        type: :issue_comment,
+        surface: :issue,
+        number: 42,
+        body: "How does the fleet manager work?",
+        title: "Question",
+        author: "dev",
+        comment_id: 500,
+        repo: "org/repo"
+      }
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+      end)
+
+      send(responder, {ref, {:error, :delegation_disabled}})
+      Process.sleep(100)
+    end
+
+    test "adds confused reaction on delegation crash (DOWN message)" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment_reaction, fn 500, "confused" ->
+        {:ok, %{id: 1, content: "confused"}}
+      end)
+
+      event = %{
+        type: :issue_comment,
+        surface: :issue,
+        number: 42,
+        body: "How does the fleet manager work?",
+        title: "Question",
+        author: "dev",
+        comment_id: 500,
+        repo: "org/repo"
+      }
+
+      ref = make_ref()
+      pid = spawn(fn -> :ok end)
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, event)}
+      end)
+
+      send(responder, {:DOWN, ref, :process, pid, :killed})
       Process.sleep(100)
     end
   end

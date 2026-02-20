@@ -21,14 +21,14 @@ defmodule Lattice.Ambient.Claude do
   @default_model "claude-sonnet-4-20250514"
   @max_tokens 1024
 
-  @type decision :: :respond | :react | :ignore
+  @type decision :: :respond | :react | :ignore | :delegate
   @type result :: {:ok, decision(), String.t() | nil} | {:error, term()}
 
   @doc """
   Classify a GitHub event and optionally generate a response.
 
   Returns `{:ok, :respond, "response text"}`, `{:ok, :react, nil}`,
-  `{:ok, :ignore, nil}`, or `{:error, reason}`.
+  `{:ok, :ignore, nil}`, `{:ok, :delegate, nil}`, or `{:error, reason}`.
 
   ## Parameters
 
@@ -68,14 +68,19 @@ defmodule Lattice.Ambient.Claude do
     You've received a new event from the repo you manage. Decide how to respond.
 
     Rules:
-    1. If the message asks a question, requests feedback, or warrants a thoughtful reply → respond with a comment
-    2. If the message is an acknowledgment, status update, or doesn't need a reply (e.g., "sounds good", "done", "merged") → react with thumbs-up
-    3. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
-    4. Consider the full conversation thread for context
-    5. Be helpful but concise. Don't be chatty or over-eager.
-    6. When responding, speak as a knowledgeable teammate, not a bot.
+    1. If the message asks about code, architecture, implementation details, bugs, specific files, \
+    or anything that would benefit from seeing the actual codebase → delegate (a repo-aware agent will answer)
+    2. If the message asks a general question, requests feedback on an idea, or warrants a thoughtful reply \
+    that does NOT require reading the codebase → respond with a comment
+    3. If the message is an acknowledgment, status update, or doesn't need a reply (e.g., "sounds good", "done", "merged") → react with thumbs-up
+    4. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
+    5. Consider the full conversation thread for context
+    6. Be helpful but concise. Don't be chatty or over-eager.
+    7. When responding, speak as a knowledgeable teammate, not a bot.
+    8. When in doubt about whether codebase context would help, prefer delegate over respond.
 
     You MUST respond with EXACTLY one of these formats:
+    - DECISION: delegate
     - DECISION: respond
       <your response text here>
     - DECISION: react
@@ -116,7 +121,7 @@ defmodule Lattice.Ambient.Claude do
   defp call_api(api_key, {system, user_content}) do
     model = config(:model, @default_model)
 
-    payload =
+    body =
       Jason.encode!(%{
         model: model,
         max_tokens: @max_tokens,
@@ -126,27 +131,22 @@ defmodule Lattice.Ambient.Claude do
         ]
       })
 
-    headers = [
-      {~c"x-api-key", String.to_charlist(api_key)},
-      {~c"anthropic-version", ~c"2023-06-01"},
-      {~c"content-type", ~c"application/json"}
-    ]
+    headers = %{
+      "x-api-key" => api_key,
+      "anthropic-version" => "2023-06-01",
+      "content-type" => "application/json"
+    }
 
-    request =
-      {String.to_charlist(@api_url), headers, ~c"application/json", String.to_charlist(payload)}
+    case Req.post(@api_url, body: body, headers: headers, receive_timeout: 60_000) do
+      {:ok, %Req.Response{status: 200, body: resp_body}} ->
+        parse_response(resp_body)
 
-    http_opts = [timeout: 60_000, connect_timeout: 10_000]
-
-    case :httpc.request(:post, request, http_opts, []) do
-      {:ok, {{_, 200, _}, _resp_headers, resp_body}} ->
-        parse_response(to_string(resp_body))
-
-      {:ok, {{_, 429, _}, _resp_headers, _resp_body}} ->
+      {:ok, %Req.Response{status: 429}} ->
         Logger.warning("Ambient Claude: rate limited")
         {:error, :rate_limited}
 
-      {:ok, {{_, status, _}, _resp_headers, resp_body}} ->
-        Logger.error("Ambient Claude: API error #{status}: #{to_string(resp_body)}")
+      {:ok, %Req.Response{status: status, body: resp_body}} ->
+        Logger.error("Ambient Claude: API error #{status}: #{inspect(resp_body)}")
         {:error, {:api_error, status}}
 
       {:error, reason} ->
@@ -155,22 +155,28 @@ defmodule Lattice.Ambient.Claude do
     end
   end
 
-  defp parse_response(body) do
+  defp parse_response(%{"content" => [%{"text" => text} | _]}) do
+    parse_decision(text)
+  end
+
+  defp parse_response(other) when is_map(other) do
+    Logger.error("Ambient Claude: unexpected response shape: #{inspect(other)}")
+    {:error, :unexpected_response}
+  end
+
+  defp parse_response(body) when is_binary(body) do
     case Jason.decode(body) do
-      {:ok, %{"content" => [%{"text" => text} | _]}} ->
-        parse_decision(text)
-
-      {:ok, other} ->
-        Logger.error("Ambient Claude: unexpected response shape: #{inspect(other)}")
-        {:error, :unexpected_response}
-
-      {:error, _} ->
-        {:error, :invalid_json}
+      {:ok, parsed} -> parse_response(parsed)
+      {:error, _} -> {:error, :invalid_json}
     end
   end
 
-  defp parse_decision(text) do
+  @doc false
+  def parse_decision(text) do
     cond do
+      String.contains?(text, "DECISION: delegate") ->
+        {:ok, :delegate, nil}
+
       String.contains?(text, "DECISION: respond") ->
         # Extract everything after "DECISION: respond\n"
         response =

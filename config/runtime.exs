@@ -66,6 +66,14 @@ capabilities =
 
 config :lattice, :capabilities, capabilities
 
+# GitHub App authentication (preferred over PAT)
+if System.get_env("GITHUB_APP_ID") do
+  config :lattice, Lattice.Capabilities.GitHub.AppAuth,
+    app_id: System.get_env("GITHUB_APP_ID"),
+    installation_id: System.get_env("GITHUB_APP_INSTALLATION_ID"),
+    private_key: System.get_env("GITHUB_APP_PRIVATE_KEY")
+end
+
 # Webhook secret for GitHub HMAC-SHA256 signature verification
 if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
   config :lattice, :webhooks,
@@ -84,6 +92,12 @@ if System.get_env("ANTHROPIC_API_KEY") do
   config :lattice, Lattice.Ambient.Claude,
     api_key: System.get_env("ANTHROPIC_API_KEY"),
     model: System.get_env("AMBIENT_MODEL", "claude-sonnet-4-20250514")
+
+  config :lattice, Lattice.Ambient.SpriteDelegate,
+    enabled: System.get_env("AMBIENT_DELEGATION", "false") == "true",
+    sprite_name: System.get_env("AMBIENT_SPRITE_NAME", "lattice-ambient"),
+    delegation_timeout_ms:
+      String.to_integer(System.get_env("AMBIENT_DELEGATION_TIMEOUT_MS", "120000"))
 end
 
 # Auth provider: Clerk is the default; the secret key is required for prod
