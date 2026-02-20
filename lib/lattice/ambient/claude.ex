@@ -114,11 +114,9 @@ defmodule Lattice.Ambient.Claude do
   defp format_thread([]), do: ""
 
   defp format_thread(comments) do
-    comments
-    |> Enum.map(fn c ->
+    Enum.map_join(comments, "\n\n", fn c ->
       "**#{c[:user] || "unknown"}**: #{c[:body] || ""}"
     end)
-    |> Enum.join("\n\n")
   end
 
   # ── Private: API Call ───────────────────────────────────────────

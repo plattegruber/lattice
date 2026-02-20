@@ -1,6 +1,9 @@
 defmodule Lattice.Capabilities.SecretStore.Test do
   use ExUnit.Case, async: true
 
+  alias Lattice.Capabilities.MockSecretStore
+  alias Lattice.Capabilities.SecretStore
+
   @moduletag :unit
 
   describe "MockSecretStore (Mox)" do
@@ -9,19 +12,19 @@ defmodule Lattice.Capabilities.SecretStore.Test do
     setup :verify_on_exit!
 
     test "returns a secret when expected" do
-      Lattice.Capabilities.MockSecretStore
+      MockSecretStore
       |> expect(:get_secret, fn "GITHUB_TOKEN" -> {:ok, "ghp_test_token"} end)
 
       assert {:ok, "ghp_test_token"} =
-               Lattice.Capabilities.SecretStore.get_secret("GITHUB_TOKEN")
+               SecretStore.get_secret("GITHUB_TOKEN")
     end
 
     test "returns error for an unknown secret" do
-      Lattice.Capabilities.MockSecretStore
+      MockSecretStore
       |> expect(:get_secret, fn "NONEXISTENT_KEY" -> {:error, {:not_found, "NONEXISTENT_KEY"}} end)
 
       assert {:error, {:not_found, "NONEXISTENT_KEY"}} =
-               Lattice.Capabilities.SecretStore.get_secret("NONEXISTENT_KEY")
+               SecretStore.get_secret("NONEXISTENT_KEY")
     end
   end
 

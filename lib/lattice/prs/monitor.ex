@@ -97,18 +97,21 @@ defmodule Lattice.PRs.Monitor do
   end
 
   defp check_pr(%PR{} = pr, state) do
-    with {:ok, new_review_state} <- fetch_review_state(pr) do
-      if new_review_state != pr.review_state do
-        Logger.info(
-          "PR ##{pr.number} (#{pr.repo}) review state changed: #{pr.review_state} -> #{new_review_state}"
-        )
+    with {:ok, new_review_state} <- fetch_review_state(pr),
+         true <- new_review_state != pr.review_state do
+      handle_review_state_change(pr, new_review_state, state)
+    end
+  end
 
-        Tracker.update_pr(pr.repo, pr.number, review_state: new_review_state)
+  defp handle_review_state_change(pr, new_review_state, state) do
+    Logger.info(
+      "PR ##{pr.number} (#{pr.repo}) review state changed: #{pr.review_state} -> #{new_review_state}"
+    )
 
-        if new_review_state == :changes_requested and state.auto_fixup do
-          propose_fixup(pr)
-        end
-      end
+    Tracker.update_pr(pr.repo, pr.number, review_state: new_review_state)
+
+    if new_review_state == :changes_requested and state.auto_fixup do
+      propose_fixup(pr)
     end
   end
 

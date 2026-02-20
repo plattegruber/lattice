@@ -61,18 +61,17 @@ defmodule Lattice.Policy.RepoProfile do
   @doc "List all repo profiles."
   @spec list() :: {:ok, [t()]}
   def list do
-    case MetadataStore.list(@namespace) do
-      {:ok, items} ->
-        profiles =
-          items
-          |> Enum.map(fn item ->
-            data = if is_map(item), do: item, else: %{}
-            from_map(data)
-          end)
-          |> Enum.sort_by(& &1.repo)
+    {:ok, items} = MetadataStore.list(@namespace)
 
-        {:ok, profiles}
-    end
+    profiles =
+      items
+      |> Enum.map(fn item ->
+        data = if is_map(item), do: item, else: %{}
+        from_map(data)
+      end)
+      |> Enum.sort_by(& &1.repo)
+
+    {:ok, profiles}
   end
 
   @doc "Delete a repo profile."
@@ -95,16 +94,19 @@ defmodule Lattice.Policy.RepoProfile do
   @doc false
   def from_map(data) when is_map(data) do
     %__MODULE__{
-      repo: data[:repo] || data["repo"],
-      test_commands: data[:test_commands] || data["test_commands"] || [],
-      branch_convention:
-        data[:branch_convention] || data["branch_convention"] || %{main: "main", pr_prefix: ""},
-      ci_checks: data[:ci_checks] || data["ci_checks"] || [],
-      risk_zones: data[:risk_zones] || data["risk_zones"] || [],
-      doc_paths: data[:doc_paths] || data["doc_paths"] || [],
-      auto_approve_paths: data[:auto_approve_paths] || data["auto_approve_paths"] || [],
-      settings: data[:settings] || data["settings"] || %{}
+      repo: get_field(data, :repo),
+      test_commands: get_field(data, :test_commands) || [],
+      branch_convention: get_field(data, :branch_convention) || %{main: "main", pr_prefix: ""},
+      ci_checks: get_field(data, :ci_checks) || [],
+      risk_zones: get_field(data, :risk_zones) || [],
+      doc_paths: get_field(data, :doc_paths) || [],
+      auto_approve_paths: get_field(data, :auto_approve_paths) || [],
+      settings: get_field(data, :settings) || %{}
     }
+  end
+
+  defp get_field(data, key) do
+    data[key] || data[to_string(key)]
   end
 
   @doc "Serialize a profile to a JSON-friendly map."

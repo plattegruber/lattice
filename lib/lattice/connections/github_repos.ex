@@ -28,22 +28,7 @@ defmodule Lattice.Connections.GitHubRepos do
 
     case :httpc.request(:get, {url, headers}, [timeout: 15_000], []) do
       {:ok, {{_, 200, _}, _headers, body}} ->
-        case Jason.decode(to_string(body)) do
-          {:ok, repos} when is_list(repos) ->
-            parsed =
-              Enum.map(repos, fn r ->
-                %{
-                  full_name: r["full_name"],
-                  private: r["private"],
-                  description: r["description"]
-                }
-              end)
-
-            {:ok, parsed}
-
-          _ ->
-            {:error, :invalid_response}
-        end
+        parse_repos_response(to_string(body))
 
       {:ok, {{_, 401, _}, _headers, _body}} ->
         {:error, :unauthorized}
@@ -54,6 +39,25 @@ defmodule Lattice.Connections.GitHubRepos do
 
       {:error, reason} ->
         {:error, {:request_failed, reason}}
+    end
+  end
+
+  defp parse_repos_response(body_str) do
+    case Jason.decode(body_str) do
+      {:ok, repos} when is_list(repos) ->
+        parsed =
+          Enum.map(repos, fn r ->
+            %{
+              full_name: r["full_name"],
+              private: r["private"],
+              description: r["description"]
+            }
+          end)
+
+        {:ok, parsed}
+
+      _ ->
+        {:error, :invalid_response}
     end
   end
 end

@@ -24,7 +24,7 @@ defmodule Lattice.Webhooks.GitHubAmbientTest do
           "labels" => []
         },
         "comment" => %{
-          "id" => 12345,
+          "id" => 12_345,
           "body" => "What do you think about this?"
         },
         "repository" => %{"full_name" => "org/repo"},
@@ -39,7 +39,7 @@ defmodule Lattice.Webhooks.GitHubAmbientTest do
       assert event.number == 10
       assert event.body == "What do you think about this?"
       assert event.author == "human-user"
-      assert event.comment_id == 12345
+      assert event.comment_id == 12_345
     end
 
     test "does not broadcast ambient event for bot comments" do
@@ -52,7 +52,7 @@ defmodule Lattice.Webhooks.GitHubAmbientTest do
           "labels" => []
         },
         "comment" => %{
-          "id" => 12345,
+          "id" => 12_345,
           "body" => "Auto-merged by bot"
         },
         "repository" => %{"full_name" => "org/repo"},

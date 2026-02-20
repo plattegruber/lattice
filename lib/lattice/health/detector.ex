@@ -137,30 +137,22 @@ defmodule Lattice.Health.Detector do
 
     auto_approve? = obs.severity == :critical
 
-    case Intent.new(:health_detect, source,
-           summary: summary,
-           payload: payload
-         ) do
-      {:ok, intent} ->
-        case Store.create(intent) do
-          {:ok, stored} ->
-            if auto_approve? do
-              # Walk through the state machine: proposed → classified → approved
-              Store.update(stored.id, %{state: :classified})
-              Store.update(stored.id, %{state: :approved, actor: "health_detector"})
-            end
+    with {:ok, intent} <-
+           Intent.new(:health_detect, source, summary: summary, payload: payload),
+         {:ok, stored} <- Store.create(intent) do
+      if auto_approve? do
+        # Walk through the state machine: proposed → classified → approved
+        Store.update(stored.id, %{state: :classified})
+        Store.update(stored.id, %{state: :approved, actor: "health_detector"})
+      end
 
-            Logger.info(
-              "Health detection intent created: #{intent.id} " <>
-                "(severity=#{obs.severity}, auto_approve=#{auto_approve?})"
-            )
-
-          {:error, reason} ->
-            Logger.warning("Failed to store health detection intent: #{inspect(reason)}")
-        end
-
+      Logger.info(
+        "Health detection intent created: #{intent.id} " <>
+          "(severity=#{obs.severity}, auto_approve=#{auto_approve?})"
+      )
+    else
       {:error, reason} ->
-        Logger.warning("Failed to create health detection intent: #{inspect(reason)}")
+        Logger.warning("Failed to create/store health detection intent: #{inspect(reason)}")
     end
   end
 

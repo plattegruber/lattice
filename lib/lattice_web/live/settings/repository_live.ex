@@ -8,10 +8,10 @@ defmodule LatticeWeb.Settings.RepositoryLive do
 
   use LatticeWeb, :live_view
 
+  alias Lattice.Auth.ClerkGitHub
   alias Lattice.Connections
   alias Lattice.Connections.GitHubRepos
   alias Lattice.Connections.WebhookSetup
-  alias Lattice.Auth.ClerkGitHub
 
   @impl true
   def mount(_params, session, socket) do

@@ -3,8 +3,8 @@ defmodule Lattice.Intents.KindTest do
 
   @moduletag :unit
 
-  alias Lattice.Intents.Kind
   alias Lattice.Intents.Intent
+  alias Lattice.Intents.Kind
 
   setup do
     Kind.init()

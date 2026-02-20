@@ -149,32 +149,20 @@ defmodule Lattice.Projects.Project do
   @spec add_task(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, t()} | {:error, term()}
   def add_task(project_id, epic_id, description, opts \\ []) do
-    case get(project_id) do
-      {:ok, project} ->
-        task = %{
-          id: generate_id(),
-          description: description,
-          intent_id: Keyword.get(opts, :intent_id),
-          status: :pending,
-          blocks: Keyword.get(opts, :blocks, []),
-          blocked_by: Keyword.get(opts, :blocked_by, [])
-        }
+    with {:ok, project} <- get(project_id) do
+      task = %{
+        id: generate_id(),
+        description: description,
+        intent_id: Keyword.get(opts, :intent_id),
+        status: :pending,
+        blocks: Keyword.get(opts, :blocks, []),
+        blocked_by: Keyword.get(opts, :blocked_by, [])
+      }
 
-        epics =
-          Enum.map(project.epics, fn epic ->
-            if epic.id == epic_id do
-              %{epic | tasks: epic.tasks ++ [task]}
-            else
-              epic
-            end
-          end)
-
-        updated = %{project | epics: epics, updated_at: DateTime.utc_now()}
-        save(updated)
-        {:ok, updated}
-
-      error ->
-        error
+      epics = append_task_to_epic(project.epics, epic_id, task)
+      updated = %{project | epics: epics, updated_at: DateTime.utc_now()}
+      save(updated)
+      {:ok, updated}
     end
   end
 
@@ -242,16 +230,26 @@ defmodule Lattice.Projects.Project do
 
   defp from_map(data) do
     %__MODULE__{
-      id: data[:id] || data["id"],
-      name: data[:name] || data["name"],
-      description: data[:description] || data["description"],
-      repo: data[:repo] || data["repo"],
-      seed_issue_url: data[:seed_issue_url] || data["seed_issue_url"],
-      epics: data[:epics] || data["epics"] || [],
-      metadata: data[:metadata] || data["metadata"] || %{},
-      created_at: data[:created_at] || data["created_at"],
-      updated_at: data[:updated_at] || data["updated_at"]
+      id: field(data, :id),
+      name: field(data, :name),
+      description: field(data, :description),
+      repo: field(data, :repo),
+      seed_issue_url: field(data, :seed_issue_url),
+      epics: field(data, :epics) || [],
+      metadata: field(data, :metadata) || %{},
+      created_at: field(data, :created_at),
+      updated_at: field(data, :updated_at)
     }
+  end
+
+  defp append_task_to_epic(epics, epic_id, task) do
+    Enum.map(epics, fn epic ->
+      if epic.id == epic_id, do: %{epic | tasks: epic.tasks ++ [task]}, else: epic
+    end)
+  end
+
+  defp field(data, key) do
+    data[key] || data[to_string(key)]
   end
 
   defp maybe_update(project, field, attrs) do

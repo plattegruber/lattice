@@ -245,45 +245,52 @@ defmodule Lattice.Intents.Executor.Task do
     pr_url = parse_pr_url(output)
     issue_number = Map.get(intent.payload, "issue_number")
 
-    if pr_url do
-      # Extract PR number from URL
-      pr_number =
-        case Regex.run(~r{/pull/(\d+)}, pr_url) do
-          [_, num] -> String.to_integer(num)
-          _ -> nil
-        end
+    pr_number = extract_pr_number(pr_url)
 
-      if pr_number do
-        # Register PR artifact
-        pr_link =
-          ArtifactLink.new(%{
-            intent_id: intent.id,
-            kind: :pull_request,
-            ref: pr_number,
-            url: pr_url,
-            role: :output
-          })
-
-        ArtifactRegistry.register(pr_link)
-
-        # Register bidirectional issue link if applicable
-        if issue_number do
-          issue_link =
-            ArtifactLink.new(%{
-              intent_id: intent.id,
-              kind: :issue,
-              ref: issue_number,
-              url: nil,
-              role: :input
-            })
-
-          ArtifactRegistry.register(issue_link)
-        end
-      end
+    if pr_url && pr_number do
+      register_pr_artifact(intent, pr_number, pr_url)
+      register_issue_artifact(intent, issue_number)
     end
   rescue
     error ->
       Logger.warning("Failed to register artifact links: #{inspect(error)}")
+  end
+
+  defp extract_pr_number(nil), do: nil
+
+  defp extract_pr_number(pr_url) do
+    case Regex.run(~r{/pull/(\d+)}, pr_url) do
+      [_, num] -> String.to_integer(num)
+      _ -> nil
+    end
+  end
+
+  defp register_pr_artifact(intent, pr_number, pr_url) do
+    pr_link =
+      ArtifactLink.new(%{
+        intent_id: intent.id,
+        kind: :pull_request,
+        ref: pr_number,
+        url: pr_url,
+        role: :output
+      })
+
+    ArtifactRegistry.register(pr_link)
+  end
+
+  defp register_issue_artifact(_intent, nil), do: :ok
+
+  defp register_issue_artifact(intent, issue_number) do
+    issue_link =
+      ArtifactLink.new(%{
+        intent_id: intent.id,
+        kind: :issue,
+        ref: issue_number,
+        url: nil,
+        role: :input
+      })
+
+    ArtifactRegistry.register(issue_link)
   end
 
   defp build_artifacts(output) when is_binary(output) do

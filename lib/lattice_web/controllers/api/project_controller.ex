@@ -5,8 +5,8 @@ defmodule LatticeWeb.Api.ProjectController do
 
   use LatticeWeb, :controller
 
-  alias Lattice.Projects.Project
   alias Lattice.Projects.Decomposer
+  alias Lattice.Projects.Project
 
   @doc "GET /api/projects — list all projects."
   def index(conn, _params) do

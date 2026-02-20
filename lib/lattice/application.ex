@@ -7,6 +7,7 @@ defmodule Lattice.Application do
 
   alias Lattice.Events.TelemetryHandler
   alias Lattice.Instance
+  alias Lattice.Intents.Kind
 
   @impl true
   def start(_type, _args) do
@@ -15,7 +16,7 @@ defmodule Lattice.Application do
     TelemetryHandler.attach()
 
     # Initialize the intent kind registry (ETS table for kind metadata)
-    Lattice.Intents.Kind.init()
+    Kind.init()
 
     # Validate resource bindings and log instance identity at boot.
     # In prod, missing bindings cause a crash (fail fast).

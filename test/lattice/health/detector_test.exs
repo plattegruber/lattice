@@ -3,10 +3,10 @@ defmodule Lattice.Health.DetectorTest do
 
   @moduletag :unit
 
+  alias Lattice.Events
   alias Lattice.Health.Detector
   alias Lattice.Intents.Observation
   alias Lattice.Intents.Store
-  alias Lattice.Events
 
   setup do
     # The Detector is started by application.ex; clear its history
@@ -32,7 +32,7 @@ defmodule Lattice.Health.DetectorTest do
 
       intents = elem(Store.list(), 1)
       health_intents = Enum.filter(intents, &(&1.kind == :health_detect))
-      assert length(health_intents) >= 1
+      assert health_intents != []
 
       intent = List.last(health_intents)
       assert intent.state == :approved
@@ -47,7 +47,7 @@ defmodule Lattice.Health.DetectorTest do
 
       intents = elem(Store.list(), 1)
       health_intents = Enum.filter(intents, &(&1.kind == :health_detect))
-      assert length(health_intents) >= 1
+      assert health_intents != []
 
       intent = List.last(health_intents)
       assert intent.state == :proposed
@@ -56,42 +56,42 @@ defmodule Lattice.Health.DetectorTest do
 
     test "does not create intent for medium observations" do
       before_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       obs = make_observation(severity: :medium)
       Events.broadcast_observation(obs)
       Process.sleep(50)
 
       after_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       assert after_count == before_count
     end
 
     test "does not create intent for low observations" do
       before_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       obs = make_observation(severity: :low)
       Events.broadcast_observation(obs)
       Process.sleep(50)
 
       after_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       assert after_count == before_count
     end
 
     test "does not create intent for info observations" do
       before_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       obs = make_observation(severity: :info)
       Events.broadcast_observation(obs)
       Process.sleep(50)
 
       after_count =
-        elem(Store.list(), 1) |> Enum.filter(&(&1.kind == :health_detect)) |> length()
+        elem(Store.list(), 1) |> Enum.count(&(&1.kind == :health_detect))
 
       assert after_count == before_count
     end
@@ -113,7 +113,7 @@ defmodule Lattice.Health.DetectorTest do
           i.kind == :health_detect and i.payload["sprite_id"] == "sprite-dedup"
         end)
 
-      assert length(intents) == 1
+      assert [_] = intents
     end
 
     test "allows observations from different sprites" do
@@ -137,8 +137,8 @@ defmodule Lattice.Health.DetectorTest do
           i.kind == :health_detect and i.payload["sprite_id"] == "sprite-b"
         end)
 
-      assert length(a_intents) >= 1
-      assert length(b_intents) >= 1
+      assert a_intents != []
+      assert b_intents != []
     end
   end
 

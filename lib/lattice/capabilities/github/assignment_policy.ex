@@ -51,33 +51,32 @@ defmodule Lattice.Capabilities.GitHub.AssignmentPolicy do
   """
   @spec auto_assign_governance(pos_integer(), atom()) :: :ok
   def auto_assign_governance(issue_number, classification) do
-    if assign_governance_issues?() do
-      case reviewer_for_classification(classification) do
-        nil ->
-          Logger.debug("No reviewer configured for classification #{classification}")
+    with true <- assign_governance_issues?(),
+         reviewer when not is_nil(reviewer) <- reviewer_for_classification(classification) do
+      case GitHub.assign_issue(issue_number, [reviewer]) do
+        {:ok, _} ->
+          :telemetry.execute(
+            [:lattice, :github, :assigned],
+            %{count: 1},
+            %{issue_number: issue_number, reviewer: reviewer, classification: classification}
+          )
+
           :ok
 
-        reviewer ->
-          case GitHub.assign_issue(issue_number, [reviewer]) do
-            {:ok, _} ->
-              :telemetry.execute(
-                [:lattice, :github, :assigned],
-                %{count: 1},
-                %{issue_number: issue_number, reviewer: reviewer, classification: classification}
-              )
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to assign issue ##{issue_number} to #{reviewer}: #{inspect(reason)}"
+          )
 
-              :ok
-
-            {:error, reason} ->
-              Logger.warning(
-                "Failed to assign issue ##{issue_number} to #{reviewer}: #{inspect(reason)}"
-              )
-
-              :ok
-          end
+          :ok
       end
     else
-      :ok
+      nil ->
+        Logger.debug("No reviewer configured for classification #{classification}")
+        :ok
+
+      _ ->
+        :ok
     end
   end
 
@@ -91,32 +90,27 @@ defmodule Lattice.Capabilities.GitHub.AssignmentPolicy do
   """
   @spec auto_request_review(pos_integer()) :: :ok
   def auto_request_review(pr_number) do
-    if request_pr_reviews?() do
-      case Keyword.get(config(), :default_reviewer) do
-        nil ->
+    with true <- request_pr_reviews?(),
+         reviewer when not is_nil(reviewer) <- Keyword.get(config(), :default_reviewer) do
+      case GitHub.request_review(pr_number, [reviewer]) do
+        :ok ->
+          :telemetry.execute(
+            [:lattice, :github, :review_requested],
+            %{count: 1},
+            %{pr_number: pr_number, reviewer: reviewer}
+          )
+
           :ok
 
-        reviewer ->
-          case GitHub.request_review(pr_number, [reviewer]) do
-            :ok ->
-              :telemetry.execute(
-                [:lattice, :github, :review_requested],
-                %{count: 1},
-                %{pr_number: pr_number, reviewer: reviewer}
-              )
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to request review on PR ##{pr_number} from #{reviewer}: #{inspect(reason)}"
+          )
 
-              :ok
-
-            {:error, reason} ->
-              Logger.warning(
-                "Failed to request review on PR ##{pr_number} from #{reviewer}: #{inspect(reason)}"
-              )
-
-              :ok
-          end
+          :ok
       end
     else
-      :ok
+      _ -> :ok
     end
   end
 

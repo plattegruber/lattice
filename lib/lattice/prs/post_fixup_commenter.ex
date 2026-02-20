@@ -51,23 +51,25 @@ defmodule Lattice.PRs.PostFixupCommenter do
     with {:ok, intent} <- Store.get(intent_id),
          true <- intent.kind == :pr_fixup,
          {:ok, pr_number} <- extract_pr_number(intent) do
-      comment_body = build_comment(run, intent)
-
-      case GitHub.create_comment(pr_number, comment_body) do
-        {:ok, _} ->
-          Logger.info("Posted fixup summary on PR ##{pr_number} for intent #{intent_id}")
-
-          # Update tracker review state back to pending after fixup
-          repo = extract_repo(intent)
-          if repo, do: Tracker.update_pr(repo, pr_number, review_state: :pending)
-
-        {:error, reason} ->
-          Logger.warning("Failed to post fixup comment on PR ##{pr_number}: #{inspect(reason)}")
-      end
+      post_fixup_comment(run, intent, pr_number, intent_id)
     else
       {:ok, _intent} -> :ok
       false -> :ok
       {:error, _} -> :ok
+    end
+  end
+
+  defp post_fixup_comment(run, intent, pr_number, intent_id) do
+    comment_body = build_comment(run, intent)
+
+    case GitHub.create_comment(pr_number, comment_body) do
+      {:ok, _} ->
+        Logger.info("Posted fixup summary on PR ##{pr_number} for intent #{intent_id}")
+        repo = extract_repo(intent)
+        if repo, do: Tracker.update_pr(repo, pr_number, review_state: :pending)
+
+      {:error, reason} ->
+        Logger.warning("Failed to post fixup comment on PR ##{pr_number}: #{inspect(reason)}")
     end
   end
 

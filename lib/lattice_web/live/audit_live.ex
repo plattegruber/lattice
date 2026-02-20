@@ -220,7 +220,7 @@ defmodule LatticeWeb.AuditLive do
   defp format_result(other), do: inspect(other)
 
   defp format_args([]), do: "-"
-  defp format_args(args), do: Enum.join(Enum.map(args, &inspect/1), ", ")
+  defp format_args(args), do: Enum.map_join(args, ", ", &inspect/1)
 
   defp classification_badge(:safe), do: "badge badge-success badge-sm"
   defp classification_badge(:controlled), do: "badge badge-warning badge-sm"

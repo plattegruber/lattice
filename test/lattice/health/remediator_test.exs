@@ -3,12 +3,12 @@ defmodule Lattice.Health.RemediatorTest do
 
   @moduletag :unit
 
+  alias Lattice.Events
   alias Lattice.Health.Detector
   alias Lattice.Health.Remediator
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Observation
   alias Lattice.Intents.Store
-  alias Lattice.Events
 
   setup do
     Detector.clear_history()
@@ -32,7 +32,7 @@ defmodule Lattice.Health.RemediatorTest do
 
       {:ok, intents} = Store.list()
       remediate_intents = Enum.filter(intents, &(&1.kind == :health_remediate))
-      assert length(remediate_intents) >= 1
+      assert remediate_intents != []
 
       remediate = List.last(remediate_intents)
       assert remediate.payload["remediation_type"] == "auto_fix"
@@ -168,7 +168,7 @@ defmodule Lattice.Health.RemediatorTest do
       Process.sleep(200)
 
       history = Remediator.history()
-      assert length(history) >= 1
+      assert history != []
 
       entry = List.first(history)
       assert is_binary(entry.detect_intent_id)

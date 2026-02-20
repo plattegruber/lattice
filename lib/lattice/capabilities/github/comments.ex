@@ -193,18 +193,7 @@ defmodule Lattice.Capabilities.GitHub.Comments do
   defp format_artifacts(%Intent{metadata: metadata}) when is_map(metadata) do
     case Map.get(metadata, :artifacts) do
       artifacts when is_list(artifacts) and artifacts != [] ->
-        items =
-          Enum.map_join(artifacts, "\n", fn artifact ->
-            label = Map.get(artifact, :label, Map.get(artifact, :type, "artifact"))
-            url = Map.get(artifact, :url)
-
-            if url do
-              "- [#{label}](#{url})"
-            else
-              "- #{label}"
-            end
-          end)
-
+        items = Enum.map_join(artifacts, "\n", &format_artifact_item/1)
         "### Artifacts\n\n#{items}\n\n"
 
       _ ->
@@ -213,4 +202,11 @@ defmodule Lattice.Capabilities.GitHub.Comments do
   end
 
   defp format_artifacts(_), do: ""
+
+  defp format_artifact_item(artifact) do
+    label = Map.get(artifact, :label, Map.get(artifact, :type, "artifact"))
+    url = Map.get(artifact, :url)
+
+    if url, do: "- [#{label}](#{url})", else: "- #{label}"
+  end
 end

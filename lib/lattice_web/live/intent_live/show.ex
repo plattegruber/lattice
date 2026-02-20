@@ -24,6 +24,7 @@ defmodule LatticeWeb.IntentLive.Show do
   alias Lattice.Capabilities.GitHub.ArtifactRegistry
   alias Lattice.Events
   alias Lattice.Intents.Intent
+  alias Lattice.Intents.Kind
   alias Lattice.Intents.Lifecycle
   alias Lattice.Intents.Pipeline
   alias Lattice.Intents.Store
@@ -1075,7 +1076,7 @@ defmodule LatticeWeb.IntentLive.Show do
   defp format_source(_), do: "unknown"
 
   defp format_kind(kind) do
-    case Lattice.Intents.Kind.description(kind) do
+    case Kind.description(kind) do
       {:ok, desc} -> desc
       {:error, _} -> kind |> to_string() |> String.replace("_", " ") |> String.capitalize()
     end

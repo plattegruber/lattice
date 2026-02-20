@@ -23,11 +23,11 @@ defmodule Lattice.Capabilities.GitHub.Http do
 
   require Logger
 
-  alias Lattice.Events
-  alias Lattice.Capabilities.GitHub.Review
-  alias Lattice.Capabilities.GitHub.ReviewComment
   alias Lattice.Capabilities.GitHub.Project
   alias Lattice.Capabilities.GitHub.ProjectItem
+  alias Lattice.Capabilities.GitHub.Review
+  alias Lattice.Capabilities.GitHub.ReviewComment
+  alias Lattice.Events
 
   @api_base "https://api.github.com"
   @graphql_url "https://api.github.com/graphql"
@@ -88,16 +88,19 @@ defmodule Lattice.Capabilities.GitHub.Http do
           {:ok, Enum.map(labels, fn l -> l["name"] end)}
 
         {:ok, _} ->
-          # Fetch current labels as fallback
-          case api_get("/repos/#{repo()}/issues/#{number}/labels") do
-            {:ok, labels} -> {:ok, Enum.map(labels, fn l -> l["name"] end)}
-            error -> error
-          end
+          fetch_label_names(number)
 
         error ->
           error
       end
     end)
+  end
+
+  defp fetch_label_names(number) do
+    case api_get("/repos/#{repo()}/issues/#{number}/labels") do
+      {:ok, labels} -> {:ok, Enum.map(labels, fn l -> l["name"] end)}
+      error -> error
+    end
   end
 
   @impl true
@@ -131,36 +134,34 @@ defmodule Lattice.Capabilities.GitHub.Http do
       end)
 
     timed(:list_issues, fn ->
-      case api_get("/repos/#{repo()}/issues", query) do
-        {:ok, items} when is_list(items) ->
-          # GitHub REST API returns PRs in issues endpoint — filter them out
-          issues = Enum.reject(items, fn i -> Map.has_key?(i, "pull_request") end)
-          {:ok, Enum.map(issues, &parse_issue_from_json/1)}
-
-        error ->
-          error
-      end
+      api_get("/repos/#{repo()}/issues", query)
+      |> parse_issues_response()
     end)
   end
 
   @impl true
   def get_issue(number) do
     timed(:get_issue, fn ->
-      case api_get("/repos/#{repo()}/issues/#{number}") do
-        {:ok, data} when is_map(data) ->
-          # Fetch comments separately since REST issues endpoint doesn't include them inline
-          comments =
-            case api_get("/repos/#{repo()}/issues/#{number}/comments") do
-              {:ok, c} when is_list(c) -> c
-              _ -> []
-            end
-
-          {:ok, parse_issue_from_json(Map.put(data, "comments_data", comments))}
-
-        error ->
-          error
+      with {:ok, data} when is_map(data) <- api_get("/repos/#{repo()}/issues/#{number}") do
+        comments = fetch_issue_comments(number)
+        {:ok, parse_issue_from_json(Map.put(data, "comments_data", comments))}
       end
     end)
+  end
+
+  defp parse_issues_response({:ok, items}) when is_list(items) do
+    # GitHub REST API returns PRs in issues endpoint — filter them out
+    issues = Enum.reject(items, fn i -> Map.has_key?(i, "pull_request") end)
+    {:ok, Enum.map(issues, &parse_issue_from_json/1)}
+  end
+
+  defp parse_issues_response(error), do: error
+
+  defp fetch_issue_comments(number) do
+    case api_get("/repos/#{repo()}/issues/#{number}/comments") do
+      {:ok, c} when is_list(c) -> c
+      _ -> []
+    end
   end
 
   # ── Pull Requests ──────────────────────────────────────────────────
@@ -256,16 +257,11 @@ defmodule Lattice.Capabilities.GitHub.Http do
   @impl true
   def create_branch(name, base) do
     timed(:create_branch, fn ->
-      # Resolve the base ref to a SHA
-      case api_get("/repos/#{repo()}/git/ref/heads/#{base}") do
-        {:ok, %{"object" => %{"sha" => sha}}} ->
-          case api_post("/repos/#{repo()}/git/refs", %{ref: "refs/heads/#{name}", sha: sha}) do
-            {:ok, _} -> {:ok, :ok}
-            error -> error
-          end
-
-        error ->
-          error
+      with {:ok, %{"object" => %{"sha" => sha}}} <-
+             api_get("/repos/#{repo()}/git/ref/heads/#{base}"),
+           {:ok, _} <-
+             api_post("/repos/#{repo()}/git/refs", %{ref: "refs/heads/#{name}", sha: sha}) do
+        {:ok, :ok}
       end
     end)
     |> case do
@@ -696,84 +692,91 @@ defmodule Lattice.Capabilities.GitHub.Http do
     if is_nil(token) or token == "" do
       {:error, :no_github_token}
     else
-      headers = [
-        {~c"authorization", ~c"Bearer #{token}"},
-        {~c"accept", ~c"application/vnd.github+json"},
-        {~c"x-github-api-version", ~c"2022-11-28"},
-        {~c"user-agent", ~c"Lattice/1.0"}
-      ]
-
-      body = Keyword.get(opts, :body)
-
-      request =
-        case {method, body} do
-          {:get, _} ->
-            {String.to_charlist(url), headers}
-
-          {:delete, nil} ->
-            {String.to_charlist(url), headers}
-
-          {:delete, body} ->
-            json = Jason.encode!(body)
-
-            {String.to_charlist(url), headers, ~c"application/json", json}
-
-          {_, body} ->
-            json = Jason.encode!(body)
-
-            {String.to_charlist(url), headers, ~c"application/json", json}
-        end
-
+      headers = api_headers(token)
+      request = build_request(method, url, headers, Keyword.get(opts, :body))
       http_opts = [timeout: 30_000, connect_timeout: 10_000]
 
       Logger.debug("GitHub HTTP #{method} #{url}")
 
-      case :httpc.request(method, request, http_opts, []) do
-        {:ok, {{_, status, _}, _resp_headers, resp_body}} when status in 200..299 ->
-          body_str = to_string(resp_body)
+      method
+      |> :httpc.request(request, http_opts, [])
+      |> handle_api_response()
+    end
+  end
 
-          if body_str == "" do
-            {:ok, %{}}
-          else
-            case Jason.decode(body_str) do
-              {:ok, decoded} -> {:ok, decoded}
-              {:error, _} -> {:error, {:invalid_json, body_str}}
-            end
-          end
+  defp api_headers(token) do
+    [
+      {~c"authorization", ~c"Bearer #{token}"},
+      {~c"accept", ~c"application/vnd.github+json"},
+      {~c"x-github-api-version", ~c"2022-11-28"},
+      {~c"user-agent", ~c"Lattice/1.0"}
+    ]
+  end
 
-        {:ok, {{_, 204, _}, _resp_headers, _resp_body}} ->
-          {:ok, %{}}
+  defp build_request(method, url, headers, _body) when method in [:get] do
+    {String.to_charlist(url), headers}
+  end
 
-        {:ok, {{_, 404, _}, _resp_headers, _resp_body}} ->
-          {:error, :not_found}
+  defp build_request(:delete, url, headers, nil) do
+    {String.to_charlist(url), headers}
+  end
 
-        {:ok, {{_, 401, _}, _resp_headers, _resp_body}} ->
-          {:error, :unauthorized}
+  defp build_request(_method, url, headers, body) do
+    json = Jason.encode!(body)
+    {String.to_charlist(url), headers, ~c"application/json", json}
+  end
 
-        {:ok, {{_, 403, _}, _resp_headers, resp_body}} ->
-          body_str = to_string(resp_body)
+  defp handle_api_response({:ok, {{_, status, _}, _resp_headers, resp_body}})
+       when status in 200..299 do
+    parse_json_body(to_string(resp_body))
+  end
 
-          if String.contains?(body_str, "rate limit") do
-            {:error, :rate_limited}
-          else
-            {:error, {:forbidden, body_str}}
-          end
+  defp handle_api_response({:ok, {{_, 204, _}, _resp_headers, _resp_body}}) do
+    {:ok, %{}}
+  end
 
-        {:ok, {{_, 422, _}, _resp_headers, resp_body}} ->
-          body_str = to_string(resp_body)
+  defp handle_api_response({:ok, {{_, 404, _}, _resp_headers, _resp_body}}) do
+    {:error, :not_found}
+  end
 
-          case Jason.decode(body_str) do
-            {:ok, data} -> {:error, {:validation_error, data}}
-            _ -> {:error, {:unprocessable, body_str}}
-          end
+  defp handle_api_response({:ok, {{_, 401, _}, _resp_headers, _resp_body}}) do
+    {:error, :unauthorized}
+  end
 
-        {:ok, {{_, status, _}, _resp_headers, resp_body}} ->
-          {:error, {:http_error, status, to_string(resp_body)}}
+  defp handle_api_response({:ok, {{_, 403, _}, _resp_headers, resp_body}}) do
+    body_str = to_string(resp_body)
 
-        {:error, reason} ->
-          Logger.error("GitHub HTTP request failed: #{inspect(reason)}")
-          {:error, {:request_failed, reason}}
-      end
+    if String.contains?(body_str, "rate limit") do
+      {:error, :rate_limited}
+    else
+      {:error, {:forbidden, body_str}}
+    end
+  end
+
+  defp handle_api_response({:ok, {{_, 422, _}, _resp_headers, resp_body}}) do
+    body_str = to_string(resp_body)
+
+    case Jason.decode(body_str) do
+      {:ok, data} -> {:error, {:validation_error, data}}
+      _ -> {:error, {:unprocessable, body_str}}
+    end
+  end
+
+  defp handle_api_response({:ok, {{_, status, _}, _resp_headers, resp_body}}) do
+    {:error, {:http_error, status, to_string(resp_body)}}
+  end
+
+  defp handle_api_response({:error, reason}) do
+    Logger.error("GitHub HTTP request failed: #{inspect(reason)}")
+    {:error, {:request_failed, reason}}
+  end
+
+  defp parse_json_body(""), do: {:ok, %{}}
+
+  defp parse_json_body(body_str) do
+    case Jason.decode(body_str) do
+      {:ok, decoded} -> {:ok, decoded}
+      {:error, _} -> {:error, {:invalid_json, body_str}}
     end
   end
 
@@ -797,20 +800,21 @@ defmodule Lattice.Capabilities.GitHub.Http do
 
       http_opts = [timeout: 30_000, connect_timeout: 10_000]
 
-      case :httpc.request(:post, request, http_opts, []) do
-        {:ok, {{_, 200, _}, _resp_headers, resp_body}} ->
-          case Jason.decode(to_string(resp_body)) do
-            {:ok, decoded} -> {:ok, decoded}
-            {:error, _} -> {:error, {:invalid_json, to_string(resp_body)}}
-          end
-
-        {:ok, {{_, status, _}, _resp_headers, resp_body}} ->
-          {:error, {:http_error, status, to_string(resp_body)}}
-
-        {:error, reason} ->
-          {:error, {:request_failed, reason}}
-      end
+      :httpc.request(:post, request, http_opts, [])
+      |> handle_graphql_response()
     end
+  end
+
+  defp handle_graphql_response({:ok, {{_, 200, _}, _resp_headers, resp_body}}) do
+    parse_json_body(to_string(resp_body))
+  end
+
+  defp handle_graphql_response({:ok, {{_, status, _}, _resp_headers, resp_body}}) do
+    {:error, {:http_error, status, to_string(resp_body)}}
+  end
+
+  defp handle_graphql_response({:error, reason}) do
+    {:error, {:request_failed, reason}}
   end
 
   # ── Private: Token Resolution ──────────────────────────────────────

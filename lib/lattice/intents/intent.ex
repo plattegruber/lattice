@@ -21,6 +21,8 @@ defmodule Lattice.Intents.Intent do
                            ↘ approved ──────────────────────────────↗
   """
 
+  alias Lattice.Intents.Kind
+
   @core_kinds [:action, :inquiry, :maintenance]
   @valid_source_types [:sprite, :agent, :cron, :operator, :webhook, :system]
 
@@ -247,7 +249,7 @@ defmodule Lattice.Intents.Intent do
   @doc "Returns all registered intent kinds (core + extended)."
   @spec registered_kinds() :: [kind()]
   def registered_kinds do
-    Lattice.Intents.Kind.registered()
+    Kind.registered()
   end
 
   @doc "Returns the list of valid source types."

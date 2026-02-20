@@ -3,8 +3,8 @@ defmodule Lattice.Health.SchedulerTest do
 
   @moduletag :unit
 
-  alias Lattice.Health.Scheduler
   alias Lattice.Events
+  alias Lattice.Health.Scheduler
   alias Lattice.Intents.Observation
 
   # The Scheduler is NOT started by the app in test (enabled: false).

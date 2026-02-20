@@ -6,6 +6,7 @@ defmodule Lattice.Intents.Executor.PrFixupTest do
   @moduletag :unit
 
   alias Lattice.Intents.Executor.PrFixup
+  alias Lattice.Intents.Executor.Router
   alias Lattice.Intents.Intent
 
   setup :verify_on_exit!
@@ -167,7 +168,7 @@ defmodule Lattice.Intents.Executor.PrFixupTest do
   describe "router integration" do
     test "router selects PrFixup for pr_fixup intents" do
       intent = pr_fixup_intent()
-      assert {:ok, PrFixup} = Lattice.Intents.Executor.Router.route(intent)
+      assert {:ok, PrFixup} = Router.route(intent)
     end
   end
 end

@@ -187,28 +187,32 @@ defmodule Lattice.PRs.Tracker do
           created_at: link.created_at
         )
 
-      key = {pr.repo, pr.number}
-
-      case :ets.lookup(@table, key) do
-        [{_key, _existing}] ->
-          :ok
-
-        [] ->
-          :ets.insert(@table, {key, pr})
-
-          if pr.intent_id do
-            :ets.insert(@by_intent_table, {pr.intent_id, {pr.repo, pr.number}})
-          end
-
-          emit_telemetry(:registered, pr)
-          broadcast(:pr_registered, pr)
-      end
+      insert_pr_if_new(pr)
     end
 
     {:noreply, state}
   end
 
   defp maybe_register_from_artifact(_link, state), do: {:noreply, state}
+
+  defp insert_pr_if_new(pr) do
+    key = {pr.repo, pr.number}
+
+    case :ets.lookup(@table, key) do
+      [{_key, _existing}] ->
+        :ok
+
+      [] ->
+        :ets.insert(@table, {key, pr})
+
+        if pr.intent_id do
+          :ets.insert(@by_intent_table, {pr.intent_id, {pr.repo, pr.number}})
+        end
+
+        emit_telemetry(:registered, pr)
+        broadcast(:pr_registered, pr)
+    end
+  end
 
   defp extract_repo(%{url: url}) when is_binary(url) do
     case Regex.run(~r{github\.com/([^/]+/[^/]+)/pull/}, url) do

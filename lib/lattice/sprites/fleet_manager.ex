@@ -478,51 +478,12 @@ defmodule Lattice.Sprites.FleetManager do
   end
 
   defp do_fleet_reconcile(%FleetState{} = state) do
-    start_time = System.monotonic_time(:millisecond)
     capability = sprites_capability()
 
     if capability && function_exported?(capability, :list_sprites, 0) do
       case capability.list_sprites() do
         {:ok, api_sprites} ->
-          api_ids = MapSet.new(api_sprites, fn s -> s[:id] || s["id"] end)
-          known_ids = MapSet.new(state.sprite_ids)
-
-          new_ids = MapSet.difference(api_ids, known_ids)
-          removed_ids = MapSet.difference(known_ids, api_ids)
-
-          # Start new sprites
-          added =
-            api_sprites
-            |> Enum.filter(fn s -> (s[:id] || s["id"]) in new_ids end)
-            |> Enum.map(&api_sprite_to_config/1)
-            |> Enum.map(&start_sprite(&1, state.supervisor))
-            |> Enum.filter(&match?({:ok, _}, &1))
-            |> Enum.map(fn {:ok, id} -> id end)
-
-          # Remove deleted sprites
-          Enum.each(removed_ids, fn id ->
-            case get_sprite_pid(id) do
-              {:ok, pid} -> DynamicSupervisor.terminate_child(state.supervisor, pid)
-              _ -> :ok
-            end
-
-            Lattice.Store.delete(:sprite_metadata, id)
-          end)
-
-          updated_ids =
-            (state.sprite_ids -- MapSet.to_list(removed_ids)) ++ added
-
-          duration = System.monotonic_time(:millisecond) - start_time
-          emit_fleet_reconcile_telemetry(length(added), MapSet.size(removed_ids), duration)
-
-          if added != [] or MapSet.size(removed_ids) > 0 do
-            new_state = %{state | sprite_ids: updated_ids}
-            broadcast_fleet_summary(new_state)
-            new_state
-          else
-            broadcast_fleet_summary(state)
-            state
-          end
+          apply_fleet_reconcile(state, api_sprites)
 
         {:error, _reason} ->
           broadcast_fleet_summary(state)
@@ -532,6 +493,51 @@ defmodule Lattice.Sprites.FleetManager do
       broadcast_fleet_summary(state)
       state
     end
+  end
+
+  defp apply_fleet_reconcile(%FleetState{} = state, api_sprites) do
+    start_time = System.monotonic_time(:millisecond)
+    api_ids = MapSet.new(api_sprites, fn s -> s[:id] || s["id"] end)
+    known_ids = MapSet.new(state.sprite_ids)
+
+    new_ids = MapSet.difference(api_ids, known_ids)
+    removed_ids = MapSet.difference(known_ids, api_ids)
+
+    added = start_new_sprites(api_sprites, new_ids, state.supervisor)
+    remove_stale_sprites(removed_ids, state.supervisor)
+
+    updated_ids = (state.sprite_ids -- MapSet.to_list(removed_ids)) ++ added
+    duration = System.monotonic_time(:millisecond) - start_time
+    emit_fleet_reconcile_telemetry(length(added), MapSet.size(removed_ids), duration)
+
+    if added != [] or MapSet.size(removed_ids) > 0 do
+      new_state = %{state | sprite_ids: updated_ids}
+      broadcast_fleet_summary(new_state)
+      new_state
+    else
+      broadcast_fleet_summary(state)
+      state
+    end
+  end
+
+  defp start_new_sprites(api_sprites, new_ids, supervisor) do
+    api_sprites
+    |> Enum.filter(fn s -> (s[:id] || s["id"]) in new_ids end)
+    |> Enum.map(&api_sprite_to_config/1)
+    |> Enum.map(&start_sprite(&1, supervisor))
+    |> Enum.filter(&match?({:ok, _}, &1))
+    |> Enum.map(fn {:ok, id} -> id end)
+  end
+
+  defp remove_stale_sprites(removed_ids, supervisor) do
+    Enum.each(removed_ids, fn id ->
+      case get_sprite_pid(id) do
+        {:ok, pid} -> DynamicSupervisor.terminate_child(supervisor, pid)
+        _ -> :ok
+      end
+
+      Lattice.Store.delete(:sprite_metadata, id)
+    end)
   end
 
   defp emit_fleet_reconcile_telemetry(added, removed, duration_ms) do

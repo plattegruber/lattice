@@ -190,29 +190,27 @@ defmodule Lattice.Intents.Executor.PrFixup do
 
   defp format_feedback_summary(%{raw_feedback: raw, action_items: items, by_file: by_file}) do
     parts = [raw]
-
-    file_parts =
-      Enum.map(by_file, fn {path, comments} ->
-        comment_text =
-          Enum.map_join(comments, "\n", fn c -> "  - #{c.body}" end)
-
-        "### #{path}\n#{comment_text}"
-      end)
-
-    item_parts =
-      case items do
-        [] ->
-          []
-
-        items ->
-          ["### Action Items"] ++
-            Enum.map(items, fn c ->
-              location = if c.path, do: " (#{c.path}:#{c.line})", else: ""
-              "- #{c.body}#{location}"
-            end)
-      end
+    file_parts = format_file_feedback(by_file)
+    item_parts = format_action_items(items)
 
     Enum.join(parts ++ file_parts ++ item_parts, "\n\n")
+  end
+
+  defp format_file_feedback(by_file) do
+    Enum.map(by_file, fn {path, comments} ->
+      comment_text = Enum.map_join(comments, "\n", fn c -> "  - #{c.body}" end)
+      "### #{path}\n#{comment_text}"
+    end)
+  end
+
+  defp format_action_items([]), do: []
+
+  defp format_action_items(items) do
+    ["### Action Items"] ++
+      Enum.map(items, fn c ->
+        location = if c.path, do: " (#{c.path}:#{c.line})", else: ""
+        "- #{c.body}#{location}"
+      end)
   end
 
   defp run_on_sprite(sprite_name, script) do

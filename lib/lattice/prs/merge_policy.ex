@@ -147,22 +147,10 @@ defmodule Lattice.PRs.MergePolicy do
   def try_auto_merge(%PR{} = pr) do
     p = policy()
 
-    unless p.auto_merge do
-      {:skipped, "auto_merge is disabled"}
-    else
+    if p.auto_merge do
       case evaluate(pr, p) do
         {:merge_ready, _pr} ->
-          Logger.info("Auto-merging PR ##{pr.number} (#{pr.repo}) via #{p.merge_method}")
-
-          case GitHub.merge_pull_request(pr.number, method: p.merge_method) do
-            {:ok, result} ->
-              Tracker.update_pr(pr.repo, pr.number, state: :merged)
-              {:ok, result}
-
-            {:error, reason} ->
-              Logger.warning("Auto-merge failed for PR ##{pr.number}: #{inspect(reason)}")
-              {:error, reason}
-          end
+          do_merge(pr, p)
 
         {:conflict, _pr} ->
           {:skipped, "PR has merge conflicts"}
@@ -170,6 +158,22 @@ defmodule Lattice.PRs.MergePolicy do
         {:not_ready, reasons} ->
           {:skipped, "conditions not met: #{Enum.join(reasons, ", ")}"}
       end
+    else
+      {:skipped, "auto_merge is disabled"}
+    end
+  end
+
+  defp do_merge(pr, p) do
+    Logger.info("Auto-merging PR ##{pr.number} (#{pr.repo}) via #{p.merge_method}")
+
+    case GitHub.merge_pull_request(pr.number, method: p.merge_method) do
+      {:ok, result} ->
+        Tracker.update_pr(pr.repo, pr.number, state: :merged)
+        {:ok, result}
+
+      {:error, reason} ->
+        Logger.warning("Auto-merge failed for PR ##{pr.number}: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 

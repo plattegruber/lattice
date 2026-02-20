@@ -29,6 +29,7 @@ defmodule Lattice.Intents.Pipeline do
   """
 
   alias Lattice.Intents.Intent
+  alias Lattice.Intents.Kind
   alias Lattice.Intents.Store
   alias Lattice.Policy.Rules
   alias Lattice.Safety.Action
@@ -105,18 +106,21 @@ defmodule Lattice.Intents.Pipeline do
           advance_to_awaiting_approval(intent_id)
 
         :no_match ->
-          case Gate.check(action) do
-            :allow ->
-              advance_to_approved(intent_id)
-
-            {:deny, :approval_required} ->
-              gate_approval_required(intent_id, intent)
-
-            {:deny, :action_not_permitted} ->
-              reject_not_permitted(intent_id)
-          end
+          apply_gate_decision(intent_id, intent, Gate.check(action))
       end
     end
+  end
+
+  defp apply_gate_decision(intent_id, _intent, :allow) do
+    advance_to_approved(intent_id)
+  end
+
+  defp apply_gate_decision(intent_id, intent, {:deny, :approval_required}) do
+    gate_approval_required(intent_id, intent)
+  end
+
+  defp apply_gate_decision(intent_id, _intent, {:deny, :action_not_permitted}) do
+    reject_not_permitted(intent_id)
   end
 
   @doc """
@@ -263,7 +267,7 @@ defmodule Lattice.Intents.Pipeline do
 
   def classify_intent(%Intent{kind: kind}) do
     # Extended kinds use their registered default classification
-    case Lattice.Intents.Kind.default_classification(kind) do
+    case Kind.default_classification(kind) do
       {:ok, classification} -> {:ok, classification}
       {:error, :unknown_kind} -> {:ok, :controlled}
     end

@@ -37,30 +37,25 @@ defmodule Lattice.Capabilities.GitHub.ProjectPolicy do
   """
   @spec auto_add_governance_issue(String.t()) :: :ok
   def auto_add_governance_issue(issue_node_id) do
-    if auto_add_governance_issues?() do
-      case default_project_id() do
-        nil ->
+    with true <- auto_add_governance_issues?(),
+         project_id when not is_nil(project_id) <- default_project_id() do
+      case GitHub.add_to_project(project_id, issue_node_id) do
+        {:ok, result} ->
+          :telemetry.execute(
+            [:lattice, :github, :project_item_added],
+            %{count: 1},
+            %{project_id: project_id, content_type: :issue}
+          )
+
+          Logger.debug("Added governance issue to project #{project_id}: #{inspect(result)}")
           :ok
 
-        project_id ->
-          case GitHub.add_to_project(project_id, issue_node_id) do
-            {:ok, result} ->
-              :telemetry.execute(
-                [:lattice, :github, :project_item_added],
-                %{count: 1},
-                %{project_id: project_id, content_type: :issue}
-              )
-
-              Logger.debug("Added governance issue to project #{project_id}: #{inspect(result)}")
-              :ok
-
-            {:error, reason} ->
-              Logger.warning("Failed to add governance issue to project: #{inspect(reason)}")
-              :ok
-          end
+        {:error, reason} ->
+          Logger.warning("Failed to add governance issue to project: #{inspect(reason)}")
+          :ok
       end
     else
-      :ok
+      _ -> :ok
     end
   end
 
@@ -74,29 +69,24 @@ defmodule Lattice.Capabilities.GitHub.ProjectPolicy do
   """
   @spec auto_add_output_pr(String.t()) :: :ok
   def auto_add_output_pr(pr_node_id) do
-    if auto_add_output_prs?() do
-      case default_project_id() do
-        nil ->
+    with true <- auto_add_output_prs?(),
+         project_id when not is_nil(project_id) <- default_project_id() do
+      case GitHub.add_to_project(project_id, pr_node_id) do
+        {:ok, _} ->
+          :telemetry.execute(
+            [:lattice, :github, :project_item_added],
+            %{count: 1},
+            %{project_id: project_id, content_type: :pull_request}
+          )
+
           :ok
 
-        project_id ->
-          case GitHub.add_to_project(project_id, pr_node_id) do
-            {:ok, _} ->
-              :telemetry.execute(
-                [:lattice, :github, :project_item_added],
-                %{count: 1},
-                %{project_id: project_id, content_type: :pull_request}
-              )
-
-              :ok
-
-            {:error, reason} ->
-              Logger.warning("Failed to add PR to project: #{inspect(reason)}")
-              :ok
-          end
+        {:error, reason} ->
+          Logger.warning("Failed to add PR to project: #{inspect(reason)}")
+          :ok
       end
     else
-      :ok
+      _ -> :ok
     end
   end
 

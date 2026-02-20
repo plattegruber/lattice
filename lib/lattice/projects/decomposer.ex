@@ -88,40 +88,35 @@ defmodule Lattice.Projects.Decomposer do
     lines = String.split(description, "\n")
 
     {sections, current_title, current_items} =
-      Enum.reduce(lines, {[], "General", []}, fn line, {sections, title, items} ->
-        cond do
-          # Section header
-          String.match?(line, ~r/^\#{2,3}\s/) ->
-            new_title = String.replace(line, ~r/^\#{2,3}\s+/, "") |> String.trim()
-
-            if items == [] do
-              {sections, new_title, []}
-            else
-              {sections ++ [{title, Enum.reverse(items)}], new_title, []}
-            end
-
-          # Checklist item
-          String.match?(line, ~r/^-\s+\[[ x]\]\s/) ->
-            item = Regex.replace(~r/^-\s+\[[ x]\]\s+/, line, "") |> String.trim()
-            {sections, title, [item | items]}
-
-          # Bullet point
-          String.match?(line, ~r/^[-*]\s/) ->
-            item = Regex.replace(~r/^[-*]\s+/, line, "") |> String.trim()
-            {sections, title, [item | items]}
-
-          true ->
-            {sections, title, items}
-        end
+      Enum.reduce(lines, {[], "General", []}, fn line, acc ->
+        classify_line(line, acc)
       end)
 
     # Don't forget the last section
-    if current_items == [] do
-      sections
-    else
-      sections ++ [{current_title, Enum.reverse(current_items)}]
+    finalize_section(sections, current_title, current_items)
+  end
+
+  defp classify_line(line, {sections, title, items}) do
+    cond do
+      String.match?(line, ~r/^\#{2,3}\s/) ->
+        new_title = String.replace(line, ~r/^\#{2,3}\s+/, "") |> String.trim()
+        {finalize_section(sections, title, items), new_title, []}
+
+      String.match?(line, ~r/^-\s+\[[ x]\]\s/) ->
+        item = Regex.replace(~r/^-\s+\[[ x]\]\s+/, line, "") |> String.trim()
+        {sections, title, [item | items]}
+
+      String.match?(line, ~r/^[-*]\s/) ->
+        item = Regex.replace(~r/^[-*]\s+/, line, "") |> String.trim()
+        {sections, title, [item | items]}
+
+      true ->
+        {sections, title, items}
     end
   end
+
+  defp finalize_section(sections, _title, []), do: sections
+  defp finalize_section(sections, title, items), do: sections ++ [{title, Enum.reverse(items)}]
 
   defp apply_sequential_dependencies(tasks) do
     task_ids = Enum.map(tasks, & &1.id)

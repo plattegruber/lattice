@@ -57,7 +57,7 @@ defmodule Lattice.Planning.DialogueTest do
 
       approach_q = Enum.find(questions, &(&1.category == :approach))
       assert approach_q != nil
-      assert length(approach_q.options) > 0
+      assert approach_q.options != []
     end
 
     test "generates risk question for intents with side effects" do
@@ -106,7 +106,7 @@ defmodule Lattice.Planning.DialogueTest do
       ]
 
       ctx = Dialogue.ask_questions("test-dialogue", questions)
-      assert length(ctx.exchanges) == 2
+      assert [_, _] = ctx.exchanges
     end
   end
 
@@ -120,7 +120,7 @@ defmodule Lattice.Planning.DialogueTest do
 
       assert {:ok, plan} = Dialogue.generate_plan(intent, ctx)
       assert plan.title =~ "Fix the login bug"
-      assert length(plan.steps) > 0
+      assert plan.steps != []
       assert plan.source == :system
     end
 

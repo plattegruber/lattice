@@ -82,20 +82,14 @@ defmodule Lattice.Intents.Store.Postgres do
 
   @impl true
   def update(id, changes) when is_binary(id) and is_map(changes) do
-    case Repo.get(Schema, id) do
-      nil ->
-        {:error, :not_found}
-
-      schema ->
-        intent = Schema.to_intent(schema)
-
-        with :ok <- check_immutability(intent, changes) do
-          if Map.has_key?(changes, :state) do
-            apply_transition(schema, intent, changes)
-          else
-            apply_field_updates(schema, intent, changes)
-          end
-        end
+    with {:ok, schema} <- fetch_schema(id),
+         intent = Schema.to_intent(schema),
+         :ok <- check_immutability(intent, changes) do
+      if Map.has_key?(changes, :state) do
+        apply_transition(schema, intent, changes)
+      else
+        apply_field_updates(schema, intent, changes)
+      end
     end
   end
 
@@ -138,32 +132,16 @@ defmodule Lattice.Intents.Store.Postgres do
   @impl true
   def update_plan_step(intent_id, step_id, status, output \\ nil)
       when is_binary(intent_id) and is_binary(step_id) and is_atom(status) do
-    case Repo.get(Schema, intent_id) do
-      nil ->
-        {:error, :not_found}
+    with {:ok, schema} <- fetch_schema(intent_id),
+         intent = Schema.to_intent(schema),
+         {:ok, plan} <- require_plan(intent),
+         {:ok, updated_plan} <- Plan.update_step_status(plan, step_id, status, output) do
+      changeset = Ecto.Changeset.change(schema, plan: Plan.to_map(updated_plan))
 
-      schema ->
-        intent = Schema.to_intent(schema)
-
-        case intent.plan do
-          nil ->
-            {:error, :no_plan}
-
-          plan ->
-            case Plan.update_step_status(plan, step_id, status, output) do
-              {:ok, updated_plan} ->
-                changeset =
-                  Ecto.Changeset.change(schema, plan: Plan.to_map(updated_plan))
-
-                case Repo.update(changeset) do
-                  {:ok, updated} -> {:ok, Schema.to_intent(updated)}
-                  {:error, _} = error -> error
-                end
-
-              {:error, _} = error ->
-                error
-            end
-        end
+      case Repo.update(changeset) do
+        {:ok, updated} -> {:ok, Schema.to_intent(updated)}
+        {:error, _} = error -> error
+      end
     end
   end
 
@@ -248,6 +226,20 @@ defmodule Lattice.Intents.Store.Postgres do
       {:until, until_dt}, q -> where(q, [i], i.inserted_at <= ^until_dt)
       _, q -> q
     end)
+  end
+
+  defp fetch_schema(id) do
+    case Repo.get(Schema, id) do
+      nil -> {:error, :not_found}
+      schema -> {:ok, schema}
+    end
+  end
+
+  defp require_plan(intent) do
+    case intent.plan do
+      nil -> {:error, :no_plan}
+      plan -> {:ok, plan}
+    end
   end
 
   # ── Private: Helpers ───────────────────────────────────────────────
