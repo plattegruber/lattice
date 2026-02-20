@@ -146,6 +146,17 @@ defmodule Lattice.Ambient.SpriteDelegate do
         ""
       end
 
+    context_section =
+      if event[:context_body] && event[:context_body] != "" do
+        """
+        ## Issue/PR description:
+        #{event[:context_body]}
+
+        """
+      else
+        ""
+      end
+
     """
     You are helping answer a question about this codebase. You have full access to the repo.
 
@@ -154,8 +165,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
     Author: #{event[:author]}
     Surface: #{event[:surface]}
     Number: #{event[:number]}
+    Title: #{event[:title]}
 
-    Message:
+    #{context_section}Message:
     #{event[:body]}
 
     Instructions:

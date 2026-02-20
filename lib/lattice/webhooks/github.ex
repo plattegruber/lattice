@@ -339,6 +339,7 @@ defmodule Lattice.Webhooks.GitHub do
       number: Map.get(issue, "number"),
       body: Map.get(comment, "body", ""),
       title: Map.get(issue, "title", ""),
+      context_body: Map.get(issue, "body", ""),
       author: sender,
       comment_id: Map.get(comment, "id"),
       repo: get_in(payload, ["repository", "full_name"]) || "unknown"
@@ -355,6 +356,7 @@ defmodule Lattice.Webhooks.GitHub do
       number: Map.get(pr, "number"),
       body: Map.get(review, "body", ""),
       title: Map.get(pr, "title", ""),
+      context_body: Map.get(pr, "body", ""),
       author: sender,
       comment_id: Map.get(review, "id"),
       repo: get_in(payload, ["repository", "full_name"]) || "unknown"
@@ -371,6 +373,7 @@ defmodule Lattice.Webhooks.GitHub do
       number: Map.get(pr, "number"),
       body: Map.get(comment, "body", ""),
       title: Map.get(pr, "title", ""),
+      context_body: Map.get(pr, "body", ""),
       author: sender,
       comment_id: Map.get(comment, "id"),
       repo: get_in(payload, ["repository", "full_name"]) || "unknown"
