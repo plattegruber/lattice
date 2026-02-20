@@ -140,6 +140,15 @@ defmodule Lattice.Capabilities.GitHub do
   @callback create_review_comment_reaction(integer(), String.t()) ::
               {:ok, map()} | {:error, term()}
 
+  @doc "Delete a reaction from an issue comment."
+  @callback delete_comment_reaction(integer(), integer()) :: :ok | {:error, term()}
+
+  @doc "Delete a reaction from an issue or PR (top-level body)."
+  @callback delete_issue_reaction(issue_number(), integer()) :: :ok | {:error, term()}
+
+  @doc "Delete a reaction from a pull request review comment."
+  @callback delete_review_comment_reaction(integer(), integer()) :: :ok | {:error, term()}
+
   @doc "List comments on an issue or PR."
   @callback list_comments(issue_number()) :: {:ok, [comment()]} | {:error, term()}
 
@@ -234,6 +243,18 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "Add a reaction to a pull request review comment."
   def create_review_comment_reaction(comment_id, reaction),
     do: impl().create_review_comment_reaction(comment_id, reaction)
+
+  @doc "Delete a reaction from an issue comment."
+  def delete_comment_reaction(comment_id, reaction_id),
+    do: impl().delete_comment_reaction(comment_id, reaction_id)
+
+  @doc "Delete a reaction from an issue or PR (top-level body)."
+  def delete_issue_reaction(number, reaction_id),
+    do: impl().delete_issue_reaction(number, reaction_id)
+
+  @doc "Delete a reaction from a pull request review comment."
+  def delete_review_comment_reaction(comment_id, reaction_id),
+    do: impl().delete_review_comment_reaction(comment_id, reaction_id)
 
   @doc "List comments on an issue or PR."
   def list_comments(number), do: impl().list_comments(number)
