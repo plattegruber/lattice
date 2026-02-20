@@ -236,4 +236,128 @@ defmodule Lattice.Ambient.ResponderTest do
       Process.sleep(100)
     end
   end
+
+  describe "implementation task completion" do
+    @impl_event %{
+      type: :issue_comment,
+      surface: :issue,
+      number: 99,
+      body: "implement this",
+      title: "Add dark mode",
+      author: "dev",
+      comment_id: 600,
+      repo: "org/repo"
+    }
+
+    test "creates PR and comments on issue on successful implementation" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_pull_request, fn attrs ->
+        assert attrs.head == "lattice/issue-99-add-dark-mode"
+        assert attrs.base == "main"
+        assert attrs.title =~ "Fix #99"
+        assert attrs.body =~ "Closes #99"
+        {:ok, %{number: 101, html_url: "https://github.com/org/repo/pull/101"}}
+      end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "PR #101"
+        assert body =~ "lattice:ambient:implement"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+      end)
+
+      send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
+      Process.sleep(100)
+
+      # Verify cooldown was recorded
+      state = :sys.get_state(responder)
+      assert Map.has_key?(state.cooldowns, "issue:99")
+    end
+
+    test "posts helpful comment when no changes produced" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "couldn't produce any code changes"
+        assert body =~ "lattice:ambient:implement"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+      end)
+
+      send(responder, {ref, {:error, :no_changes}})
+      Process.sleep(100)
+    end
+
+    test "adds confused reaction and error comment on implementation failure" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment_reaction, fn 600, "confused" ->
+        {:ok, %{id: 1, content: "confused"}}
+      end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "ran into an issue"
+        assert body =~ "sprite_error"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+      end)
+
+      send(responder, {ref, {:error, :sprite_error}})
+      Process.sleep(100)
+    end
+
+    test "handles DOWN for implementation tasks" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_comment_reaction, fn 600, "confused" ->
+        {:ok, %{id: 1, content: "confused"}}
+      end)
+
+      ref = make_ref()
+      pid = spawn(fn -> :ok end)
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+      end)
+
+      send(responder, {:DOWN, ref, :process, pid, :killed})
+      Process.sleep(100)
+    end
+
+    test "comments with branch name when PR creation fails" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:create_pull_request, fn _attrs ->
+        {:error, :validation_failed}
+      end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "lattice/issue-99-add-dark-mode"
+        assert body =~ "PR creation failed"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event})}
+      end)
+
+      send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
+      Process.sleep(100)
+    end
+  end
 end

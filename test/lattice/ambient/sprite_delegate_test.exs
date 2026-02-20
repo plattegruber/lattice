@@ -160,4 +160,118 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       assert {:error, :empty_response} = SpriteDelegate.handle(@event, [])
     end
   end
+
+  describe "handle_implementation/2 when disabled" do
+    test "returns error when delegation is disabled" do
+      Application.put_env(:lattice, SpriteDelegate, enabled: false)
+
+      assert {:error, :delegation_disabled} = SpriteDelegate.handle_implementation(@event, [])
+    end
+  end
+
+  describe "handle_implementation/2 full flow" do
+    @impl_event %{
+      type: :issue_comment,
+      surface: :issue,
+      number: 55,
+      body: "implement this",
+      title: "Add dark mode support",
+      author: "contributor",
+      comment_id: 200,
+      repo: "org/repo"
+    }
+
+    setup do
+      Application.put_env(:lattice, SpriteDelegate,
+        enabled: true,
+        sprite_name: "test-ambient",
+        delegation_timeout_ms: 60_000,
+        implementation_timeout_ms: 300_000
+      )
+
+      Application.put_env(:lattice, :resources, github_repo: "plattegruber/lattice")
+
+      :ok
+    end
+
+    test "creates branch, runs claude, commits and pushes" do
+      Lattice.Capabilities.MockSprites
+      # ensure_sprite — sprite exists, pulls latest
+      |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git pull"
+        {:ok, %{output: "Already up to date.", exit_code: 0}}
+      end)
+      # create_and_checkout_branch
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git checkout main"
+        assert cmd =~ "git checkout -b lattice/issue-55-add-dark-mode-support"
+        {:ok, %{output: "Switched to new branch", exit_code: 0}}
+      end)
+      # run_implementation — write prompt
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "cat > /tmp/implement_prompt.txt"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # run_implementation — run claude
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "claude -p"
+        assert cmd =~ "ANTHROPIC_API_KEY="
+        {:ok, %{output: "Done implementing.", exit_code: 0}}
+      end)
+      # commit_and_push — git add
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git add -A"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # commit_and_push — git diff --cached --quiet (exit 1 = changes exist)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git diff --cached --quiet"
+        {:ok, %{exit_code: 1, output: ""}}
+      end)
+      # commit_and_push — git commit
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git commit"
+        assert cmd =~ "lattice: implement #55"
+        {:ok, %{output: "1 file changed", exit_code: 0}}
+      end)
+      # commit_and_push — git push
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git push"
+        assert cmd =~ "x-access-token"
+        assert cmd =~ "lattice/issue-55-add-dark-mode-support"
+        {:ok, %{output: "Branch pushed", exit_code: 0}}
+      end)
+
+      assert {:ok, branch} = SpriteDelegate.handle_implementation(@impl_event, [])
+      assert branch == "lattice/issue-55-add-dark-mode-support"
+    end
+
+    test "returns :no_changes when git diff detects nothing staged" do
+      Lattice.Capabilities.MockSprites
+      |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Already up to date.", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Switched to new branch", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "No changes needed.", exit_code: 0}}
+      end)
+      # git add -A
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # git diff --cached --quiet — exit 0 means no changes
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{exit_code: 0, output: ""}}
+      end)
+
+      assert {:error, :no_changes} = SpriteDelegate.handle_implementation(@impl_event, [])
+    end
+  end
 end

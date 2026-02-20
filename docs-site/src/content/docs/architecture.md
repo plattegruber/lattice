@@ -69,7 +69,9 @@ Application Supervisor
 ├── Lattice.Intents.Governance.Listener (watches for approved intents)
 ├── Lattice.Sprites.Registry           (process registry)
 ├── Lattice.Sprites.DynamicSupervisor  (sprite supervisor)
-└── Lattice.Sprites.FleetManager       (fleet coordinator)
+├── Lattice.Sprites.FleetManager       (fleet coordinator)
+├── Lattice.Ambient.TaskSupervisor     (async tasks for ambient responses)
+└── Lattice.Ambient.Responder          (GitHub event classifier + responder)
 ```
 
 ## Event Infrastructure
@@ -104,6 +106,7 @@ Phoenix PubSub provides real-time broadcast to LiveView subscribers:
 | `"intents:<intent_id>"` | Specific intent transitions |
 | `"safety:audit"` | Audit entries |
 | `"observations:all"` | Sprite observations |
+| `"ambient:github"` | GitHub events for ambient classification + response |
 
 ## Capability Modules
 
