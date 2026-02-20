@@ -13,6 +13,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   alias Lattice.Capabilities.Sprites
 
+  @max_retries 2
+  @retry_delay_ms 3_000
+
   @doc """
   Handle a delegated event by running Claude Code on a sprite with repo context.
 
@@ -41,14 +44,14 @@ defmodule Lattice.Ambient.SpriteDelegate do
     case Sprites.get_sprite(name) do
       {:ok, _sprite} ->
         Logger.info("SpriteDelegate: sprite #{name} exists, pulling latest")
-        Sprites.exec(name, "cd #{work_dir} && git pull --ff-only 2>&1 || true")
+        exec_with_retry(name, "cd #{work_dir} && git pull --ff-only 2>&1 || true")
         {:ok, name}
 
       {:error, not_found} when not_found == :not_found or elem(not_found, 0) == :not_found ->
         Logger.info("SpriteDelegate: creating sprite #{name}")
 
         with {:ok, _} <- Sprites.create_sprite(name, []),
-             {:ok, _} <- Sprites.exec(name, "git clone #{repo_url} #{work_dir} 2>&1") do
+             {:ok, _} <- exec_with_retry(name, "git clone #{repo_url} #{work_dir} 2>&1") do
           {:ok, name}
         else
           {:error, reason} = err ->
@@ -72,13 +75,14 @@ defmodule Lattice.Ambient.SpriteDelegate do
     # Write prompt to a temp file on the sprite to avoid shell escaping issues
     write_cmd = "cat > /tmp/ambient_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
 
-    with {:ok, _} <- Sprites.exec(sprite_name, write_cmd),
+    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd),
          {:ok, result} <-
-           Sprites.exec(
+           exec_with_retry(
              sprite_name,
              "cd #{work_dir} && timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
            ) do
       output = result[:output] || result.output || ""
+      Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes, exit_code=#{result[:exit_code]}")
 
       if String.trim(output) == "" do
         {:error, :empty_response}
@@ -91,6 +95,39 @@ defmodule Lattice.Ambient.SpriteDelegate do
         err
     end
   end
+
+  # ── Private: Retry Logic ─────────────────────────────────────────
+
+  defp exec_with_retry(sprite_name, command, attempt \\ 0) do
+    case Sprites.exec(sprite_name, command) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} = err ->
+        if attempt < @max_retries and retryable?(reason) do
+          Logger.warning(
+            "SpriteDelegate: exec failed (attempt #{attempt + 1}/#{@max_retries + 1}), " <>
+              "retrying in #{@retry_delay_ms}ms: #{inspect(reason)}"
+          )
+
+          Process.sleep(@retry_delay_ms)
+          exec_with_retry(sprite_name, command, attempt + 1)
+        else
+          Logger.error(
+            "SpriteDelegate: exec failed permanently after #{attempt + 1} attempt(s): #{inspect(reason)}"
+          )
+
+          err
+        end
+    end
+  end
+
+  defp retryable?({:request_failed, _}), do: true
+  defp retryable?(:timeout), do: true
+  defp retryable?(:rate_limited), do: true
+  defp retryable?(_), do: false
+
+  # ── Private: Prompt ──────────────────────────────────────────────
 
   defp build_prompt(event, thread_context) do
     thread_text =
