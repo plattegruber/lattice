@@ -7,10 +7,21 @@ defmodule Lattice.Ambient.SpriteDelegate do
   `claude -p` to generate a context-aware answer.
 
   Stateless — called from a Task spawned by the Responder.
+
+  ## Implementation Flow
+
+  When the classifier returns `:implement`, `handle_implementation/2` is called:
+
+  1. Ensure the sprite exists (create or git pull)
+  2. Check out a new branch: `lattice/issue-{N}-{slug}`
+  3. Run `claude -p` in agentic mode to make code changes
+  4. Commit and push the branch using a GitHub App token
+  5. Return `{:ok, branch_name}` for the Responder to create the PR
   """
 
   require Logger
 
+  alias Lattice.Capabilities.GitHub.AppAuth
   alias Lattice.Capabilities.Sprites
 
   @max_retries 2
@@ -33,6 +44,190 @@ defmodule Lattice.Ambient.SpriteDelegate do
       end
     end
   end
+
+  @doc """
+  Handle an implementation request by creating a branch, running Claude Code
+  in agentic mode, and pushing the result.
+
+  Returns `{:ok, branch_name}` on success, `{:error, :no_changes}` if Claude
+  made no modifications, or `{:error, reason}` on failure.
+  """
+  @spec handle_implementation(event :: map(), thread_context :: [map()]) ::
+          {:ok, String.t()} | {:error, term()}
+  def handle_implementation(event, thread_context) do
+    if enabled?() do
+      branch_name = build_branch_name(event)
+
+      with {:ok, sprite_name} <- ensure_sprite(),
+           :ok <- create_and_checkout_branch(sprite_name, branch_name),
+           :ok <- run_implementation(sprite_name, event, thread_context),
+           :ok <- commit_and_push(sprite_name, branch_name, event) do
+        {:ok, branch_name}
+      end
+    else
+      Logger.warning("SpriteDelegate: delegation disabled, cannot implement")
+      {:error, :delegation_disabled}
+    end
+  end
+
+  # ── Private: Implementation Helpers ────────────────────────────────
+
+  defp create_and_checkout_branch(sprite_name, branch_name) do
+    work_dir = work_dir()
+
+    cmd =
+      "cd #{work_dir} && git checkout main && git pull --ff-only 2>&1 && git checkout -b #{branch_name} 2>&1"
+
+    case exec_with_retry(sprite_name, cmd) do
+      {:ok, _} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  defp run_implementation(sprite_name, event, thread_context) do
+    prompt = build_implementation_prompt(event, thread_context)
+    work_dir = work_dir()
+    timeout = implementation_timeout_ms()
+
+    write_cmd =
+      "cat > /tmp/implement_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
+
+    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd),
+         {:ok, _} <-
+           exec_with_retry(
+             sprite_name,
+             "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
+           ) do
+      :ok
+    else
+      {:error, _} = err -> err
+    end
+  end
+
+  defp commit_and_push(sprite_name, branch_name, event) do
+    work_dir = work_dir()
+    number = event[:number]
+
+    with {:ok, _} <- exec_with_retry(sprite_name, "cd #{work_dir} && git add -A 2>&1"),
+         :ok <- check_staged_changes(sprite_name, work_dir, number) do
+      do_commit_and_push(sprite_name, work_dir, branch_name, event)
+    end
+  end
+
+  defp check_staged_changes(sprite_name, work_dir, number) do
+    case Sprites.exec(sprite_name, "cd #{work_dir} && git diff --cached --quiet") do
+      {:ok, %{exit_code: 0}} ->
+        Logger.warning("SpriteDelegate: no changes to commit for ##{number}")
+        {:error, :no_changes}
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp do_commit_and_push(sprite_name, work_dir, branch_name, event) do
+    number = event[:number]
+    title = escape_single_quotes(event[:title] || "Issue ##{number}")
+    commit_msg = "lattice: implement ##{number} - #{title}"
+
+    commit_cmd =
+      "cd #{work_dir} && git commit -m '#{escape_single_quotes(commit_msg)}' 2>&1"
+
+    token = github_app_token()
+    repo = github_repo()
+
+    push_cmd =
+      "cd #{work_dir} && git push https://x-access-token:#{token}@github.com/#{repo}.git #{branch_name} 2>&1"
+
+    with {:ok, _} <- exec_with_retry(sprite_name, commit_cmd),
+         {:ok, _} <- exec_with_retry(sprite_name, push_cmd) do
+      :ok
+    end
+  end
+
+  defp build_branch_name(event) do
+    number = event[:number] || 0
+    title = event[:title] || "implementation"
+
+    slug =
+      title
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9\s-]/, "")
+      |> String.replace(~r/\s+/, "-")
+      |> String.trim("-")
+      |> String.slice(0, 40)
+      |> String.trim_trailing("-")
+
+    "lattice/issue-#{number}-#{slug}"
+  end
+
+  defp build_implementation_prompt(event, thread_context) do
+    thread_text =
+      Enum.map_join(thread_context, "\n\n", fn c ->
+        "**#{c[:user] || "unknown"}**: #{c[:body] || ""}"
+      end)
+
+    thread_section =
+      if thread_text != "" do
+        """
+        ## Thread context (previous messages):
+        #{thread_text}
+
+        """
+      else
+        ""
+      end
+
+    context_section =
+      if event[:context_body] && event[:context_body] != "" do
+        """
+        ## Issue/PR description:
+        #{event[:context_body]}
+
+        """
+      else
+        ""
+      end
+
+    """
+    You are implementing changes for a GitHub issue in this codebase.
+
+    #{thread_section}## Issue details:
+    Issue number: ##{event[:number]}
+    Title: #{event[:title]}
+    Author: #{event[:author]}
+
+    #{context_section}Request:
+    #{event[:body]}
+
+    Instructions:
+    - Read CLAUDE.md and PHILOSOPHY.md first to understand project conventions
+    - Implement the requested changes following existing patterns in the codebase
+    - Write tests for any new functionality
+    - Run `mix format` before finishing
+    - Do NOT create a PR, push to remote, or run git operations — only modify files
+    - Focus on a clean, minimal implementation that solves what was asked
+    """
+  end
+
+  defp implementation_timeout_ms do
+    config(:implementation_timeout_ms, 300_000)
+  end
+
+  defp github_app_token do
+    AppAuth.token() || System.get_env("GITHUB_TOKEN") || ""
+  end
+
+  defp github_repo do
+    Application.get_env(:lattice, :resources, [])
+    |> Keyword.get(:github_repo, "")
+  end
+
+  defp escape_single_quotes(str) when is_binary(str) do
+    String.replace(str, "'", "'\\''")
+  end
+
+  defp escape_single_quotes(_), do: ""
 
   # ── Private: Sprite Lifecycle ────────────────────────────────────
 
@@ -73,7 +268,8 @@ defmodule Lattice.Ambient.SpriteDelegate do
     timeout = delegation_timeout_ms()
 
     # Write prompt to a temp file on the sprite to avoid shell escaping issues
-    write_cmd = "cat > /tmp/ambient_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
+    write_cmd =
+      "cat > /tmp/ambient_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
 
     with {:ok, _} <- exec_with_retry(sprite_name, write_cmd),
          {:ok, result} <-
@@ -82,7 +278,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
              "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
            ) do
       output = result[:output] || result.output || ""
-      Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes, exit_code=#{result[:exit_code]}")
+
+      Logger.info(
+        "SpriteDelegate: claude returned #{byte_size(output)} bytes, exit_code=#{result[:exit_code]}"
+      )
 
       if String.trim(output) == "" do
         {:error, :empty_response}

@@ -79,33 +79,30 @@ defmodule Lattice.Ambient.Responder do
     end
   end
 
-  # Task completion: sprite delegation returned a result
+  # Task completion: delegation or implementation returned a result
   def handle_info({ref, result}, %State{active_tasks: tasks} = state)
       when is_map_key(tasks, ref) do
     Process.demonitor(ref, [:flush])
-    {event, tasks} = Map.pop(tasks, ref)
+    {task_entry, tasks} = Map.pop(tasks, ref)
     state = %{state | active_tasks: tasks}
 
-    case result do
-      {:ok, response_text} ->
-        Logger.info("Ambient: delegation succeeded for #{thread_key(event)}")
-        post_response(event, response_text)
-        {:noreply, record_cooldown(thread_key(event), state)}
+    case task_entry do
+      {:implement, event} ->
+        handle_implementation_result(event, result, state)
 
-      {:error, reason} ->
-        Logger.warning("Ambient: delegation failed for #{thread_key(event)}: #{inspect(reason)}")
-        add_confused_reaction(event)
-        {:noreply, state}
+      event when is_map(event) ->
+        handle_delegation_result(event, result, state)
     end
   end
 
-  # Task crash: sprite delegation process died
+  # Task crash: delegation or implementation process died
   def handle_info({:DOWN, ref, :process, _pid, reason}, %State{active_tasks: tasks} = state)
       when is_map_key(tasks, ref) do
-    {event, tasks} = Map.pop(tasks, ref)
+    {task_entry, tasks} = Map.pop(tasks, ref)
     state = %{state | active_tasks: tasks}
+    event = unwrap_task_event(task_entry)
 
-    Logger.error("Ambient: delegation crashed for #{thread_key(event)}: #{inspect(reason)}")
+    Logger.error("Ambient: task crashed for #{thread_key(event)}: #{inspect(reason)}")
     add_confused_reaction(event)
     {:noreply, state}
   end
@@ -126,43 +123,164 @@ defmodule Lattice.Ambient.Responder do
         add_eyes_reaction(event)
       end
 
-      # Step 2: Fetch thread context
+      # Step 2: Fetch thread context and classify
       thread_context = fetch_thread_context(event)
-
-      # Step 3: Classify with Claude
-      case Claude.classify(event, thread_context) do
-        {:ok, :delegate, _} ->
-          Logger.info("Ambient: classify=delegate on #{thread_key}")
-
-          task =
-            Task.Supervisor.async_nolink(
-              Lattice.Ambient.TaskSupervisor,
-              fn -> SpriteDelegate.handle(event, thread_context) end
-            )
-
-          put_in(state.active_tasks[task.ref], event)
-
-        {:ok, :respond, response_text} ->
-          Logger.info("Ambient: classify=respond on #{thread_key}")
-          post_response(event, response_text)
-          record_cooldown(thread_key, state)
-
-        {:ok, :react, _} ->
-          Logger.info("Ambient: classify=react on #{thread_key}")
-          add_thumbsup_reaction(event)
-          record_cooldown(thread_key, state)
-
-        {:ok, :ignore, _} ->
-          Logger.info("Ambient: classify=ignore on #{thread_key}")
-          add_thumbsup_reaction(event)
-          state
-
-        {:error, reason} ->
-          Logger.warning("Ambient: Claude classification failed: #{inspect(reason)}")
-          state
-      end
+      classification = Claude.classify(event, thread_context)
+      handle_classification(classification, event, thread_context, state)
     end
   end
+
+  # ── Private: Classification Dispatch ───────────────────────────
+
+  defp handle_classification({:ok, :implement, _}, event, thread_context, state) do
+    Logger.info("Ambient: classify=implement on #{thread_key(event)}")
+
+    task =
+      Task.Supervisor.async_nolink(
+        Lattice.Ambient.TaskSupervisor,
+        fn -> SpriteDelegate.handle_implementation(event, thread_context) end
+      )
+
+    put_in(state.active_tasks[task.ref], {:implement, event})
+  end
+
+  defp handle_classification({:ok, :delegate, _}, event, thread_context, state) do
+    Logger.info("Ambient: classify=delegate on #{thread_key(event)}")
+
+    task =
+      Task.Supervisor.async_nolink(
+        Lattice.Ambient.TaskSupervisor,
+        fn -> SpriteDelegate.handle(event, thread_context) end
+      )
+
+    put_in(state.active_tasks[task.ref], event)
+  end
+
+  defp handle_classification({:ok, :respond, response_text}, event, _thread_context, state) do
+    Logger.info("Ambient: classify=respond on #{thread_key(event)}")
+    post_response(event, response_text)
+    record_cooldown(thread_key(event), state)
+  end
+
+  defp handle_classification({:ok, :react, _}, event, _thread_context, state) do
+    Logger.info("Ambient: classify=react on #{thread_key(event)}")
+    add_thumbsup_reaction(event)
+    record_cooldown(thread_key(event), state)
+  end
+
+  defp handle_classification({:ok, :ignore, _}, event, _thread_context, state) do
+    Logger.info("Ambient: classify=ignore on #{thread_key(event)}")
+    add_thumbsup_reaction(event)
+    state
+  end
+
+  defp handle_classification({:error, reason}, _event, _thread_context, state) do
+    Logger.warning("Ambient: Claude classification failed: #{inspect(reason)}")
+    state
+  end
+
+  # ── Private: Task Result Handlers ──────────────────────────────
+
+  defp handle_delegation_result(event, result, state) do
+    case result do
+      {:ok, response_text} ->
+        Logger.info("Ambient: delegation succeeded for #{thread_key(event)}")
+        post_response(event, response_text)
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, reason} ->
+        Logger.warning("Ambient: delegation failed for #{thread_key(event)}: #{inspect(reason)}")
+        add_confused_reaction(event)
+        {:noreply, state}
+    end
+  end
+
+  defp handle_implementation_result(event, result, state) do
+    case result do
+      {:ok, branch_name} ->
+        Logger.info(
+          "Ambient: implementation succeeded for #{thread_key(event)}, branch=#{branch_name}"
+        )
+
+        create_pr_and_comment(event, branch_name)
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, :no_changes} ->
+        Logger.warning("Ambient: implementation produced no changes for #{thread_key(event)}")
+
+        post_error_comment(
+          event,
+          "I looked into this but couldn't produce any code changes. The issue may need more context or a different approach."
+        )
+
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Ambient: implementation failed for #{thread_key(event)}: #{inspect(reason)}"
+        )
+
+        add_confused_reaction(event)
+
+        post_error_comment(
+          event,
+          "I ran into an issue while trying to implement this: `#{inspect(reason)}`"
+        )
+
+        {:noreply, state}
+    end
+  end
+
+  defp unwrap_task_event({:implement, event}), do: event
+  defp unwrap_task_event(event) when is_map(event), do: event
+
+  # ── Private: PR Creation ─────────────────────────────────────────
+
+  defp create_pr_and_comment(event, branch_name) do
+    number = event[:number]
+    title = event[:title] || "Issue ##{number}"
+
+    pr_attrs = %{
+      title: "Fix ##{number}: #{title}",
+      head: branch_name,
+      base: "main",
+      body:
+        "Closes ##{number}\n\nAutomated implementation by Lattice.\n\n<!-- lattice:ambient:implement -->"
+    }
+
+    case GitHub.create_pull_request(pr_attrs) do
+      {:ok, pr} ->
+        pr_number = pr[:number] || pr.number
+        pr_url = pr[:html_url] || pr[:url] || "##{pr_number}"
+
+        Logger.info("Ambient: created PR ##{pr_number} for issue ##{number}")
+
+        GitHub.create_comment(
+          number,
+          "I've created PR ##{pr_number}: #{pr_url}\n\n<!-- lattice:ambient:implement -->"
+        )
+
+      {:error, reason} ->
+        Logger.error("Ambient: failed to create PR for issue ##{number}: #{inspect(reason)}")
+
+        GitHub.create_comment(
+          number,
+          "I've pushed changes to branch `#{branch_name}` but PR creation failed: `#{inspect(reason)}`\n\n<!-- lattice:ambient:implement -->"
+        )
+    end
+  rescue
+    e ->
+      Logger.error("Ambient: PR creation crashed for issue ##{event[:number]}: #{inspect(e)}")
+  end
+
+  defp post_error_comment(%{surface: :issue, number: number}, message)
+       when not is_nil(number) do
+    GitHub.create_comment(number, "#{message}\n\n<!-- lattice:ambient:implement -->")
+  rescue
+    e -> Logger.warning("Ambient: failed to post error comment: #{inspect(e)}")
+  end
+
+  defp post_error_comment(_, _), do: :ok
 
   # ── Private: Reactions ──────────────────────────────────────────
 

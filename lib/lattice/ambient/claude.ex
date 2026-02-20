@@ -21,14 +21,15 @@ defmodule Lattice.Ambient.Claude do
   @default_model "claude-sonnet-4-20250514"
   @max_tokens 1024
 
-  @type decision :: :respond | :react | :ignore | :delegate
+  @type decision :: :respond | :react | :ignore | :delegate | :implement
   @type result :: {:ok, decision(), String.t() | nil} | {:error, term()}
 
   @doc """
   Classify a GitHub event and optionally generate a response.
 
   Returns `{:ok, :respond, "response text"}`, `{:ok, :react, nil}`,
-  `{:ok, :ignore, nil}`, `{:ok, :delegate, nil}`, or `{:error, reason}`.
+  `{:ok, :ignore, nil}`, `{:ok, :delegate, nil}`, `{:ok, :implement, nil}`,
+  or `{:error, reason}`.
 
   ## Parameters
 
@@ -68,18 +69,22 @@ defmodule Lattice.Ambient.Claude do
     You've received a new event from the repo you manage. Decide how to respond.
 
     Rules:
-    1. If the message asks about code, architecture, implementation details, bugs, specific files, \
+    1. If the message is an explicit request to implement, fix, build, or create code changes \
+    (e.g., "implement this", "fix this", "build this feature", "make this change") → implement \
+    (an agent will create a branch, make changes, and open a PR)
+    2. If the message asks about code, architecture, implementation details, bugs, specific files, \
     or anything that would benefit from seeing the actual codebase → delegate (a repo-aware agent will answer)
-    2. If the message asks a general question, requests feedback on an idea, or warrants a thoughtful reply \
+    3. If the message asks a general question, requests feedback on an idea, or warrants a thoughtful reply \
     that does NOT require reading the codebase → respond with a comment
-    3. If the message is an acknowledgment, status update, or doesn't need a reply (e.g., "sounds good", "done", "merged") → react with thumbs-up
-    4. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
-    5. Consider the full conversation thread for context
-    6. Be helpful but concise. Don't be chatty or over-eager.
-    7. When responding, speak as a knowledgeable teammate, not a bot.
-    8. When in doubt about whether codebase context would help, prefer delegate over respond.
+    4. If the message is an acknowledgment, status update, or doesn't need a reply (e.g., "sounds good", "done", "merged") → react with thumbs-up
+    5. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
+    6. Consider the full conversation thread for context
+    7. Be helpful but concise. Don't be chatty or over-eager.
+    8. When responding, speak as a knowledgeable teammate, not a bot.
+    9. When in doubt about whether codebase context would help, prefer delegate over respond.
 
     You MUST respond with EXACTLY one of these formats:
+    - DECISION: implement
     - DECISION: delegate
     - DECISION: respond
       <your response text here>
@@ -174,6 +179,9 @@ defmodule Lattice.Ambient.Claude do
   @doc false
   def parse_decision(text) do
     cond do
+      String.contains?(text, "DECISION: implement") ->
+        {:ok, :implement, nil}
+
       String.contains?(text, "DECISION: delegate") ->
         {:ok, :delegate, nil}
 

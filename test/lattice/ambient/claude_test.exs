@@ -34,6 +34,20 @@ defmodule Lattice.Ambient.ClaudeTest do
       assert {:ok, :ignore, nil} = Claude.parse_decision("I'm not sure what to do")
     end
 
+    test "parses implement decision" do
+      assert {:ok, :implement, nil} = Claude.parse_decision("DECISION: implement")
+    end
+
+    test "implement takes priority over delegate when both present" do
+      text = "DECISION: implement\nDECISION: delegate"
+      assert {:ok, :implement, nil} = Claude.parse_decision(text)
+    end
+
+    test "implement takes priority over respond when both present" do
+      text = "DECISION: implement\nDECISION: respond\nsome text"
+      assert {:ok, :implement, nil} = Claude.parse_decision(text)
+    end
+
     test "delegate takes priority over respond when both present" do
       # delegate is checked first in the cond
       text = "DECISION: delegate\nDECISION: respond\nsome text"
