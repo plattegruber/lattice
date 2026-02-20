@@ -773,8 +773,19 @@ defmodule Lattice.Capabilities.GitHub.Http do
 
   defp resolve_token do
     Process.get(:lattice_github_token) ||
+      app_token() ||
       Application.get_env(:lattice, :github_token) ||
       System.get_env("GITHUB_TOKEN")
+  end
+
+  defp app_token do
+    alias Lattice.Capabilities.GitHub.AppAuth
+
+    if AppAuth.configured?() do
+      AppAuth.token()
+    else
+      nil
+    end
   end
 
   # ── Private: Telemetry ─────────────────────────────────────────────

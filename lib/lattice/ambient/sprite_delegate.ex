@@ -44,7 +44,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
         Sprites.exec(name, "cd #{work_dir} && git pull --ff-only 2>&1 || true")
         {:ok, name}
 
-      {:error, :not_found} ->
+      {:error, not_found} when not_found == :not_found or elem(not_found, 0) == :not_found ->
         Logger.info("SpriteDelegate: creating sprite #{name}")
 
         with {:ok, _} <- Sprites.create_sprite(name, []),
