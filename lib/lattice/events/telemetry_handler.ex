@@ -105,7 +105,12 @@ defmodule Lattice.Events.TelemetryHandler do
         %{sprite_id: sprite_id, event: event},
         _config
       ) do
-    log_level = if event.outcome == :failure, do: :warning, else: :info
+    log_level =
+      case event.outcome do
+        :failure -> :warning
+        :no_change -> :debug
+        _ -> :info
+      end
 
     Logger.log(
       log_level,
