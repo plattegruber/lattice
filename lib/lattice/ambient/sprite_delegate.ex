@@ -79,7 +79,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
          {:ok, result} <-
            exec_with_retry(
              sprite_name,
-             "cd #{work_dir} && timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
+             "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
            ) do
       output = result[:output] || result.output || ""
       Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes, exit_code=#{result[:exit_code]}")
@@ -202,6 +202,11 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   defp delegation_timeout_ms do
     config(:delegation_timeout_ms, 120_000)
+  end
+
+  defp anthropic_api_key do
+    Application.get_env(:lattice, Lattice.Ambient.Claude, [])
+    |> Keyword.get(:api_key, "")
   end
 
   defp config(key, default) do
