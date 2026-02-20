@@ -241,6 +241,7 @@ defmodule Lattice.Ambient.Responder do
 
   defp post_response(%{surface: :issue, number: number}, text) when not is_nil(number) do
     body = "#{text}\n\n<!-- lattice:ambient -->"
+    Logger.info("Ambient: posting comment body (#{byte_size(body)} bytes): #{inspect(body)}")
 
     case GitHub.create_comment(number, body) do
       {:ok, _} ->

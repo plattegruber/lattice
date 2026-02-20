@@ -672,12 +672,12 @@ defmodule Lattice.Capabilities.GitHub.Http do
           {:delete, body} ->
             json = Jason.encode!(body)
 
-            {String.to_charlist(url), headers, ~c"application/json", String.to_charlist(json)}
+            {String.to_charlist(url), headers, ~c"application/json", json}
 
           {_, body} ->
             json = Jason.encode!(body)
 
-            {String.to_charlist(url), headers, ~c"application/json", String.to_charlist(json)}
+            {String.to_charlist(url), headers, ~c"application/json", json}
         end
 
       http_opts = [timeout: 30_000, connect_timeout: 10_000]
