@@ -417,6 +417,60 @@ defmodule Lattice.Capabilities.GitHub.Live do
   end
 
   @impl true
+  def delete_comment_reaction(comment_id, reaction_id) do
+    args = [
+      "api",
+      "-X",
+      "DELETE",
+      "repos/{owner}/{repo}/issues/comments/#{comment_id}/reactions/#{reaction_id}"
+    ]
+
+    timed_cmd(:delete_comment_reaction, args, fn _output ->
+      {:ok, :ok}
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_issue_reaction(number, reaction_id) do
+    args = [
+      "api",
+      "-X",
+      "DELETE",
+      "repos/{owner}/{repo}/issues/#{number}/reactions/#{reaction_id}"
+    ]
+
+    timed_cmd(:delete_issue_reaction, args, fn _output ->
+      {:ok, :ok}
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_review_comment_reaction(comment_id, reaction_id) do
+    args = [
+      "api",
+      "-X",
+      "DELETE",
+      "repos/{owner}/{repo}/pulls/comments/#{comment_id}/reactions/#{reaction_id}"
+    ]
+
+    timed_cmd(:delete_review_comment_reaction, args, fn _output ->
+      {:ok, :ok}
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
   def list_comments(number) do
     args = ["api", "repos/{owner}/{repo}/issues/#{number}/comments"]
 

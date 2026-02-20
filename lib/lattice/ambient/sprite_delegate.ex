@@ -87,20 +87,29 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp run_implementation(sprite_name, event, thread_context) do
     prompt = build_implementation_prompt(event, thread_context)
     work_dir = work_dir()
-    timeout = implementation_timeout_ms()
 
     write_cmd =
       "cat > /tmp/implement_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
 
-    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd),
-         {:ok, _} <-
-           exec_with_retry(
-             sprite_name,
-             "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
-           ) do
-      :ok
-    else
-      {:error, _} = err -> err
+    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd) do
+      claude_cmd =
+        "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
+
+      case run_streaming_exec(sprite_name, claude_cmd) do
+        {:ok, %{exit_code: 0}} ->
+          :ok
+
+        {:ok, %{exit_code: code, output: output}} ->
+          Logger.warning(
+            "SpriteDelegate: claude exited with code #{code}: #{String.slice(output, -500, 500)}"
+          )
+
+          # Still try to commit — claude might have made partial changes
+          :ok
+
+        {:error, _} = err ->
+          err
+      end
     end
   end
 
@@ -201,17 +210,14 @@ defmodule Lattice.Ambient.SpriteDelegate do
     #{event[:body]}
 
     Instructions:
-    - Read CLAUDE.md and PHILOSOPHY.md first to understand project conventions
-    - Implement the requested changes following existing patterns in the codebase
-    - Write tests for any new functionality
+    - Read CLAUDE.md first to understand project conventions
+    - Start by understanding the issue: read the title, description, and any thread context above
+    - Search the codebase for relevant code (grep for keywords from the issue title/description)
+    - Implement the requested changes following existing patterns
     - Run `mix format` before finishing
     - Do NOT create a PR, push to remote, or run git operations — only modify files
     - Focus on a clean, minimal implementation that solves what was asked
     """
-  end
-
-  defp implementation_timeout_ms do
-    config(:implementation_timeout_ms, 300_000)
   end
 
   defp github_app_token do
@@ -265,34 +271,31 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp run_claude_code(sprite_name, event, thread_context) do
     prompt = build_prompt(event, thread_context)
     work_dir = work_dir()
-    timeout = delegation_timeout_ms()
 
     # Write prompt to a temp file on the sprite to avoid shell escaping issues
     write_cmd =
       "cat > /tmp/ambient_prompt.txt << 'LATTICE_PROMPT_EOF'\n#{prompt}\nLATTICE_PROMPT_EOF"
 
-    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd),
-         {:ok, result} <-
-           exec_with_retry(
-             sprite_name,
-             "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} timeout #{div(timeout, 1000)} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
-           ) do
-      output = result[:output] || result.output || ""
+    with {:ok, _} <- exec_with_retry(sprite_name, write_cmd) do
+      claude_cmd =
+        "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
 
-      Logger.info(
-        "SpriteDelegate: claude returned #{byte_size(output)} bytes, exit_code=#{result[:exit_code]}"
-      )
-
-      if String.trim(output) == "" do
-        {:error, :empty_response}
-      else
-        {:ok, String.trim(output)}
-      end
-    else
-      {:error, reason} = err ->
-        Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
-        err
+      sprite_name
+      |> run_streaming_exec(claude_cmd)
+      |> process_claude_output()
     end
+  end
+
+  defp process_claude_output({:ok, %{output: output}}) do
+    Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes")
+    trimmed = String.trim(output)
+
+    if trimmed == "", do: {:error, :empty_response}, else: {:ok, trimmed}
+  end
+
+  defp process_claude_output({:error, reason} = err) do
+    Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
+    err
   end
 
   # ── Private: Retry Logic ─────────────────────────────────────────
@@ -325,6 +328,67 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp retryable?(:timeout), do: true
   defp retryable?(:rate_limited), do: true
   defp retryable?(_), do: false
+
+  # ── Private: Streaming Exec ─────────────────────────────────────
+
+  defp run_streaming_exec(sprite_name, command) do
+    idle_timeout = config(:exec_idle_timeout_ms, 1_800_000)
+
+    case Sprites.exec_ws(sprite_name, command, idle_timeout: idle_timeout) do
+      {:ok, session_pid} ->
+        collect_streaming_output(session_pid)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp collect_streaming_output(session_pid) do
+    ref = Process.monitor(session_pid)
+    {:ok, session_state} = Lattice.Sprites.ExecSession.get_state(session_pid)
+    session_id = session_state.session_id
+    topic = Lattice.Sprites.ExecSession.exec_topic(session_id)
+
+    Phoenix.PubSub.subscribe(Lattice.PubSub, topic)
+    result = collect_loop(ref, [])
+    Phoenix.PubSub.unsubscribe(Lattice.PubSub, topic)
+    Process.demonitor(ref, [:flush])
+    result
+  end
+
+  defp collect_loop(ref, chunks) do
+    idle_timeout = config(:exec_idle_timeout_ms, 1_800_000)
+
+    receive do
+      {:exec_output, %{stream: :exit, chunk: chunk}} ->
+        exit_code = parse_exit_code(chunk)
+        output = chunks |> Enum.reverse() |> Enum.join()
+        {:ok, %{output: output, exit_code: exit_code}}
+
+      {:exec_output, %{stream: stream, chunk: chunk}} when stream in [:stdout, :stderr] ->
+        Logger.debug("SpriteDelegate: claude output chunk (#{byte_size(to_string(chunk))} bytes)")
+        collect_loop(ref, [to_string(chunk) | chunks])
+
+      {:exec_output, _other} ->
+        collect_loop(ref, chunks)
+
+      {:DOWN, ^ref, :process, _pid, _reason} ->
+        output = chunks |> Enum.reverse() |> Enum.join()
+        {:ok, %{output: output, exit_code: 0}}
+    after
+      idle_timeout ->
+        {:error, :idle_timeout}
+    end
+  end
+
+  defp parse_exit_code(chunk) when is_binary(chunk) do
+    case Regex.run(~r/code (\d+)/, chunk) do
+      [_, code_str] -> String.to_integer(code_str)
+      _ -> 1
+    end
+  end
+
+  defp parse_exit_code(_), do: 1
 
   # ── Private: Prompt ──────────────────────────────────────────────
 
@@ -397,10 +461,6 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   defp work_dir do
     config(:work_dir, "/workspace/repo")
-  end
-
-  defp delegation_timeout_ms do
-    config(:delegation_timeout_ms, 120_000)
   end
 
   defp anthropic_api_key do

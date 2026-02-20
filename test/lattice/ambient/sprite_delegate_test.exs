@@ -35,6 +35,79 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     repo: "org/repo"
   }
 
+  # A minimal GenServer that mimics ExecSession for testing.
+  # Instead of using PubSub (which may be unstable in test env),
+  # it sends exec_output messages directly to the caller process
+  # after the caller subscribes to the PubSub topic.
+  defmodule FakeSession do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts)
+    end
+
+    @impl true
+    def init(opts) do
+      session_id = "test_exec_#{System.unique_integer([:positive])}"
+      output = Keyword.get(opts, :output, "")
+      exit_code = Keyword.get(opts, :exit_code, 0)
+      caller = Keyword.get(opts, :caller)
+
+      # Schedule the output delivery
+      send(self(), {:deliver_output, session_id, output, exit_code, caller})
+
+      {:ok, %{session_id: session_id}}
+    end
+
+    @impl true
+    def handle_call(:get_state, _from, state) do
+      {:reply, {:ok, state}, state}
+    end
+
+    @impl true
+    def handle_info({:deliver_output, session_id, output, exit_code, caller}, state) do
+      # Wait for the caller to subscribe to PubSub and enter collect_loop
+      Process.sleep(50)
+
+      # Send messages directly to the caller process, matching the format
+      # that Phoenix.PubSub would deliver
+      if output != "" do
+        send(
+          caller,
+          {:exec_output,
+           %{
+             session_id: session_id,
+             sprite_id: "test",
+             stream: :stdout,
+             chunk: output,
+             timestamp: DateTime.utc_now()
+           }}
+        )
+      end
+
+      Process.sleep(5)
+
+      send(
+        caller,
+        {:exec_output,
+         %{
+           session_id: session_id,
+           sprite_id: "test",
+           stream: :exit,
+           chunk: "Process exited with code #{exit_code}",
+           timestamp: DateTime.utc_now()
+         }}
+      )
+
+      {:noreply, state}
+    end
+  end
+
+  defp start_fake_session(output, exit_code \\ 0) do
+    {:ok, pid} = FakeSession.start_link(output: output, exit_code: exit_code, caller: self())
+    pid
+  end
+
   describe "handle/2 when disabled" do
     test "returns error when delegation is disabled" do
       Application.put_env(:lattice, SpriteDelegate, enabled: false)
@@ -47,8 +120,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     setup do
       Application.put_env(:lattice, SpriteDelegate,
         enabled: true,
-        sprite_name: "test-ambient",
-        delegation_timeout_ms: 60_000
+        sprite_name: "test-ambient"
       )
 
       Application.put_env(:lattice, :resources, github_repo: "plattegruber/lattice")
@@ -67,9 +139,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "cat > /tmp/ambient_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      |> expect(:exec, fn "test-ambient", cmd ->
+      |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
         assert cmd =~ "claude -p"
-        {:ok, %{output: "The fleet manager uses a DynamicSupervisor.", exit_code: 0}}
+        {:ok, start_fake_session("The fleet manager uses a DynamicSupervisor.")}
       end)
 
       assert {:ok, response} = SpriteDelegate.handle(@event, [])
@@ -86,8 +158,8 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "cat > /tmp/ambient_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "Here's the answer with context.", exit_code: 0}}
+      |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
+        {:ok, start_fake_session("Here's the answer with context.")}
       end)
 
       assert {:ok, _} = SpriteDelegate.handle(@event, thread)
@@ -98,8 +170,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     setup do
       Application.put_env(:lattice, SpriteDelegate,
         enabled: true,
-        sprite_name: "new-ambient",
-        delegation_timeout_ms: 60_000
+        sprite_name: "new-ambient"
       )
 
       Application.put_env(:lattice, :resources, github_repo: "plattegruber/lattice")
@@ -120,9 +191,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "cat > /tmp/ambient_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      |> expect(:exec, fn "new-ambient", cmd ->
+      |> expect(:exec_ws, fn "new-ambient", cmd, _opts ->
         assert cmd =~ "claude -p"
-        {:ok, %{output: "Fleet manager explained.", exit_code: 0}}
+        {:ok, start_fake_session("Fleet manager explained.")}
       end)
 
       assert {:ok, "Fleet manager explained."} = SpriteDelegate.handle(@event, [])
@@ -141,8 +212,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     setup do
       Application.put_env(:lattice, SpriteDelegate,
         enabled: true,
-        sprite_name: "test-ambient",
-        delegation_timeout_ms: 60_000
+        sprite_name: "test-ambient"
       )
 
       Application.put_env(:lattice, :resources, github_repo: "plattegruber/lattice")
@@ -155,7 +225,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
-      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "   \n  ", exit_code: 0}} end)
+      |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
+        {:ok, start_fake_session("   \n  ")}
+      end)
 
       assert {:error, :empty_response} = SpriteDelegate.handle(@event, [])
     end
@@ -184,9 +256,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
     setup do
       Application.put_env(:lattice, SpriteDelegate,
         enabled: true,
-        sprite_name: "test-ambient",
-        delegation_timeout_ms: 60_000,
-        implementation_timeout_ms: 300_000
+        sprite_name: "test-ambient"
       )
 
       Application.put_env(:lattice, :resources, github_repo: "plattegruber/lattice")
@@ -213,11 +283,11 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "cat > /tmp/implement_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      # run_implementation — run claude
-      |> expect(:exec, fn "test-ambient", cmd ->
+      # run_implementation — run claude via streaming exec
+      |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
         assert cmd =~ "claude -p"
         assert cmd =~ "ANTHROPIC_API_KEY="
-        {:ok, %{output: "Done implementing.", exit_code: 0}}
+        {:ok, start_fake_session("Done implementing.")}
       end)
       # commit_and_push — git add
       |> expect(:exec, fn "test-ambient", cmd ->
@@ -259,8 +329,8 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       |> expect(:exec, fn "test-ambient", _cmd ->
         {:ok, %{output: "", exit_code: 0}}
       end)
-      |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "No changes needed.", exit_code: 0}}
+      |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
+        {:ok, start_fake_session("No changes needed.")}
       end)
       # git add -A
       |> expect(:exec, fn "test-ambient", _cmd ->

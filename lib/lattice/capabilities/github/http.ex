@@ -593,6 +593,50 @@ defmodule Lattice.Capabilities.GitHub.Http do
     end)
   end
 
+  # ── Delete Reactions ─────────────────────────────────────────────
+
+  @impl true
+  def delete_comment_reaction(comment_id, reaction_id) do
+    timed(:delete_comment_reaction, fn ->
+      case api_delete("/repos/#{repo()}/issues/comments/#{comment_id}/reactions/#{reaction_id}") do
+        {:ok, _} -> {:ok, :ok}
+        {:error, _} = err -> err
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_issue_reaction(number, reaction_id) do
+    timed(:delete_issue_reaction, fn ->
+      case api_delete("/repos/#{repo()}/issues/#{number}/reactions/#{reaction_id}") do
+        {:ok, _} -> {:ok, :ok}
+        {:error, _} = err -> err
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_review_comment_reaction(comment_id, reaction_id) do
+    timed(:delete_review_comment_reaction, fn ->
+      case api_delete("/repos/#{repo()}/pulls/comments/#{comment_id}/reactions/#{reaction_id}") do
+        {:ok, _} -> {:ok, :ok}
+        {:error, _} = err -> err
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
   # ── Comments (list) ─────────────────────────────────────────────
 
   @impl true

@@ -96,10 +96,8 @@ if System.get_env("ANTHROPIC_API_KEY") do
   config :lattice, Lattice.Ambient.SpriteDelegate,
     enabled: System.get_env("AMBIENT_DELEGATION", "false") == "true",
     sprite_name: System.get_env("AMBIENT_SPRITE_NAME", "lattice-ambient"),
-    delegation_timeout_ms:
-      String.to_integer(System.get_env("AMBIENT_DELEGATION_TIMEOUT_MS", "120000")),
-    implementation_timeout_ms:
-      String.to_integer(System.get_env("AMBIENT_IMPLEMENTATION_TIMEOUT_MS", "300000"))
+    exec_idle_timeout_ms:
+      String.to_integer(System.get_env("AMBIENT_EXEC_IDLE_TIMEOUT_MS", "1800000"))
 end
 
 # Auth provider: Clerk is the default; the secret key is required for prod

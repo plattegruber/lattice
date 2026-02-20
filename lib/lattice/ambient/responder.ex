@@ -87,6 +87,15 @@ defmodule Lattice.Ambient.Responder do
     state = %{state | active_tasks: tasks}
 
     case task_entry do
+      {:implement, event, rocket_id} ->
+        remove_rocket_reaction(event, rocket_id)
+        handle_implementation_result(event, result, state)
+
+      {:delegate, event, rocket_id} ->
+        remove_rocket_reaction(event, rocket_id)
+        handle_delegation_result(event, result, state)
+
+      # Backwards compat for in-flight tasks without rocket_id
       {:implement, event} ->
         handle_implementation_result(event, result, state)
 
@@ -100,8 +109,9 @@ defmodule Lattice.Ambient.Responder do
       when is_map_key(tasks, ref) do
     {task_entry, tasks} = Map.pop(tasks, ref)
     state = %{state | active_tasks: tasks}
-    event = unwrap_task_event(task_entry)
+    {event, rocket_id} = unwrap_task_event(task_entry)
 
+    remove_rocket_reaction(event, rocket_id)
     Logger.error("Ambient: task crashed for #{thread_key(event)}: #{inspect(reason)}")
     add_confused_reaction(event)
     {:noreply, state}
@@ -135,17 +145,21 @@ defmodule Lattice.Ambient.Responder do
   defp handle_classification({:ok, :implement, _}, event, thread_context, state) do
     Logger.info("Ambient: classify=implement on #{thread_key(event)}")
 
+    rocket_id = add_rocket_reaction(event)
+
     task =
       Task.Supervisor.async_nolink(
         Lattice.Ambient.TaskSupervisor,
         fn -> SpriteDelegate.handle_implementation(event, thread_context) end
       )
 
-    put_in(state.active_tasks[task.ref], {:implement, event})
+    put_in(state.active_tasks[task.ref], {:implement, event, rocket_id})
   end
 
   defp handle_classification({:ok, :delegate, _}, event, thread_context, state) do
     Logger.info("Ambient: classify=delegate on #{thread_key(event)}")
+
+    rocket_id = add_rocket_reaction(event)
 
     task =
       Task.Supervisor.async_nolink(
@@ -153,7 +167,7 @@ defmodule Lattice.Ambient.Responder do
         fn -> SpriteDelegate.handle(event, thread_context) end
       )
 
-    put_in(state.active_tasks[task.ref], event)
+    put_in(state.active_tasks[task.ref], {:delegate, event, rocket_id})
   end
 
   defp handle_classification({:ok, :respond, response_text}, event, _thread_context, state) do
@@ -231,8 +245,10 @@ defmodule Lattice.Ambient.Responder do
     end
   end
 
-  defp unwrap_task_event({:implement, event}), do: event
-  defp unwrap_task_event(event) when is_map(event), do: event
+  defp unwrap_task_event({:implement, event, rocket_id}), do: {event, rocket_id}
+  defp unwrap_task_event({:delegate, event, rocket_id}), do: {event, rocket_id}
+  defp unwrap_task_event({:implement, event}), do: {event, nil}
+  defp unwrap_task_event(event) when is_map(event), do: {event, nil}
 
   # ── Private: PR Creation ─────────────────────────────────────────
 
@@ -339,6 +355,48 @@ defmodule Lattice.Ambient.Responder do
   rescue
     e ->
       Logger.warning("Ambient: failed to add confused reaction: #{inspect(e)}")
+  end
+
+  defp add_rocket_reaction(event) do
+    event
+    |> reaction_target()
+    |> create_rocket()
+  rescue
+    _ -> nil
+  end
+
+  defp create_rocket({:comment, comment_id}),
+    do: extract_reaction_id(GitHub.create_comment_reaction(comment_id, "rocket"))
+
+  defp create_rocket({:issue, number}),
+    do: extract_reaction_id(GitHub.create_issue_reaction(number, "rocket"))
+
+  defp create_rocket({:review_comment, comment_id}),
+    do: extract_reaction_id(GitHub.create_review_comment_reaction(comment_id, "rocket"))
+
+  defp create_rocket(:none), do: nil
+
+  defp extract_reaction_id({:ok, %{id: id}}), do: id
+  defp extract_reaction_id(_), do: nil
+
+  defp remove_rocket_reaction(_event, nil), do: :ok
+
+  defp remove_rocket_reaction(event, reaction_id) do
+    case reaction_target(event) do
+      {:comment, comment_id} ->
+        GitHub.delete_comment_reaction(comment_id, reaction_id)
+
+      {:issue, number} ->
+        GitHub.delete_issue_reaction(number, reaction_id)
+
+      {:review_comment, comment_id} ->
+        GitHub.delete_review_comment_reaction(comment_id, reaction_id)
+
+      :none ->
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   defp reaction_target(%{type: :issue_comment, comment_id: id}) when not is_nil(id),
