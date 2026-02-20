@@ -207,6 +207,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     #{event[:body]}
 
     Instructions:
+    - The repo lives in ./lattice — cd into it before doing anything
     - Read CLAUDE.md first to understand project conventions
     - Start by understanding the issue: read the title, description, and any thread context above
     - Search the codebase for relevant code (grep for keywords from the issue title/description)
@@ -467,6 +468,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     #{event[:body]}
 
     Instructions:
+    - The repo lives in ./lattice — cd into it before doing anything
     - Answer helpfully and concisely based on the actual codebase
     - Reference specific files and line numbers when relevant
     - If you're unsure about something, say so rather than guessing

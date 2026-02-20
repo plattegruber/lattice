@@ -459,20 +459,35 @@ defmodule Lattice.Ambient.Responder do
 
   # ── Private: Thread Context ─────────────────────────────────────
 
-  defp fetch_thread_context(%{surface: surface, number: number})
+  defp fetch_thread_context(%{surface: surface, number: number} = event)
        when surface in [:issue, :pr_review, :pr_review_comment] and not is_nil(number) do
-    case GitHub.list_comments(number) do
-      {:ok, comments} ->
-        Enum.map(comments, fn c ->
-          %{user: c[:user] || c.user, body: c[:body] || c.body}
-        end)
+    comments =
+      case GitHub.list_comments(number) do
+        {:ok, comments} ->
+          Enum.map(comments, fn c ->
+            %{user: c[:user] || c.user, body: c[:body] || c.body}
+          end)
 
-      {:error, _} ->
-        []
-    end
+        {:error, _} ->
+          []
+      end
+
+    # Prepend the original issue/PR body as the first message in the thread
+    prepend_original_post(event, comments)
   end
 
   defp fetch_thread_context(_), do: []
+
+  defp prepend_original_post(event, comments) do
+    context_body = event[:context_body]
+
+    if context_body && context_body != "" do
+      author = event[:context_author] || event[:author] || "unknown"
+      [%{user: author, body: context_body} | comments]
+    else
+      comments
+    end
+  end
 
   # ── Private: Self-Detection ─────────────────────────────────────
 
