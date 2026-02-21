@@ -36,7 +36,8 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
       number: opts[:number] || 9999,
       title: opts[:title] || "Test handoff protocol locally",
       author: "local-test",
-      body: "This is a local test of the bundle handoff protocol. Make a trivial change — add a comment to lib/lattice/ambient/proposal.ex explaining what the module does in one line, then follow the handoff protocol.",
+      body:
+        "This is a local test of the bundle handoff protocol. Make a trivial change — add a comment to lib/lattice/ambient/proposal.ex explaining what the module does in one line, then follow the handoff protocol.",
       context_body: nil
     }
 
@@ -68,7 +69,10 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
     {output, exit_code} =
       System.cmd(
         "sh",
-        ["-c", "cd #{work_dir} && claude -p \"$(cat /tmp/handoff_test_prompt.txt)\" --output-format text 2>&1"],
+        [
+          "-c",
+          "cd #{work_dir} && claude -p \"$(cat /tmp/handoff_test_prompt.txt)\" --output-format text 2>&1"
+        ],
         env: [
           {"ANTHROPIC_API_KEY", System.get_env("ANTHROPIC_API_KEY") || ""},
           {"CLAUDECODE", nil}
@@ -84,7 +88,9 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
     if String.contains?(output_str, "HANDOFF_READY") do
       Mix.shell().info("[OK] HANDOFF_READY signal detected in output")
     else
-      Mix.shell().info("[WARN] HANDOFF_READY signal NOT found in streamed output (may be in proposal)")
+      Mix.shell().info(
+        "[WARN] HANDOFF_READY signal NOT found in streamed output (may be in proposal)"
+      )
     end
 
     # Validate proposal.json
@@ -95,6 +101,7 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
     else
       Mix.shell().error("[FAIL] No proposal.json found at #{proposal_path}")
       Mix.shell().info("\nFiles in .lattice/out/:")
+
       case File.ls(out_dir) do
         {:ok, files} -> Enum.each(files, &Mix.shell().info("  #{&1}"))
         _ -> Mix.shell().info("  (empty or missing)")
@@ -168,7 +175,12 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
         # Clean up: reset back to main so we don't leave a dirty state
         Mix.shell().info("\n--- Cleaning up ---")
         System.cmd("git", ["checkout", "main"], cd: work_dir, stderr_to_stdout: true)
-        System.cmd("git", ["branch", "-D", proposal.work_branch], cd: work_dir, stderr_to_stdout: true)
+
+        System.cmd("git", ["branch", "-D", proposal.work_branch],
+          cd: work_dir,
+          stderr_to_stdout: true
+        )
+
         Mix.shell().info("[OK] Reset to main, deleted #{proposal.work_branch}")
 
         Mix.shell().info("\n=== HANDOFF TEST PASSED ===")

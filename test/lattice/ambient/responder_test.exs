@@ -304,8 +304,7 @@ defmodule Lattice.Ambient.ResponderTest do
       send(
         responder,
         {ref,
-         {:ok,
-          %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
+         {:ok, %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
       )
 
       Process.sleep(100)
@@ -494,8 +493,7 @@ defmodule Lattice.Ambient.ResponderTest do
       send(
         responder,
         {ref,
-         {:ok,
-          %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
+         {:ok, %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
       )
 
       Process.sleep(100)
