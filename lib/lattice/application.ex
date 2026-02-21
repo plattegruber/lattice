@@ -63,6 +63,8 @@ defmodule Lattice.Application do
           # Exec session registry and supervisor for WebSocket exec connections
           {Registry, keys: :unique, name: Lattice.Sprites.ExecRegistry},
           Lattice.Sprites.ExecSupervisor,
+          # Graceful SIGTERM drain — delays shutdown until active exec sessions finish
+          Lattice.Sprites.ShutdownDrain,
           # Presence tracking for adaptive fleet polling
           LatticeWeb.Presence,
           # Start to serve requests, typically the last entry
@@ -72,7 +74,18 @@ defmodule Lattice.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Lattice.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    # Route SIGTERM to the ShutdownDrain GenServer so active exec sessions
+    # can finish before the node halts. Must be registered after the drain
+    # process is running (i.e. after the supervisor tree is up).
+    with {:ok, _} <- result do
+      System.trap_signal(:sigterm, :shutdown_drain, fn ->
+        send(Lattice.Sprites.ShutdownDrain, {:signal, :sigterm})
+      end)
+    end
+
+    result
   end
 
   # Tell Phoenix to update the endpoint configuration
