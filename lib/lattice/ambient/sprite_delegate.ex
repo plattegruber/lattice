@@ -225,9 +225,8 @@ defmodule Lattice.Ambient.SpriteDelegate do
     push_cmd =
       "cd #{work_dir} && git push https://x-access-token:#{token}@github.com/#{repo}.git #{branch_name} 2>&1"
 
-    with :ok <- exec_git(sprite_name, fetch_cmd, "bundle fetch"),
-         :ok <- exec_git(sprite_name, push_cmd, "push") do
-      :ok
+    with :ok <- exec_git(sprite_name, fetch_cmd, "bundle fetch") do
+      exec_git(sprite_name, push_cmd, "push")
     end
   end
 

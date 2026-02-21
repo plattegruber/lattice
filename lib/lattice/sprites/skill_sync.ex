@@ -87,10 +87,7 @@ defmodule Lattice.Sprites.SkillSync do
       |> Enum.map(fn {rel_path, _content} -> Path.dirname(rel_path) end)
       |> Enum.uniq()
 
-    mkdir_cmd =
-      dirs
-      |> Enum.map(fn dir -> "#{@skills_target}/#{dir}" end)
-      |> Enum.join(" ")
+    mkdir_cmd = Enum.map_join(dirs, " ", fn dir -> "#{@skills_target}/#{dir}" end)
 
     case Sprites.exec(sprite_name, "mkdir -p #{mkdir_cmd}") do
       {:ok, _} -> :ok

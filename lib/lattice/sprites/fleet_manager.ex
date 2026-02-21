@@ -34,6 +34,7 @@ defmodule Lattice.Sprites.FleetManager do
   require Logger
 
   alias Lattice.Events
+  alias Lattice.Sprites.SkillSync
   alias Lattice.Sprites.Sprite
   alias Lattice.Sprites.State
 
@@ -206,7 +207,7 @@ defmodule Lattice.Sprites.FleetManager do
     broadcast_fleet_summary(new_state)
 
     # Sync sprite skills on startup (non-blocking)
-    Task.start(fn -> Lattice.Sprites.SkillSync.sync_all() end)
+    Task.start(fn -> SkillSync.sync_all() end)
 
     new_state = schedule_fleet_reconcile(new_state)
 

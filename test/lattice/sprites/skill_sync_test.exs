@@ -115,7 +115,7 @@ defmodule Lattice.Sprites.SkillSyncTest do
   describe "discover_skills/0" do
     test "finds skills in priv/sprite_skills" do
       skills = SkillSync.discover_skills()
-      assert length(skills) >= 1
+      assert skills != []
 
       {path, content} = Enum.find(skills, fn {p, _} -> p == "handoff/SKILL.md" end)
       assert path == "handoff/SKILL.md"
