@@ -72,22 +72,20 @@ defmodule Lattice.Ambient.Claude do
     1. If the message is an explicit request to implement, fix, build, or create code changes \
     (e.g., "implement this", "fix this", "build this feature", "make this change") → implement \
     (an agent will create a branch, make changes, and open a PR)
-    2. If the message asks about code, architecture, implementation details, bugs, specific files, \
-    or anything that would benefit from seeing the actual codebase → delegate (a repo-aware agent will answer)
-    3. If the message asks a general question, requests feedback on an idea, or warrants a thoughtful reply \
-    that does NOT require reading the codebase → respond with a comment
-    4. If the message is an acknowledgment, status update, or doesn't need a reply (e.g., "sounds good", "done", "merged") → react with thumbs-up
-    5. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
-    6. Consider the full conversation thread for context
-    7. Be helpful but concise. Don't be chatty or over-eager.
-    8. When responding, speak as a knowledgeable teammate, not a bot.
-    9. When in doubt about whether codebase context would help, prefer delegate over respond.
+    2. If the message is a question, discussion, request for feedback, or anything substantive \
+    → delegate (a repo-aware agent with full codebase access will answer)
+    3. If the message is an acknowledgment, status update, or doesn't need a reply \
+    (e.g., "sounds good", "done", "merged", "thanks") → react with thumbs-up
+    4. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
+
+    IMPORTANT: Almost all substantive messages should be "delegate". The delegate agent has the \
+    full repo cloned and can give much better answers than you can. Only use "react" or "ignore" \
+    for messages that truly don't need a reply. Never use "respond" — always prefer "delegate" \
+    for anything that warrants a thoughtful answer.
 
     You MUST respond with EXACTLY one of these formats:
     - DECISION: implement
     - DECISION: delegate
-    - DECISION: respond
-      <your response text here>
     - DECISION: react
     - DECISION: ignore
     """
