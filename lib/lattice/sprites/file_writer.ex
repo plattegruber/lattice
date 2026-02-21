@@ -29,9 +29,8 @@ defmodule Lattice.Sprites.FileWriter do
     chunks = chunk_string(encoded, @chunk_size)
 
     with :ok <- write_first_chunk(sprite_name, hd(chunks), remote_path),
-         :ok <- append_remaining_chunks(sprite_name, tl(chunks), remote_path),
-         :ok <- decode_file(sprite_name, remote_path) do
-      :ok
+         :ok <- append_remaining_chunks(sprite_name, tl(chunks), remote_path) do
+      decode_file(sprite_name, remote_path)
     end
   end
 

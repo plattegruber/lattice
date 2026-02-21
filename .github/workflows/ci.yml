@@ -21,8 +21,8 @@ jobs:
       - uses: erlef/setup-beam@v1
         id: beam
         with:
-          otp-version: "27.2.4"
-          elixir-version: "1.18.3"
+          otp-version: "28.2.1"
+          elixir-version: "1.18.4"
 
       - name: Cache deps
         uses: actions/cache@v4
@@ -60,8 +60,8 @@ jobs:
       - uses: erlef/setup-beam@v1
         id: beam
         with:
-          otp-version: "27.2.4"
-          elixir-version: "1.18.3"
+          otp-version: "28.2.1"
+          elixir-version: "1.18.4"
 
       - name: Cache deps
         uses: actions/cache@v4
