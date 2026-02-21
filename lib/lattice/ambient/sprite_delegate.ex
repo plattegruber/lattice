@@ -87,10 +87,12 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp prepare_workspace(sprite_name) do
     work_dir = work_dir()
 
+    # Force-clean the workspace: discard local changes, switch to main, pull latest.
+    # Previous runs may leave the sprite on a work branch with dirty state.
     with {:ok, _} <-
            exec_with_retry(
              sprite_name,
-             "cd #{work_dir} && git checkout main && git pull --ff-only 2>&1 || true"
+             "cd #{work_dir} && git checkout -f main && git clean -fd && git pull --ff-only 2>&1 || true"
            ),
          {:ok, _} <-
            exec_with_retry(
@@ -213,18 +215,50 @@ defmodule Lattice.Ambient.SpriteDelegate do
     token = github_app_token()
     repo = github_repo()
 
-    # Fetch bundle into a local branch
+    # Fetch bundle into a local branch.
+    # Bundles created with `git bundle create file main..HEAD` store a HEAD ref,
+    # not the branch name ref. Use HEAD as the source ref.
     fetch_cmd =
-      "cd #{work_dir} && git fetch #{proposal.bundle_path} #{proposal.work_branch}:refs/heads/#{branch_name} 2>&1"
+      "cd #{work_dir} && git fetch #{proposal.bundle_path} HEAD:refs/heads/#{branch_name} 2>&1"
 
     # Push using the App token — sprite never sees this token in normal flow
     push_cmd =
       "cd #{work_dir} && git push https://x-access-token:#{token}@github.com/#{repo}.git #{branch_name} 2>&1"
 
-    with {:ok, _} <- exec_with_retry(sprite_name, fetch_cmd),
-         {:ok, _} <- exec_with_retry(sprite_name, push_cmd) do
+    with :ok <- exec_git(sprite_name, fetch_cmd, "bundle fetch"),
+         :ok <- exec_git(sprite_name, push_cmd, "push") do
       :ok
     end
+  end
+
+  # Execute a git command and validate success via both exit code and output.
+  # The Sprites SDK may report exit_code 0 on failure (WebSocket race condition),
+  # so we also check output for git error indicators.
+  defp exec_git(sprite_name, command, label) do
+    case exec_with_retry(sprite_name, command) do
+      {:ok, %{output: output, exit_code: code}} ->
+        if code != 0 or git_error?(output) do
+          Logger.error(
+            "SpriteDelegate: git #{label} failed (exit=#{code}): #{String.slice(output, 0, 500)}"
+          )
+
+          {:error, {:git_failed, label, output}}
+        else
+          :ok
+        end
+
+      {:ok, _} ->
+        :ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp git_error?(output) do
+    String.contains?(output, "fatal:") or
+      String.contains?(output, "error: src refspec") or
+      String.contains?(output, "error: failed to push")
   end
 
   defp build_branch_name(event) do

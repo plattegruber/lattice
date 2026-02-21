@@ -337,9 +337,10 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git pull"
         {:ok, %{output: "Already up to date.", exit_code: 0}}
       end)
-      # prepare_workspace — git checkout main && git pull
+      # prepare_workspace — git checkout -f main && git clean -fd && git pull
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git checkout main"
+        assert cmd =~ "git checkout -f main"
+        assert cmd =~ "git clean -fd"
         assert cmd =~ "git pull"
         {:ok, %{output: "Already on main", exit_code: 0}}
       end)
@@ -385,10 +386,11 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git bundle verify"
         {:ok, %{output: "The bundle is valid.", exit_code: 0}}
       end)
-      # push_bundle — git fetch bundle
+      # push_bundle — git fetch bundle (uses HEAD ref, not branch name)
       |> expect(:exec, fn "test-ambient", cmd ->
         assert cmd =~ "git fetch"
         assert cmd =~ "change.bundle"
+        assert cmd =~ "HEAD:refs/heads/"
         {:ok, %{output: "", exit_code: 0}}
       end)
       # push_bundle — git push
