@@ -88,9 +88,19 @@ defmodule Lattice.Ambient.SpriteDelegate do
     prompt = build_implementation_prompt(event, thread_context)
     work_dir = work_dir()
 
+    Logger.info(
+      "SpriteDelegate: run_implementation work_dir=#{work_dir} prompt_size=#{byte_size(prompt)}"
+    )
+
+    # Sanity check: verify the repo directory exists
+    sanity_cmd = "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+    exec_with_retry(sprite_name, sanity_cmd)
+
     with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
       claude_cmd =
         "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
+
+      Logger.info("SpriteDelegate: launching claude -p (implement)")
 
       case run_streaming_exec(sprite_name, claude_cmd) do
         {:ok, %{exit_code: 0}} ->
@@ -206,6 +216,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
     #{context_section}Request:
     #{event[:body]}
 
+    IMPORTANT: Before doing anything, verify you can see the codebase:
+    1. Run `ls mix.exs CLAUDE.md` — if these files don't exist, STOP and say "ERROR: Cannot find repo files. pwd=$(pwd), ls=$(ls)"
+    2. Run `pwd` and include the result in your first line of output
+
     Instructions:
     - Read CLAUDE.md first to understand project conventions
     - Start by understanding the issue: read the title, description, and any thread context above
@@ -214,6 +228,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     - Run `mix format` before finishing
     - Do NOT create a PR, push to remote, or run git operations — only modify files
     - Focus on a clean, minimal implementation that solves what was asked
+    - If you cannot find relevant files or the codebase seems empty, say so explicitly — do NOT guess or make up file contents
     """
   end
 
@@ -241,7 +256,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
     case Sprites.get_sprite(name) do
       {:ok, _sprite} ->
-        Logger.info("SpriteDelegate: sprite #{name} exists, pulling latest")
+        Logger.info("SpriteDelegate: sprite #{name} exists, work_dir=#{work_dir}, pulling latest")
         exec_with_retry(name, "cd #{work_dir} && git pull --ff-only 2>&1 || true")
         {:ok, name}
 
@@ -269,9 +284,17 @@ defmodule Lattice.Ambient.SpriteDelegate do
     prompt = build_prompt(event, thread_context)
     work_dir = work_dir()
 
+    Logger.info("SpriteDelegate: run_claude_code work_dir=#{work_dir} prompt_size=#{byte_size(prompt)}")
+
+    # Sanity check: verify the repo directory exists and has expected files
+    sanity_cmd = "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+    exec_with_retry(sprite_name, sanity_cmd)
+
     with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
       claude_cmd =
         "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
+
+      Logger.info("SpriteDelegate: launching claude -p (delegate)")
 
       sprite_name
       |> run_streaming_exec(claude_cmd)
@@ -279,8 +302,23 @@ defmodule Lattice.Ambient.SpriteDelegate do
     end
   end
 
+  defp process_claude_output({:ok, %{output: output, exit_code: code}}) do
+    Logger.info("SpriteDelegate: claude finished exit_code=#{code} output_bytes=#{byte_size(output)}")
+
+    # Log first and last 500 chars for debugging
+    Logger.info("SpriteDelegate: claude output HEAD: #{String.slice(output, 0, 500)}")
+
+    if byte_size(output) > 500 do
+      Logger.info("SpriteDelegate: claude output TAIL: #{String.slice(output, -500, 500)}")
+    end
+
+    trimmed = String.trim(output)
+
+    if trimmed == "", do: {:error, :empty_response}, else: {:ok, trimmed}
+  end
+
   defp process_claude_output({:ok, %{output: output}}) do
-    Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes")
+    Logger.info("SpriteDelegate: claude returned #{byte_size(output)} bytes (no exit code)")
     trimmed = String.trim(output)
 
     if trimmed == "", do: {:error, :empty_response}, else: {:ok, trimmed}
@@ -334,8 +372,18 @@ defmodule Lattice.Ambient.SpriteDelegate do
   # ── Private: Retry Logic ─────────────────────────────────────────
 
   defp exec_with_retry(sprite_name, command, attempt \\ 0) do
+    # Truncate command for logging (don't log huge b64 chunks)
+    log_cmd = String.slice(command, 0, 200)
+    Logger.info("SpriteDelegate: exec[#{attempt}] #{log_cmd}")
+
     case Sprites.exec(sprite_name, command) do
+      {:ok, %{output: output, exit_code: code}} = success ->
+        log_output = String.slice(output || "", 0, 500)
+        Logger.info("SpriteDelegate: exec OK (exit=#{code}): #{log_output}")
+        success
+
       {:ok, _} = success ->
+        Logger.info("SpriteDelegate: exec OK (no structured output)")
         success
 
       {:error, reason} = err ->
@@ -396,11 +444,13 @@ defmodule Lattice.Ambient.SpriteDelegate do
       {:exec_output, %{stream: :exit, chunk: chunk}} ->
         exit_code = parse_exit_code(chunk)
         output = chunks |> Enum.reverse() |> Enum.join()
+        Logger.info("SpriteDelegate: stream complete exit_code=#{exit_code} total_bytes=#{byte_size(output)}")
         {:ok, %{output: output, exit_code: exit_code}}
 
       {:exec_output, %{stream: stream, chunk: chunk}} when stream in [:stdout, :stderr] ->
-        Logger.debug("SpriteDelegate: claude output chunk (#{byte_size(to_string(chunk))} bytes)")
-        collect_loop(ref, [to_string(chunk) | chunks])
+        chunk_str = to_string(chunk)
+        Logger.info("SpriteDelegate: [#{stream}] #{String.slice(chunk_str, 0, 200)}")
+        collect_loop(ref, [chunk_str | chunks])
 
       {:exec_output, _other} ->
         collect_loop(ref, chunks)
@@ -466,11 +516,15 @@ defmodule Lattice.Ambient.SpriteDelegate do
     #{context_section}Message:
     #{event[:body]}
 
+    IMPORTANT: Before doing anything, verify you can see the codebase:
+    1. Run `ls mix.exs CLAUDE.md` — if these files don't exist, STOP and say "ERROR: Cannot find repo files. pwd=$(pwd), ls=$(ls)"
+    2. Run `pwd` and include the result in your first line of output
+
     Instructions:
-    - The repo lives in ./lattice — cd into it before doing anything
     - Answer helpfully and concisely based on the actual codebase
     - Reference specific files and line numbers when relevant
     - If you're unsure about something, say so rather than guessing
+    - If you cannot find relevant files or the codebase seems empty, say so explicitly — do NOT guess or make up file contents
     - Keep your response focused and under 500 words
     """
   end
