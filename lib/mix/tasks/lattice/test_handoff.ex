@@ -115,74 +115,10 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
 
     case Proposal.from_json(json) do
       {:ok, proposal} ->
-        Mix.shell().info("  protocol_version: #{proposal.protocol_version}")
-        Mix.shell().info("  status:           #{proposal.status}")
-        Mix.shell().info("  work_branch:      #{proposal.work_branch}")
-        Mix.shell().info("  bundle_path:      #{proposal.bundle_path}")
-        Mix.shell().info("  summary:          #{proposal.summary}")
-        Mix.shell().info("  pr.title:         #{proposal.pr["title"]}")
-        Mix.shell().info("  commands:         #{length(proposal.commands)}")
-        Mix.shell().info("  flags:            #{inspect(proposal.flags)}")
-        Mix.shell().info("")
-
-        # Check bundle exists
-        bundle_path = Path.join(work_dir, proposal.bundle_path)
-
-        if File.exists?(bundle_path) do
-          Mix.shell().info("[OK] Bundle file exists: #{proposal.bundle_path}")
-
-          # Verify bundle
-          {verify_out, verify_code} =
-            System.cmd("git", ["bundle", "verify", bundle_path],
-              cd: work_dir,
-              stderr_to_stdout: true
-            )
-
-          if verify_code == 0 do
-            Mix.shell().info("[OK] git bundle verify passed")
-          else
-            Mix.shell().error("[FAIL] git bundle verify failed: #{verify_out}")
-          end
-        else
-          Mix.shell().error("[FAIL] Bundle file missing: #{bundle_path}")
-        end
-
-        # Run policy check
-        {diff_out, _} =
-          System.cmd(
-            "git",
-            ["diff", "--name-only", "#{proposal.base_branch}..#{proposal.work_branch}"],
-            cd: work_dir,
-            stderr_to_stdout: true
-          )
-
-        diff_names = diff_out |> String.trim() |> String.split("\n", trim: true)
-        Mix.shell().info("\nChanged files:")
-        Enum.each(diff_names, &Mix.shell().info("  #{&1}"))
-
-        case ProposalPolicy.check(proposal, diff_names) do
-          {:ok, []} ->
-            Mix.shell().info("\n[OK] Policy check passed — no warnings")
-
-          {:ok, warnings} ->
-            Mix.shell().info("\n[OK] Policy check passed with warnings:")
-            Enum.each(warnings, &Mix.shell().info("  - #{&1}"))
-
-          {:error, :policy_violation} ->
-            Mix.shell().error("\n[FAIL] Policy violation — forbidden files in diff")
-        end
-
-        # Clean up: reset back to main so we don't leave a dirty state
-        Mix.shell().info("\n--- Cleaning up ---")
-        System.cmd("git", ["checkout", "main"], cd: work_dir, stderr_to_stdout: true)
-
-        System.cmd("git", ["branch", "-D", proposal.work_branch],
-          cd: work_dir,
-          stderr_to_stdout: true
-        )
-
-        Mix.shell().info("[OK] Reset to main, deleted #{proposal.work_branch}")
-
+        print_proposal_summary(proposal)
+        verify_bundle_file(proposal, work_dir)
+        run_policy_check(proposal, work_dir)
+        cleanup_branches(proposal, work_dir)
         Mix.shell().info("\n=== HANDOFF TEST PASSED ===")
 
       {:error, reason} ->
@@ -190,6 +126,81 @@ defmodule Mix.Tasks.Lattice.TestHandoff do
         Mix.shell().info("\nRaw contents:")
         Mix.shell().info(json)
     end
+  end
+
+  defp print_proposal_summary(proposal) do
+    Mix.shell().info("  protocol_version: #{proposal.protocol_version}")
+    Mix.shell().info("  status:           #{proposal.status}")
+    Mix.shell().info("  work_branch:      #{proposal.work_branch}")
+    Mix.shell().info("  bundle_path:      #{proposal.bundle_path}")
+    Mix.shell().info("  summary:          #{proposal.summary}")
+    Mix.shell().info("  pr.title:         #{proposal.pr["title"]}")
+    Mix.shell().info("  commands:         #{length(proposal.commands)}")
+    Mix.shell().info("  flags:            #{inspect(proposal.flags)}")
+    Mix.shell().info("")
+  end
+
+  defp verify_bundle_file(proposal, work_dir) do
+    bundle_path = Path.join(work_dir, proposal.bundle_path)
+
+    if File.exists?(bundle_path) do
+      Mix.shell().info("[OK] Bundle file exists: #{proposal.bundle_path}")
+      verify_bundle_integrity(bundle_path, work_dir)
+    else
+      Mix.shell().error("[FAIL] Bundle file missing: #{bundle_path}")
+    end
+  end
+
+  defp verify_bundle_integrity(bundle_path, work_dir) do
+    {verify_out, verify_code} =
+      System.cmd("git", ["bundle", "verify", bundle_path],
+        cd: work_dir,
+        stderr_to_stdout: true
+      )
+
+    if verify_code == 0 do
+      Mix.shell().info("[OK] git bundle verify passed")
+    else
+      Mix.shell().error("[FAIL] git bundle verify failed: #{verify_out}")
+    end
+  end
+
+  defp run_policy_check(proposal, work_dir) do
+    {diff_out, _} =
+      System.cmd(
+        "git",
+        ["diff", "--name-only", "#{proposal.base_branch}..#{proposal.work_branch}"],
+        cd: work_dir,
+        stderr_to_stdout: true
+      )
+
+    diff_names = diff_out |> String.trim() |> String.split("\n", trim: true)
+    Mix.shell().info("\nChanged files:")
+    Enum.each(diff_names, &Mix.shell().info("  #{&1}"))
+
+    case ProposalPolicy.check(proposal, diff_names) do
+      {:ok, []} ->
+        Mix.shell().info("\n[OK] Policy check passed — no warnings")
+
+      {:ok, warnings} ->
+        Mix.shell().info("\n[OK] Policy check passed with warnings:")
+        Enum.each(warnings, &Mix.shell().info("  - #{&1}"))
+
+      {:error, :policy_violation} ->
+        Mix.shell().error("\n[FAIL] Policy violation — forbidden files in diff")
+    end
+  end
+
+  defp cleanup_branches(proposal, work_dir) do
+    Mix.shell().info("\n--- Cleaning up ---")
+    System.cmd("git", ["checkout", "main"], cd: work_dir, stderr_to_stdout: true)
+
+    System.cmd("git", ["branch", "-D", proposal.work_branch],
+      cd: work_dir,
+      stderr_to_stdout: true
+    )
+
+    Mix.shell().info("[OK] Reset to main, deleted #{proposal.work_branch}")
   end
 
   defp build_prompt(event, repo) do
