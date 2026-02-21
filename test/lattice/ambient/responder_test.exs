@@ -5,6 +5,7 @@ defmodule Lattice.Ambient.ResponderTest do
 
   import Mox
 
+  alias Lattice.Ambient.Proposal
   alias Lattice.Ambient.Responder
 
   setup :verify_on_exit!
@@ -29,6 +30,29 @@ defmodule Lattice.Ambient.ResponderTest do
     {:ok, responder_pid: pid}
   end
 
+  defp build_test_proposal(overrides \\ %{}) do
+    defaults = %{
+      protocol_version: "bundle-v1",
+      status: "ready",
+      repo: "plattegruber/lattice",
+      base_branch: "main",
+      work_branch: "sprite/add-dark-mode",
+      bundle_path: ".lattice/out/change.bundle",
+      patch_path: ".lattice/out/diff.patch",
+      summary: "Added dark mode",
+      pr: %{
+        "title" => "Add dark mode support",
+        "body" => "Implements dark mode theming",
+        "labels" => ["lattice:ambient"],
+        "review_notes" => []
+      },
+      commands: [%{"cmd" => "mix format", "exit" => 0}],
+      flags: %{}
+    }
+
+    struct!(Proposal, Map.merge(defaults, overrides))
+  end
+
   describe "self-loop prevention" do
     test "ignores events from the configured bot login" do
       event = %{
@@ -51,8 +75,6 @@ defmodule Lattice.Ambient.ResponderTest do
 
   describe "cooldown" do
     test "processes first event, second within cooldown does not call list_comments again" do
-      # Claude returns :ignore (no API key), so after list_comments the flow ends with a 👍.
-      # The second event on the same thread should be skipped entirely (no list_comments call).
       Lattice.Capabilities.MockGitHub
       |> expect(:list_comments, 1, fn _number -> {:ok, []} end)
       |> expect(:create_comment_reaction, 1, fn _id, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
@@ -72,7 +94,6 @@ defmodule Lattice.Ambient.ResponderTest do
       send(Process.whereis(Responder), {:ambient_event, event})
       Process.sleep(50)
 
-      # Claude returns :ignore, so no cooldown is recorded (only :respond/:react record cooldown).
       # Wait for cooldown to expire, then verify the mock was called exactly once.
       Process.sleep(150)
     end
@@ -252,16 +273,21 @@ defmodule Lattice.Ambient.ResponderTest do
       repo: "org/repo"
     }
 
-    test "creates PR and comments on issue on successful implementation" do
+    test "creates PR with proposal data on successful implementation" do
+      proposal = build_test_proposal()
+
       Lattice.Capabilities.MockGitHub
       |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_pull_request, fn attrs ->
         assert attrs.head == "lattice/issue-99-add-dark-mode"
         assert attrs.base == "main"
-        assert attrs.title =~ "Fix #99"
+        assert attrs.title == "Add dark mode support"
         assert attrs.body =~ "Closes #99"
+        assert attrs.body =~ "Implements dark mode theming"
+        assert attrs.body =~ "bundle-v1"
         {:ok, %{number: 101, html_url: "https://github.com/org/repo/pull/101"}}
       end)
+      |> expect(:add_label, fn 101, "lattice:ambient" -> {:ok, ["lattice:ambient"]} end)
       |> expect(:create_comment, fn 99, body ->
         assert body =~ "PR #101"
         assert body =~ "lattice:ambient:implement"
@@ -275,12 +301,53 @@ defmodule Lattice.Ambient.ResponderTest do
         %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
-      send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
+      send(
+        responder,
+        {ref,
+         {:ok,
+          %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
+      )
+
       Process.sleep(100)
 
       # Verify cooldown was recorded
       state = :sys.get_state(responder)
       assert Map.has_key?(state.cooldowns, "issue:99")
+    end
+
+    test "includes warnings in PR body" do
+      proposal = build_test_proposal()
+      warnings = ["Proposal modifies dependencies (mix.exs changed, touches_deps flag set)"]
+
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_pull_request, fn attrs ->
+        assert attrs.body =~ "Policy warnings"
+        assert attrs.body =~ "dependencies"
+        {:ok, %{number: 102, html_url: "https://github.com/org/repo/pull/102"}}
+      end)
+      |> expect(:add_label, fn 102, "lattice:ambient" -> {:ok, ["lattice:ambient"]} end)
+      |> expect(:create_comment, fn 99, _body -> {:ok, %{id: 1}} end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
+      end)
+
+      send(
+        responder,
+        {ref,
+         {:ok,
+          %{
+            branch: "lattice/issue-99-add-dark-mode",
+            proposal: proposal,
+            warnings: warnings
+          }}}
+      )
+
+      Process.sleep(100)
     end
 
     test "posts helpful comment when no changes produced" do
@@ -300,6 +367,64 @@ defmodule Lattice.Ambient.ResponderTest do
       end)
 
       send(responder, {ref, {:error, :no_changes}})
+      Process.sleep(100)
+    end
+
+    test "posts comment for no_proposal error" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "no handoff proposal"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
+      end)
+
+      send(responder, {ref, {:error, :no_proposal}})
+      Process.sleep(100)
+    end
+
+    test "posts comment for blocked error" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "blocked"
+        assert body =~ "Cannot find module"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
+      end)
+
+      send(responder, {ref, {:error, {:blocked, "Cannot find module"}}})
+      Process.sleep(100)
+    end
+
+    test "posts comment for policy_violation error" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_comment, fn 99, body ->
+        assert body =~ "rejected by policy"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
+      end)
+
+      send(responder, {ref, {:error, :policy_violation}})
       Process.sleep(100)
     end
 
@@ -346,6 +471,8 @@ defmodule Lattice.Ambient.ResponderTest do
     end
 
     test "comments with branch name when PR creation fails" do
+      proposal = build_test_proposal()
+
       Lattice.Capabilities.MockGitHub
       |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_pull_request, fn _attrs ->
@@ -364,7 +491,13 @@ defmodule Lattice.Ambient.ResponderTest do
         %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, @impl_event, 42})}
       end)
 
-      send(responder, {ref, {:ok, "lattice/issue-99-add-dark-mode"}})
+      send(
+        responder,
+        {ref,
+         {:ok,
+          %{branch: "lattice/issue-99-add-dark-mode", proposal: proposal, warnings: []}}}
+      )
+
       Process.sleep(100)
     end
   end

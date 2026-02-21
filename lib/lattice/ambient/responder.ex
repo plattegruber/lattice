@@ -211,12 +211,12 @@ defmodule Lattice.Ambient.Responder do
 
   defp handle_implementation_result(event, result, state) do
     case result do
-      {:ok, branch_name} ->
+      {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}} ->
         Logger.info(
           "Ambient: implementation succeeded for #{thread_key(event)}, branch=#{branch_name}"
         )
 
-        create_pr_and_comment(event, branch_name)
+        create_pr_and_comment(event, branch_name, proposal, warnings)
         {:noreply, record_cooldown(thread_key(event), state)}
 
       {:error, :no_changes} ->
@@ -228,6 +228,56 @@ defmodule Lattice.Ambient.Responder do
         )
 
         {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, :no_proposal} ->
+        Logger.warning("Ambient: no handoff proposal produced for #{thread_key(event)}")
+
+        post_error_comment(
+          event,
+          "Implementation completed but no handoff proposal was produced."
+        )
+
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, :invalid_proposal} ->
+        Logger.warning("Ambient: invalid proposal for #{thread_key(event)}")
+
+        post_error_comment(
+          event,
+          "Implementation produced an invalid proposal."
+        )
+
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, {:blocked, reason}} ->
+        Logger.warning("Ambient: implementation blocked for #{thread_key(event)}: #{reason}")
+
+        post_error_comment(
+          event,
+          "Implementation was blocked: #{reason}"
+        )
+
+        {:noreply, record_cooldown(thread_key(event), state)}
+
+      {:error, :bundle_invalid} ->
+        Logger.warning("Ambient: bundle verification failed for #{thread_key(event)}")
+
+        post_error_comment(
+          event,
+          "Git bundle verification failed."
+        )
+
+        {:noreply, state}
+
+      {:error, :policy_violation} ->
+        Logger.warning("Ambient: policy violation for #{thread_key(event)}")
+
+        post_error_comment(
+          event,
+          "Proposal was rejected by policy checks."
+        )
+
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.warning(
@@ -252,16 +302,16 @@ defmodule Lattice.Ambient.Responder do
 
   # ── Private: PR Creation ─────────────────────────────────────────
 
-  defp create_pr_and_comment(event, branch_name) do
+  defp create_pr_and_comment(event, branch_name, proposal, warnings) do
     number = event[:number]
-    title = event[:title] || "Issue ##{number}"
+    pr_title = sanitize_pr_title(proposal.pr["title"], number, event[:title])
+    pr_body = build_pr_body(number, proposal, warnings)
 
     pr_attrs = %{
-      title: "Fix ##{number}: #{title}",
+      title: pr_title,
       head: branch_name,
       base: "main",
-      body:
-        "Closes ##{number}\n\nAutomated implementation by Lattice.\n\n<!-- lattice:ambient:implement -->"
+      body: pr_body
     }
 
     case GitHub.create_pull_request(pr_attrs) do
@@ -270,6 +320,11 @@ defmodule Lattice.Ambient.Responder do
         pr_url = pr[:html_url] || pr[:url] || "##{pr_number}"
 
         Logger.info("Ambient: created PR ##{pr_number} for issue ##{number}")
+
+        # Add labels from proposal
+        for label <- proposal.pr["labels"] || [] do
+          GitHub.add_label(pr_number, label)
+        end
 
         GitHub.create_comment(
           number,
@@ -287,6 +342,79 @@ defmodule Lattice.Ambient.Responder do
   rescue
     e ->
       Logger.error("Ambient: PR creation crashed for issue ##{event[:number]}: #{inspect(e)}")
+  end
+
+  defp sanitize_pr_title(nil, number, title), do: "Fix ##{number}: #{title || "Issue ##{number}"}"
+  defp sanitize_pr_title("", number, title), do: "Fix ##{number}: #{title || "Issue ##{number}"}"
+
+  defp sanitize_pr_title(pr_title, _number, _title) do
+    pr_title
+    |> String.trim()
+    |> String.slice(0, 70)
+  end
+
+  defp build_pr_body(number, proposal, warnings) do
+    commands_table = build_commands_table(proposal.commands)
+    flags_summary = build_flags_summary(proposal.flags)
+    warnings_section = build_warnings_section(warnings)
+
+    body = proposal.pr["body"] || ""
+
+    """
+    Closes ##{number}
+
+    #{body}
+
+    #{commands_table}#{flags_summary}#{warnings_section}---
+    _Automated by Lattice via bundle handoff protocol (#{proposal.protocol_version})_
+
+    <!-- lattice:ambient:implement -->
+    """
+    |> String.trim()
+  end
+
+  defp build_commands_table([]), do: ""
+
+  defp build_commands_table(commands) do
+    rows =
+      Enum.map_join(commands, "\n", fn cmd ->
+        status = if cmd["exit"] == 0, do: "pass", else: "**FAIL (#{cmd["exit"]})**"
+        "| `#{cmd["cmd"]}` | #{status} |"
+      end)
+
+    """
+    ### Commands
+    | Command | Status |
+    |---------|--------|
+    #{rows}
+
+    """
+  end
+
+  defp build_flags_summary(flags) when map_size(flags) == 0, do: ""
+
+  defp build_flags_summary(flags) do
+    set_flags =
+      flags
+      |> Enum.filter(fn {_k, v} -> v == true end)
+      |> Enum.map(fn {k, _} -> "`#{k}`" end)
+
+    case set_flags do
+      [] -> ""
+      items -> "**Flags:** #{Enum.join(items, ", ")}\n\n"
+    end
+  end
+
+  defp build_warnings_section([]), do: ""
+
+  defp build_warnings_section(warnings) do
+    items = Enum.map_join(warnings, "\n", &"- #{&1}")
+
+    """
+    > **Policy warnings:**
+    #{items}
+
+    """
   end
 
   defp post_error_comment(%{surface: :issue, number: number}, message)
