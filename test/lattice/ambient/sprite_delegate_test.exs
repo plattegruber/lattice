@@ -167,7 +167,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       # sanity check
-      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "--- SANITY OK ---", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
       # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", cmd ->
         assert cmd =~ "printf"
@@ -208,7 +210,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         {:ok, %{output: "Cloning into...", exit_code: 0}}
       end)
       # sanity check
-      |> expect(:exec, fn "new-ambient", _cmd -> {:ok, %{output: "--- SANITY OK ---", exit_code: 0}} end)
+      |> expect(:exec, fn "new-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
       # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "new-ambient", cmd ->
         assert cmd =~ "printf"
@@ -253,7 +257,9 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       # sanity check
-      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "--- SANITY OK ---", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
       # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
@@ -285,6 +291,33 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       repo: "org/repo"
     }
 
+    @valid_proposal_json Jason.encode!(%{
+                           "protocol_version" => "bundle-v1",
+                           "status" => "ready",
+                           "repo" => "plattegruber/lattice",
+                           "base_branch" => "main",
+                           "work_branch" => "sprite/add-dark-mode-support",
+                           "bundle_path" => ".lattice/out/change.bundle",
+                           "patch_path" => ".lattice/out/diff.patch",
+                           "summary" => "Added dark mode support",
+                           "pr" => %{
+                             "title" => "Add dark mode support",
+                             "body" => "Implements dark mode theming",
+                             "labels" => ["lattice:ambient"],
+                             "review_notes" => []
+                           },
+                           "commands" => [
+                             %{"cmd" => "mix format", "exit" => 0},
+                             %{"cmd" => "mix test", "exit" => 0}
+                           ],
+                           "flags" => %{
+                             "touches_migrations" => false,
+                             "touches_deps" => false,
+                             "touches_auth" => false,
+                             "touches_secrets" => false
+                           }
+                         })
+
     setup do
       Application.put_env(:lattice, SpriteDelegate,
         enabled: true,
@@ -296,7 +329,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       :ok
     end
 
-    test "creates branch, runs claude, commits and pushes" do
+    test "full handoff flow: prepare, run, read proposal, validate, verify, push" do
       Lattice.Capabilities.MockSprites
       # ensure_sprite — sprite exists, pulls latest
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
@@ -304,14 +337,22 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git pull"
         {:ok, %{output: "Already up to date.", exit_code: 0}}
       end)
-      # create_and_checkout_branch
+      # prepare_workspace — git checkout main && git pull
       |> expect(:exec, fn "test-ambient", cmd ->
         assert cmd =~ "git checkout main"
-        assert cmd =~ "git checkout -b lattice/issue-55-add-dark-mode-support"
-        {:ok, %{output: "Switched to new branch", exit_code: 0}}
+        assert cmd =~ "git pull"
+        {:ok, %{output: "Already on main", exit_code: 0}}
+      end)
+      # prepare_workspace — rm -rf .lattice/out && mkdir
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "rm -rf .lattice/out"
+        assert cmd =~ "mkdir -p .lattice/out"
+        {:ok, %{output: "", exit_code: 0}}
       end)
       # sanity check
-      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "--- SANITY OK ---", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
       # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", cmd ->
         assert cmd =~ "printf"
@@ -323,29 +364,34 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "implement_prompt.txt"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      # run_implementation — run claude via streaming exec
+      # run_implementation — claude -p via streaming exec
       |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
         assert cmd =~ "claude -p"
         assert cmd =~ "ANTHROPIC_API_KEY="
-        {:ok, start_fake_session("Done implementing.")}
+        {:ok, start_fake_session("HANDOFF_READY: .lattice/out/")}
       end)
-      # commit_and_push — git add
+      # read_proposal — cat proposal.json
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git add -A"
+        assert cmd =~ "proposal.json"
+        {:ok, %{output: @valid_proposal_json, exit_code: 0}}
+      end)
+      # validate_proposal — git diff --name-only
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git diff --name-only"
+        {:ok, %{output: "lib/lattice/theme.ex\ntest/lattice/theme_test.exs", exit_code: 0}}
+      end)
+      # verify_bundle — git bundle verify
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git bundle verify"
+        {:ok, %{output: "The bundle is valid.", exit_code: 0}}
+      end)
+      # push_bundle — git fetch bundle
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git fetch"
+        assert cmd =~ "change.bundle"
         {:ok, %{output: "", exit_code: 0}}
       end)
-      # commit_and_push — git diff --cached --quiet (exit 1 = changes exist)
-      |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git diff --cached --quiet"
-        {:ok, %{exit_code: 1, output: ""}}
-      end)
-      # commit_and_push — git commit
-      |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git commit"
-        assert cmd =~ "lattice: implement #55"
-        {:ok, %{output: "1 file changed", exit_code: 0}}
-      end)
-      # commit_and_push — git push
+      # push_bundle — git push
       |> expect(:exec, fn "test-ambient", cmd ->
         assert cmd =~ "git push"
         assert cmd =~ "x-access-token"
@@ -353,41 +399,118 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         {:ok, %{output: "Branch pushed", exit_code: 0}}
       end)
 
-      assert {:ok, branch} = SpriteDelegate.handle_implementation(@impl_event, [])
-      assert branch == "lattice/issue-55-add-dark-mode-support"
+      assert {:ok, result} = SpriteDelegate.handle_implementation(@impl_event, [])
+      assert result.branch == "lattice/issue-55-add-dark-mode-support"
+      assert result.proposal.status == "ready"
+      assert result.proposal.pr["title"] == "Add dark mode support"
+      assert result.warnings == []
     end
 
-    test "returns :no_changes when git diff detects nothing staged" do
+    test "returns :no_changes when proposal status is no_changes" do
+      no_changes_json =
+        Jason.encode!(%{
+          "protocol_version" => "bundle-v1",
+          "status" => "no_changes",
+          "base_branch" => "main",
+          "work_branch" => "sprite/add-dark-mode-support",
+          "bundle_path" => ".lattice/out/change.bundle"
+        })
+
       Lattice.Capabilities.MockSprites
       |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
       |> expect(:exec, fn "test-ambient", _cmd ->
         {:ok, %{output: "Already up to date.", exit_code: 0}}
       end)
+      # prepare_workspace
       |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "Switched to new branch", exit_code: 0}}
+        {:ok, %{output: "Already on main", exit_code: 0}}
       end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       # sanity check
-      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "--- SANITY OK ---", exit_code: 0}} end)
-      # write_prompt_file: write b64, then decode
       |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "", exit_code: 0}}
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
       end)
-      |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "", exit_code: 0}}
-      end)
+      # write_prompt_file
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
       |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
-        {:ok, start_fake_session("No changes needed.")}
+        {:ok, start_fake_session("HANDOFF_READY: .lattice/out/")}
       end)
-      # git add -A
+      # read_proposal
       |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{output: "", exit_code: 0}}
-      end)
-      # git diff --cached --quiet — exit 0 means no changes
-      |> expect(:exec, fn "test-ambient", _cmd ->
-        {:ok, %{exit_code: 0, output: ""}}
+        {:ok, %{output: no_changes_json, exit_code: 0}}
       end)
 
       assert {:error, :no_changes} = SpriteDelegate.handle_implementation(@impl_event, [])
+    end
+
+    test "returns :no_proposal when proposal.json is missing" do
+      Lattice.Capabilities.MockSprites
+      |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Already up to date.", exit_code: 0}}
+      end)
+      # prepare_workspace
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Already on main", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      # sanity check
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
+      # write_prompt_file
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
+        {:ok, start_fake_session("Done but no proposal.")}
+      end)
+      # read_proposal — file not found
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "", exit_code: 1}}
+      end)
+
+      assert {:error, :no_proposal} = SpriteDelegate.handle_implementation(@impl_event, [])
+    end
+
+    test "returns {:blocked, reason} when proposal status is blocked" do
+      blocked_json =
+        Jason.encode!(%{
+          "protocol_version" => "bundle-v1",
+          "status" => "blocked",
+          "blocked_reason" => "Cannot find the module to change",
+          "base_branch" => "main",
+          "work_branch" => "sprite/add-dark-mode-support",
+          "bundle_path" => ".lattice/out/change.bundle"
+        })
+
+      Lattice.Capabilities.MockSprites
+      |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Already up to date.", exit_code: 0}}
+      end)
+      # prepare_workspace
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "Already on main", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      # sanity check
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
+      # write_prompt_file
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      |> expect(:exec, fn "test-ambient", _cmd -> {:ok, %{output: "", exit_code: 0}} end)
+      |> expect(:exec_ws, fn "test-ambient", _cmd, _opts ->
+        {:ok, start_fake_session("HANDOFF_READY: .lattice/out/")}
+      end)
+      # read_proposal
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: blocked_json, exit_code: 0}}
+      end)
+
+      assert {:error, {:blocked, "Cannot find the module to change"}} =
+               SpriteDelegate.handle_implementation(@impl_event, [])
     end
   end
 end

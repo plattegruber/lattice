@@ -8,19 +8,24 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   Stateless — called from a Task spawned by the Responder.
 
-  ## Implementation Flow
+  ## Implementation Flow (Bundle Handoff Protocol)
 
   When the classifier returns `:implement`, `handle_implementation/2` is called:
 
   1. Ensure the sprite exists (create or git pull)
-  2. Check out a new branch: `lattice/issue-{N}-{slug}`
-  3. Run `claude -p` in agentic mode to make code changes
-  4. Commit and push the branch using a GitHub App token
-  5. Return `{:ok, branch_name}` for the Responder to create the PR
+  2. Prepare workspace (clean main, clear artifacts)
+  3. Run `claude -p` with handoff protocol instructions
+  4. Read `.lattice/out/proposal.json` from the sprite
+  5. Validate proposal against policy checks
+  6. Verify the git bundle
+  7. Push bundle to GitHub using App token (sprite never sees the token)
+  8. Return `{:ok, %{branch, proposal, warnings}}` for the Responder to create the PR
   """
 
   require Logger
 
+  alias Lattice.Ambient.Proposal
+  alias Lattice.Ambient.ProposalPolicy
   alias Lattice.Capabilities.GitHub.AppAuth
   alias Lattice.Capabilities.Sprites
   alias Lattice.Sprites.ExecSession
@@ -46,23 +51,29 @@ defmodule Lattice.Ambient.SpriteDelegate do
   end
 
   @doc """
-  Handle an implementation request by creating a branch, running Claude Code
-  in agentic mode, and pushing the result.
+  Handle an implementation request using the bundle handoff protocol.
 
-  Returns `{:ok, branch_name}` on success, `{:error, :no_changes}` if Claude
-  made no modifications, or `{:error, reason}` on failure.
+  The sprite makes changes and produces a structured proposal. Lattice validates
+  the proposal and handles all GitHub operations (push, PR creation).
+
+  Returns `{:ok, %{branch: String.t(), proposal: Proposal.t(), warnings: [String.t()]}}`
+  on success, or `{:error, reason}` on failure.
   """
   @spec handle_implementation(event :: map(), thread_context :: [map()]) ::
-          {:ok, String.t()} | {:error, term()}
+          {:ok, %{branch: String.t(), proposal: Proposal.t(), warnings: [String.t()]}}
+          | {:error, term()}
   def handle_implementation(event, thread_context) do
     if enabled?() do
       branch_name = build_branch_name(event)
 
       with {:ok, sprite_name} <- ensure_sprite(),
-           :ok <- create_and_checkout_branch(sprite_name, branch_name),
+           :ok <- prepare_workspace(sprite_name),
            :ok <- run_implementation(sprite_name, event, thread_context),
-           :ok <- commit_and_push(sprite_name, branch_name, event) do
-        {:ok, branch_name}
+           {:ok, proposal} <- read_proposal(sprite_name),
+           {:ok, proposal, warnings} <- validate_proposal(proposal, sprite_name),
+           :ok <- verify_bundle(sprite_name, proposal),
+           :ok <- push_bundle(sprite_name, branch_name, proposal) do
+        {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}}
       end
     else
       Logger.warning("SpriteDelegate: delegation disabled, cannot implement")
@@ -72,15 +83,20 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   # ── Private: Implementation Helpers ────────────────────────────────
 
-  defp create_and_checkout_branch(sprite_name, branch_name) do
+  defp prepare_workspace(sprite_name) do
     work_dir = work_dir()
 
-    cmd =
-      "cd #{work_dir} && git checkout main && git pull --ff-only 2>&1 && git checkout -b #{branch_name} 2>&1"
-
-    case exec_with_retry(sprite_name, cmd) do
-      {:ok, _} -> :ok
-      {:error, _} = err -> err
+    with {:ok, _} <-
+           exec_with_retry(
+             sprite_name,
+             "cd #{work_dir} && git checkout main && git pull --ff-only 2>&1 || true"
+           ),
+         {:ok, _} <-
+           exec_with_retry(
+             sprite_name,
+             "cd #{work_dir} && rm -rf .lattice/out && mkdir -p .lattice/out"
+           ) do
+      :ok
     end
   end
 
@@ -93,7 +109,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
     )
 
     # Sanity check: verify the repo directory exists
-    sanity_cmd = "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+    sanity_cmd =
+      "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+
     exec_with_retry(sprite_name, sanity_cmd)
 
     with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
@@ -111,7 +129,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
             "SpriteDelegate: claude exited with code #{code}: #{String.slice(output, -500, 500)}"
           )
 
-          # Still try to commit — claude might have made partial changes
+          # Still try to read proposal — claude might have produced one
           :ok
 
         {:error, _} = err ->
@@ -120,42 +138,89 @@ defmodule Lattice.Ambient.SpriteDelegate do
     end
   end
 
-  defp commit_and_push(sprite_name, branch_name, event) do
+  defp read_proposal(sprite_name) do
     work_dir = work_dir()
-    number = event[:number]
 
-    with {:ok, _} <- exec_with_retry(sprite_name, "cd #{work_dir} && git add -A 2>&1"),
-         :ok <- check_staged_changes(sprite_name, work_dir, number) do
-      do_commit_and_push(sprite_name, work_dir, branch_name, event)
+    case Sprites.exec(sprite_name, "cat #{work_dir}/.lattice/out/proposal.json 2>/dev/null") do
+      {:ok, %{output: output, exit_code: 0}} when output != "" ->
+        case Proposal.from_json(String.trim(output)) do
+          {:ok, %Proposal{status: "no_changes"}} ->
+            {:error, :no_changes}
+
+          {:ok, %Proposal{status: "blocked", blocked_reason: reason}} ->
+            {:error, {:blocked, reason}}
+
+          {:ok, proposal} ->
+            {:ok, proposal}
+
+          {:error, reason} ->
+            Logger.warning("SpriteDelegate: invalid proposal.json: #{inspect(reason)}")
+            {:error, :invalid_proposal}
+        end
+
+      {:ok, %{exit_code: code}} ->
+        Logger.warning("SpriteDelegate: no proposal.json found (exit=#{code})")
+        {:error, :no_proposal}
+
+      {:error, _} = err ->
+        err
     end
   end
 
-  defp check_staged_changes(sprite_name, work_dir, number) do
-    case Sprites.exec(sprite_name, "cd #{work_dir} && git diff --cached --quiet") do
-      {:ok, %{exit_code: 0}} ->
-        Logger.warning("SpriteDelegate: no changes to commit for ##{number}")
-        {:error, :no_changes}
+  defp validate_proposal(%Proposal{} = proposal, sprite_name) do
+    work_dir = work_dir()
 
-      _ ->
-        :ok
+    case Sprites.exec(
+           sprite_name,
+           "cd #{work_dir} && git diff --name-only #{proposal.base_branch}..#{proposal.work_branch} 2>&1"
+         ) do
+      {:ok, %{output: output, exit_code: 0}} ->
+        file_list =
+          output
+          |> String.trim()
+          |> String.split("\n", trim: true)
+
+        case ProposalPolicy.check(proposal, file_list) do
+          {:ok, warnings} -> {:ok, proposal, warnings}
+          {:error, _} = err -> err
+        end
+
+      {:ok, %{output: output}} ->
+        Logger.warning("SpriteDelegate: git diff --name-only failed: #{output}")
+        {:ok, proposal, []}
+
+      {:error, _} = err ->
+        err
     end
   end
 
-  defp do_commit_and_push(sprite_name, work_dir, branch_name, event) do
-    number = event[:number]
-    title = escape_single_quotes(event[:title] || "Issue ##{number}")
-    commit_msg = "lattice: implement ##{number} - #{title}"
+  defp verify_bundle(sprite_name, proposal) do
+    work_dir = work_dir()
 
-    commit_cmd =
-      "cd #{work_dir} && git commit -m '#{escape_single_quotes(commit_msg)}' 2>&1"
+    case Sprites.exec(
+           sprite_name,
+           "cd #{work_dir} && git bundle verify #{proposal.bundle_path} 2>&1"
+         ) do
+      {:ok, %{exit_code: 0}} -> :ok
+      {:ok, _} -> {:error, :bundle_invalid}
+      {:error, _} = err -> err
+    end
+  end
 
+  defp push_bundle(sprite_name, branch_name, proposal) do
+    work_dir = work_dir()
     token = github_app_token()
     repo = github_repo()
 
+    # Fetch bundle into a local branch
+    fetch_cmd =
+      "cd #{work_dir} && git fetch #{proposal.bundle_path} #{proposal.work_branch}:refs/heads/#{branch_name} 2>&1"
+
+    # Push using the App token — sprite never sees this token in normal flow
     push_cmd =
       "cd #{work_dir} && git push https://x-access-token:#{token}@github.com/#{repo}.git #{branch_name} 2>&1"
 
-    with {:ok, _} <- exec_with_retry(sprite_name, commit_cmd),
+    with {:ok, _} <- exec_with_retry(sprite_name, fetch_cmd),
          {:ok, _} <- exec_with_retry(sprite_name, push_cmd) do
       :ok
     end
@@ -205,31 +270,111 @@ defmodule Lattice.Ambient.SpriteDelegate do
         ""
       end
 
+    repo = github_repo()
+
     """
     You are implementing changes for a GitHub issue in this codebase.
+    Follow the LatticeBundleHandoff protocol exactly.
 
     #{thread_section}## Issue details:
     Issue number: ##{event[:number]}
     Title: #{event[:title]}
     Author: #{event[:author]}
+    Repo: #{repo}
 
     #{context_section}Request:
     #{event[:body]}
 
     IMPORTANT: Before doing anything, verify you can see the codebase:
-    1. Run `ls mix.exs CLAUDE.md` — if these files don't exist, STOP and say "ERROR: Cannot find repo files. pwd=$(pwd), ls=$(ls)"
+    1. Run `ls mix.exs CLAUDE.md` — if these files don't exist, STOP and say "ERROR: Cannot find repo files."
     2. Run `pwd` and include the result in your first line of output
 
-    Instructions:
-    - Read CLAUDE.md first to understand project conventions
-    - Start by understanding the issue: read the title, description, and any thread context above
-    - Search the codebase for relevant code (grep for keywords from the issue title/description)
-    - Implement the requested changes following existing patterns
-    - Run `mix format` before finishing
-    - Do NOT create a PR, push to remote, or run git operations — only modify files
-    - Focus on a clean, minimal implementation that solves what was asked
-    - If you cannot find relevant files or the codebase seems empty, say so explicitly — do NOT guess or make up file contents
+    ## LatticeBundleHandoff Protocol (bundle-v1)
+
+    You MUST follow these steps exactly:
+
+    1. Read CLAUDE.md first to understand project conventions
+    2. Ensure you are on a clean `main`:
+       ```
+       git checkout main && git pull --ff-only
+       ```
+    3. Create a work branch:
+       ```
+       git checkout -b sprite/#{slug_from_event(event)}
+       ```
+    4. Implement the requested changes following existing patterns
+    5. Run validation:
+       ```
+       mix format
+       mix test 2>&1 | tee .lattice/out/test_output.txt
+       ```
+    6. Commit locally:
+       ```
+       git add -A
+       git commit -m "sprite: <concise description of changes>"
+       ```
+    7. Create the bundle and patch:
+       ```
+       mkdir -p .lattice/out
+       git bundle create .lattice/out/change.bundle main..HEAD
+       git bundle verify .lattice/out/change.bundle
+       git diff main..HEAD > .lattice/out/diff.patch
+       ```
+    8. Write `.lattice/out/proposal.json` with this exact schema:
+       ```json
+       {
+         "protocol_version": "bundle-v1",
+         "status": "ready",
+         "repo": "#{repo}",
+         "base_branch": "main",
+         "work_branch": "sprite/#{slug_from_event(event)}",
+         "bundle_path": ".lattice/out/change.bundle",
+         "patch_path": ".lattice/out/diff.patch",
+         "summary": "<brief description>",
+         "pr": {
+           "title": "<short PR title under 70 chars>",
+           "body": "<markdown PR body>",
+           "labels": ["lattice:ambient"],
+           "review_notes": []
+         },
+         "commands": [
+           {"cmd": "mix format", "exit": 0},
+           {"cmd": "mix test", "exit": 0}
+         ],
+         "flags": {
+           "touches_migrations": false,
+           "touches_deps": false,
+           "touches_auth": false,
+           "touches_secrets": false
+         }
+       }
+       ```
+       Set `status` to `"no_changes"` if nothing needed changing.
+       Set `status` to `"blocked"` with `blocked_reason` if you cannot proceed.
+    9. Print this exact line at the end:
+       ```
+       HANDOFF_READY: .lattice/out/
+       ```
+
+    ## Hard Rules
+    - NEVER run `git push`
+    - NEVER call GitHub APIs (no `gh pr create`, no `curl` to api.github.com)
+    - NEVER edit git remotes
+    - NEVER expose or log tokens/secrets
+    - If you cannot find relevant files or the codebase seems empty, say so explicitly
     """
+  end
+
+  defp slug_from_event(event) do
+    title = event[:title] || "implementation"
+
+    title
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9\s-]/, "")
+    |> String.replace(~r/\s+/, "-")
+    |> String.trim("-")
+    |> String.slice(0, 40)
+    |> String.trim_trailing("-")
   end
 
   defp github_app_token do
@@ -240,12 +385,6 @@ defmodule Lattice.Ambient.SpriteDelegate do
     Application.get_env(:lattice, :resources, [])
     |> Keyword.get(:github_repo, "")
   end
-
-  defp escape_single_quotes(str) when is_binary(str) do
-    String.replace(str, "'", "'\\''")
-  end
-
-  defp escape_single_quotes(_), do: ""
 
   # ── Private: Sprite Lifecycle ────────────────────────────────────
 
@@ -284,10 +423,14 @@ defmodule Lattice.Ambient.SpriteDelegate do
     prompt = build_prompt(event, thread_context)
     work_dir = work_dir()
 
-    Logger.info("SpriteDelegate: run_claude_code work_dir=#{work_dir} prompt_size=#{byte_size(prompt)}")
+    Logger.info(
+      "SpriteDelegate: run_claude_code work_dir=#{work_dir} prompt_size=#{byte_size(prompt)}"
+    )
 
     # Sanity check: verify the repo directory exists and has expected files
-    sanity_cmd = "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+    sanity_cmd =
+      "ls #{work_dir}/mix.exs #{work_dir}/CLAUDE.md 2>&1 && pwd && echo '--- SANITY OK ---'"
+
     exec_with_retry(sprite_name, sanity_cmd)
 
     with {:ok, _} <- write_prompt_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
@@ -303,9 +446,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
   end
 
   defp process_claude_output({:ok, %{output: output, exit_code: code}}) do
-    Logger.info("SpriteDelegate: claude finished exit_code=#{code} output_bytes=#{byte_size(output)}")
+    Logger.info(
+      "SpriteDelegate: claude finished exit_code=#{code} output_bytes=#{byte_size(output)}"
+    )
 
-    # Log first and last 500 chars for debugging
     Logger.info("SpriteDelegate: claude output HEAD: #{String.slice(output, 0, 500)}")
 
     if byte_size(output) > 500 do
@@ -332,14 +476,9 @@ defmodule Lattice.Ambient.SpriteDelegate do
   # ── Private: Prompt File Writing ─────────────────────────────────
 
   defp write_prompt_file(sprite_name, prompt, path) do
-    # Base64 encode to avoid any shell escaping issues with heredocs.
-    # The prompt may contain backticks, quotes, $, etc. from GitHub content.
     encoded = Base.encode64(prompt)
-
-    # Split into chunks to avoid hitting command-line length limits
     chunks = chunk_string(encoded, 50_000)
 
-    # First chunk creates/overwrites the staging file, rest append
     [{first, :write} | rest] =
       [{hd(chunks), :write} | Enum.map(tl(chunks), &{&1, :append})]
 
@@ -372,7 +511,6 @@ defmodule Lattice.Ambient.SpriteDelegate do
   # ── Private: Retry Logic ─────────────────────────────────────────
 
   defp exec_with_retry(sprite_name, command, attempt \\ 0) do
-    # Truncate command for logging (don't log huge b64 chunks)
     log_cmd = String.slice(command, 0, 200)
     Logger.info("SpriteDelegate: exec[#{attempt}] #{log_cmd}")
 
@@ -444,7 +582,11 @@ defmodule Lattice.Ambient.SpriteDelegate do
       {:exec_output, %{stream: :exit, chunk: chunk}} ->
         exit_code = parse_exit_code(chunk)
         output = chunks |> Enum.reverse() |> Enum.join()
-        Logger.info("SpriteDelegate: stream complete exit_code=#{exit_code} total_bytes=#{byte_size(output)}")
+
+        Logger.info(
+          "SpriteDelegate: stream complete exit_code=#{exit_code} total_bytes=#{byte_size(output)}"
+        )
+
         {:ok, %{output: output, exit_code: exit_code}}
 
       {:exec_output, %{stream: stream, chunk: chunk}} when stream in [:stdout, :stderr] ->

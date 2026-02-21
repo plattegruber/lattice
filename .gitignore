@@ -44,3 +44,6 @@ Thumbs.db
 
 # ExDoc output
 /doc/
+
+# Lattice handoff artifacts
+.lattice/out/
