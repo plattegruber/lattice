@@ -131,6 +131,24 @@ defmodule Lattice.Capabilities.Sprites.Live do
   end
 
   @impl true
+  def restore_checkpoint(id, checkpoint_id) do
+    sprite = build_sprite(id)
+
+    case Sprites.restore_checkpoint(sprite, checkpoint_id) do
+      {:ok, messages} ->
+        # Consume the streaming response to completion
+        result = Enum.to_list(messages)
+        Logger.info("Sprites API: restored checkpoint #{checkpoint_id} on #{id}")
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e -> {:error, normalize_error(e)}
+  end
+
+  @impl true
   def fetch_logs(id, opts) do
     # The SDK doesn't wrap the services endpoint, so use Req directly
     query = build_log_query(opts)

@@ -55,6 +55,10 @@ defmodule Lattice.Capabilities.Sprites do
   @callback exec_ws(sprite_id(), command(), opts :: keyword()) ::
               {:ok, pid()} | {:error, term()}
 
+  @doc "Restore a Sprite from a checkpoint. Returns streamed messages."
+  @callback restore_checkpoint(sprite_id(), checkpoint_id :: String.t()) ::
+              {:ok, term()} | {:error, term()}
+
   @doc "List all Sprites visible to this Lattice instance."
   def list_sprites, do: impl().list_sprites()
 
@@ -81,6 +85,10 @@ defmodule Lattice.Capabilities.Sprites do
 
   @doc "Start a WebSocket exec session on a Sprite."
   def exec_ws(sprite_id, command, opts \\ []), do: impl().exec_ws(sprite_id, command, opts)
+
+  @doc "Restore a Sprite from a checkpoint."
+  def restore_checkpoint(sprite_id, checkpoint_id),
+    do: impl().restore_checkpoint(sprite_id, checkpoint_id)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:sprites]
 end
