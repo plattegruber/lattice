@@ -29,6 +29,7 @@ defmodule Lattice.Runs.Run do
           | :canceled
           | :blocked
           | :blocked_waiting_for_user
+          | :waiting
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -46,6 +47,8 @@ defmodule Lattice.Runs.Run do
           blocked_reason: String.t() | nil,
           question: map() | nil,
           answer: map() | nil,
+          checkpoint_id: String.t() | nil,
+          expected_inputs: map() | nil,
           inserted_at: DateTime.t(),
           updated_at: DateTime.t()
         }
@@ -64,6 +67,8 @@ defmodule Lattice.Runs.Run do
     :blocked_reason,
     :question,
     :answer,
+    :checkpoint_id,
+    :expected_inputs,
     status: :pending,
     artifacts: [],
     assumptions: [],
@@ -147,7 +152,7 @@ defmodule Lattice.Runs.Run do
   def fail(run, attrs \\ %{})
 
   def fail(%__MODULE__{status: s} = run, attrs)
-      when s in [:running, :blocked, :blocked_waiting_for_user] do
+      when s in [:running, :blocked, :blocked_waiting_for_user, :waiting] do
     now = DateTime.utc_now()
 
     {:ok,
@@ -167,7 +172,7 @@ defmodule Lattice.Runs.Run do
   @doc "Mark run as canceled."
   @spec cancel(t()) :: {:ok, t()} | {:error, {:invalid_transition, status(), :canceled}}
   def cancel(%__MODULE__{status: s} = run)
-      when s in [:pending, :running, :blocked, :blocked_waiting_for_user] do
+      when s in [:pending, :running, :blocked, :blocked_waiting_for_user, :waiting] do
     now = DateTime.utc_now()
     {:ok, %{run | status: :canceled, finished_at: now, updated_at: now}}
   end
@@ -200,13 +205,33 @@ defmodule Lattice.Runs.Run do
   def block_for_input(%__MODULE__{status: status}, _),
     do: {:error, {:invalid_transition, status, :blocked_waiting_for_user}}
 
-  @doc "Resume a blocked run."
+  @doc "Transition run to :waiting (protocol v1 WAITING event)."
+  @spec wait(t(), String.t(), String.t(), map()) ::
+          {:ok, t()} | {:error, {:invalid_transition, status(), :waiting}}
+  def wait(run, reason, checkpoint_id, expected_inputs \\ %{})
+
+  def wait(%__MODULE__{status: :running} = run, reason, checkpoint_id, expected_inputs) do
+    {:ok,
+     %{
+       run
+       | status: :waiting,
+         blocked_reason: reason,
+         checkpoint_id: checkpoint_id,
+         expected_inputs: expected_inputs,
+         updated_at: DateTime.utc_now()
+     }}
+  end
+
+  def wait(%__MODULE__{status: status}, _reason, _checkpoint_id, _expected_inputs),
+    do: {:error, {:invalid_transition, status, :waiting}}
+
+  @doc "Resume a blocked or waiting run."
   @spec resume(t(), map() | nil) ::
           {:ok, t()} | {:error, {:invalid_transition, status(), :running}}
   def resume(run, answer \\ nil)
 
   def resume(%__MODULE__{status: s} = run, answer)
-      when s in [:blocked, :blocked_waiting_for_user] do
+      when s in [:blocked, :blocked_waiting_for_user, :waiting] do
     {:ok, %{run | status: :running, answer: answer, updated_at: DateTime.utc_now()}}
   end
 
