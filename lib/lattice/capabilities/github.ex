@@ -152,6 +152,9 @@ defmodule Lattice.Capabilities.GitHub do
   @doc "List comments on an issue or PR."
   @callback list_comments(issue_number()) :: {:ok, [comment()]} | {:error, term()}
 
+  @doc "List files changed in a pull request."
+  @callback list_pr_files(pr_number()) :: {:ok, [map()]} | {:error, term()}
+
   @doc "Create a new GitHub issue with the given attributes."
   def create_issue(title, attrs), do: impl().create_issue(title, attrs)
 
@@ -258,6 +261,9 @@ defmodule Lattice.Capabilities.GitHub do
 
   @doc "List comments on an issue or PR."
   def list_comments(number), do: impl().list_comments(number)
+
+  @doc "List files changed in a pull request."
+  def list_pr_files(pr_number), do: impl().list_pr_files(pr_number)
 
   defp impl, do: Application.get_env(:lattice, :capabilities)[:github]
 end
