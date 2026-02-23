@@ -357,6 +357,36 @@ defmodule Lattice.Capabilities.GitHub.Live do
     end)
   end
 
+  # ── PR Files ────────────────────────────────────────────────────────────
+
+  @impl true
+  def list_pr_files(pr_number) do
+    args = ["api", "repos/{owner}/{repo}/pulls/#{pr_number}/files"]
+
+    timed_cmd(:list_pr_files, args, fn json ->
+      case Jason.decode(json) do
+        {:ok, files} when is_list(files) ->
+          {:ok,
+           Enum.map(files, fn f ->
+             %{
+               filename: f["filename"],
+               status: f["status"],
+               additions: f["additions"] || 0,
+               deletions: f["deletions"] || 0,
+               changes: f["changes"] || 0,
+               patch: f["patch"]
+             }
+           end)}
+
+        {:ok, _} ->
+          {:ok, []}
+
+        {:error, _} ->
+          {:error, {:invalid_json, json}}
+      end
+    end)
+  end
+
   # ── Reactions & Comments (list) ────────────────────────────────────────
 
   @impl true

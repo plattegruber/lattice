@@ -633,6 +633,32 @@ defmodule Lattice.Capabilities.GitHub.Http do
     end
   end
 
+  # ── PR Files ──────────────────────────────────────────────────────
+
+  @impl true
+  def list_pr_files(pr_number) do
+    timed(:list_pr_files, fn ->
+      case api_get("/repos/#{repo()}/pulls/#{pr_number}/files", per_page: 100) do
+        {:ok, files} when is_list(files) ->
+          {:ok, Enum.map(files, &parse_pr_file/1)}
+
+        error ->
+          error
+      end
+    end)
+  end
+
+  defp parse_pr_file(data) when is_map(data) do
+    %{
+      filename: data["filename"],
+      status: data["status"],
+      additions: data["additions"] || 0,
+      deletions: data["deletions"] || 0,
+      changes: data["changes"] || 0,
+      patch: data["patch"]
+    }
+  end
+
   # ── Comments (list) ─────────────────────────────────────────────
 
   @impl true
