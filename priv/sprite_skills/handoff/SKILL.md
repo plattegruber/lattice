@@ -87,6 +87,22 @@ work and create a PR. **You never push to GitHub yourself.**
    ```
    This line MUST appear in your output. Lattice watches for it.
 
+## Amendment Mode
+
+When Lattice tells you to amend an existing PR, the prompt will say "Amendment Mode"
+and you will already be checked out on the PR's head branch.
+
+**Key differences from the normal flow:**
+
+- **Do NOT** checkout main or create a new branch — you are already on the correct branch
+- Make your changes, format, test, and commit as usual
+- Create the bundle as `HEAD~1..HEAD` (just your new commit, not `main..HEAD`)
+- Create the diff as `HEAD~1..HEAD`
+- Set `work_branch` in `proposal.json` to the current branch name (the PR's head branch)
+- Set `base_branch` to `"main"` as usual
+
+Everything else (proposal schema, hard rules, signal completion) is the same.
+
 ## Hard Rules
 
 - **NEVER** run `git push`

@@ -475,6 +475,114 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       assert {:error, :no_proposal} = SpriteDelegate.handle_implementation(@impl_event, [])
     end
 
+    test "amendment flow: detects PR, checks out head branch, pushes with force-with-lease" do
+      pr_event = %{
+        type: :issue_comment,
+        surface: :pr_comment,
+        number: 203,
+        body: "Fix these changes and commit them to our branch",
+        title: "Fix tests",
+        author: "reviewer",
+        comment_id: 700,
+        repo: "org/repo",
+        is_pull_request: true
+      }
+
+      amendment_proposal_json =
+        Jason.encode!(%{
+          "protocol_version" => "bundle-v1",
+          "status" => "ready",
+          "repo" => "plattegruber/lattice",
+          "base_branch" => "main",
+          "work_branch" => "feature/fix-tests",
+          "bundle_path" => ".lattice/out/change.bundle",
+          "patch_path" => ".lattice/out/diff.patch",
+          "summary" => "Fixed the test failures",
+          "pr" => %{
+            "title" => "Amendment for PR #203",
+            "body" => "Fixed failing tests",
+            "labels" => ["lattice:ambient"],
+            "review_notes" => []
+          },
+          "commands" => [
+            %{"cmd" => "mix format", "exit" => 0},
+            %{"cmd" => "mix test", "exit" => 0}
+          ],
+          "flags" => %{
+            "touches_migrations" => false,
+            "touches_deps" => false,
+            "touches_auth" => false,
+            "touches_secrets" => false
+          }
+        })
+
+      Lattice.Capabilities.MockGitHub
+      |> expect(:get_pull_request, fn 203 ->
+        {:ok, %{number: 203, head: %{ref: "feature/fix-tests"}, base: %{ref: "main"}}}
+      end)
+
+      Lattice.Capabilities.MockSprites
+      # ensure_sprite — sprite exists, pulls latest
+      |> expect(:get_sprite, fn "test-ambient" -> {:ok, %{name: "test-ambient"}} end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git pull"
+        {:ok, %{output: "Already up to date.", exit_code: 0}}
+      end)
+      # prepare_workspace (amendment) — git fetch origin && git checkout head branch
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git fetch origin"
+        assert cmd =~ "git checkout -f feature/fix-tests"
+        assert cmd =~ "git pull origin feature/fix-tests"
+        {:ok, %{output: "Switched to branch", exit_code: 0}}
+      end)
+      # prepare_workspace — rm -rf .lattice/out && mkdir
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "rm -rf .lattice/out"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # sanity check
+      |> expect(:exec, fn "test-ambient", _cmd ->
+        {:ok, %{output: "--- SANITY OK ---", exit_code: 0}}
+      end)
+      # write_prompt_file: write b64, then decode
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "printf"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "base64 -d"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # run_implementation — claude -p via streaming exec
+      |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
+        assert cmd =~ "claude -p"
+        {:ok, start_fake_session("HANDOFF_READY: .lattice/out/")}
+      end)
+      # read_proposal — cat proposal.json
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "proposal.json"
+        {:ok, %{output: amendment_proposal_json, exit_code: 0}}
+      end)
+      # validate_proposal — git diff --name-only
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git diff --name-only"
+        {:ok, %{output: "test/some_test.exs", exit_code: 0}}
+      end)
+      # push_branch (amendment) — git push --force-with-lease
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git push --force-with-lease"
+        assert cmd =~ "x-access-token"
+        assert cmd =~ "feature/fix-tests"
+        {:ok, %{output: "Branch pushed", exit_code: 0}}
+      end)
+
+      assert {:ok, result} = SpriteDelegate.handle_implementation(pr_event, [])
+      assert result.branch == "feature/fix-tests"
+      assert result.amendment == 203
+      assert result.proposal.status == "ready"
+      assert result.warnings == []
+    end
+
     test "returns {:blocked, reason} when proposal status is blocked" do
       blocked_json =
         Jason.encode!(%{

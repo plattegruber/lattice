@@ -332,10 +332,11 @@ defmodule Lattice.Webhooks.GitHub do
   defp build_ambient_event(:issue_comment, payload, sender) do
     comment = Map.get(payload, "comment", %{})
     issue = Map.get(payload, "issue", %{})
+    is_pr = Map.has_key?(issue, "pull_request")
 
     %{
       type: :issue_comment,
-      surface: :issue,
+      surface: if(is_pr, do: :pr_comment, else: :issue),
       number: Map.get(issue, "number"),
       body: Map.get(comment, "body", ""),
       title: Map.get(issue, "title", ""),
@@ -343,7 +344,8 @@ defmodule Lattice.Webhooks.GitHub do
       context_author: get_in(issue, ["user", "login"]) || "unknown",
       author: sender,
       comment_id: Map.get(comment, "id"),
-      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown",
+      is_pull_request: is_pr
     }
   end
 
@@ -361,7 +363,8 @@ defmodule Lattice.Webhooks.GitHub do
       context_author: get_in(pr, ["user", "login"]) || "unknown",
       author: sender,
       comment_id: Map.get(review, "id"),
-      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown",
+      is_pull_request: true
     }
   end
 
@@ -379,7 +382,8 @@ defmodule Lattice.Webhooks.GitHub do
       context_author: get_in(pr, ["user", "login"]) || "unknown",
       author: sender,
       comment_id: Map.get(comment, "id"),
-      repo: get_in(payload, ["repository", "full_name"]) || "unknown"
+      repo: get_in(payload, ["repository", "full_name"]) || "unknown",
+      is_pull_request: true
     }
   end
 

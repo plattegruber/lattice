@@ -37,7 +37,7 @@ Context gathering is triggered by a `Trigger` struct containing:
 | `body` | no | Issue/PR body text |
 | `author` | no | Author login |
 | `labels` | no | List of label names |
-| `head_branch` | no | PR head branch (PRs only) |
+| `head_branch` | no | PR head branch (PRs only). Also used to detect amendment context for PR-triggered implementations. |
 | `base_branch` | no | PR base branch (PRs only) |
 | `thread_context` | no | Pre-fetched comments (avoids re-fetch) |
 

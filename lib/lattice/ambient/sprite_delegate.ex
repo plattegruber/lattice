@@ -26,6 +26,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
   alias Lattice.Ambient.Proposal
   alias Lattice.Ambient.ProposalPolicy
+  alias Lattice.Capabilities.GitHub
   alias Lattice.Capabilities.GitHub.AppAuth
   alias Lattice.Capabilities.Sprites
   alias Lattice.Sprites.ExecSession
@@ -65,16 +66,14 @@ defmodule Lattice.Ambient.SpriteDelegate do
           | {:error, term()}
   def handle_implementation(event, thread_context) do
     if enabled?() do
-      branch_name = build_branch_name(event)
-
       with {:ok, sprite_name} <- ensure_sprite(),
-           :ok <- prepare_workspace(sprite_name),
-           :ok <- run_implementation(sprite_name, event, thread_context),
+           {:ok, mode} <- detect_mode(event),
+           :ok <- prepare_workspace(sprite_name, mode),
+           :ok <- run_implementation(sprite_name, event, thread_context, mode),
            {:ok, proposal} <- read_proposal(sprite_name),
            {:ok, proposal, warnings} <- validate_proposal(proposal, sprite_name),
-           :ok <- verify_bundle(sprite_name, proposal),
-           :ok <- push_bundle(sprite_name, branch_name, proposal) do
-        {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}}
+           :ok <- verify_and_push(sprite_name, proposal, mode) do
+        {:ok, build_result(mode, proposal, warnings)}
       end
     else
       Logger.warning("SpriteDelegate: delegation disabled, cannot implement")
@@ -82,9 +81,44 @@ defmodule Lattice.Ambient.SpriteDelegate do
     end
   end
 
+  # ── Private: Mode Detection ──────────────────────────────────────
+
+  defp detect_mode(%{is_pull_request: true, number: number}) when not is_nil(number) do
+    case GitHub.get_pull_request(number) do
+      {:ok, pr} ->
+        head = pr[:head] || pr["head"]
+        head_branch = head[:ref] || head["ref"]
+
+        if head_branch do
+          Logger.info(
+            "SpriteDelegate: detected amendment mode for PR ##{number}, branch=#{head_branch}"
+          )
+
+          {:ok, {:amend_pr, number, head_branch}}
+        else
+          Logger.warning(
+            "SpriteDelegate: PR ##{number} has no head ref, falling back to new PR mode"
+          )
+
+          {:ok, {:new_pr, build_branch_name(%{number: number})}}
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "SpriteDelegate: failed to fetch PR ##{number}: #{inspect(reason)}, falling back to new PR"
+        )
+
+        {:ok, {:new_pr, build_branch_name(%{number: number})}}
+    end
+  end
+
+  defp detect_mode(event) do
+    {:ok, {:new_pr, build_branch_name(event)}}
+  end
+
   # ── Private: Implementation Helpers ────────────────────────────────
 
-  defp prepare_workspace(sprite_name) do
+  defp prepare_workspace(sprite_name, {:new_pr, _}) do
     work_dir = work_dir()
 
     # Force-clean the workspace: discard local changes, switch to main, pull latest.
@@ -103,8 +137,26 @@ defmodule Lattice.Ambient.SpriteDelegate do
     end
   end
 
-  defp run_implementation(sprite_name, event, thread_context) do
-    prompt = build_implementation_prompt(event, thread_context)
+  defp prepare_workspace(sprite_name, {:amend_pr, _pr_number, head_branch}) do
+    work_dir = work_dir()
+
+    # Fetch latest, checkout the PR's head branch, and pull it.
+    with {:ok, _} <-
+           exec_with_retry(
+             sprite_name,
+             "cd #{work_dir} && git fetch origin && git checkout -f #{head_branch} && git pull origin #{head_branch} 2>&1 || true"
+           ),
+         {:ok, _} <-
+           exec_with_retry(
+             sprite_name,
+             "cd #{work_dir} && rm -rf .lattice/out && mkdir -p .lattice/out"
+           ) do
+      :ok
+    end
+  end
+
+  defp run_implementation(sprite_name, event, thread_context, mode) do
+    prompt = build_implementation_prompt(event, thread_context, mode)
     work_dir = work_dir()
 
     Logger.info(
@@ -197,6 +249,19 @@ defmodule Lattice.Ambient.SpriteDelegate do
     end
   end
 
+  defp verify_and_push(sprite_name, proposal, {:new_pr, branch_name}) do
+    with :ok <- verify_bundle(sprite_name, proposal),
+         :ok <- push_bundle(sprite_name, branch_name, proposal) do
+      :ok
+    end
+  end
+
+  defp verify_and_push(sprite_name, _proposal, {:amend_pr, _pr_number, head_branch}) do
+    # For amendments, the sprite committed directly on the PR branch.
+    # Push the branch with --force-with-lease (safe force push).
+    push_branch(sprite_name, head_branch)
+  end
+
   defp verify_bundle(sprite_name, proposal) do
     work_dir = work_dir()
 
@@ -229,6 +294,26 @@ defmodule Lattice.Ambient.SpriteDelegate do
          :ok <- exec_git(sprite_name, push_cmd, "push") do
       :ok
     end
+  end
+
+  defp push_branch(sprite_name, head_branch) do
+    work_dir = work_dir()
+    token = github_app_token()
+    repo = github_repo()
+
+    push_cmd =
+      "cd #{work_dir} && git push --force-with-lease " <>
+        "https://x-access-token:#{token}@github.com/#{repo}.git #{head_branch} 2>&1"
+
+    exec_git(sprite_name, push_cmd, "push amendment")
+  end
+
+  defp build_result({:new_pr, branch_name}, proposal, warnings) do
+    %{branch: branch_name, proposal: proposal, warnings: warnings}
+  end
+
+  defp build_result({:amend_pr, pr_number, head_branch}, proposal, warnings) do
+    %{branch: head_branch, proposal: proposal, warnings: warnings, amendment: pr_number}
   end
 
   # Execute a git command and validate success via both exit code and output.
@@ -277,7 +362,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     "lattice/issue-#{number}-#{slug}"
   end
 
-  defp build_implementation_prompt(event, thread_context) do
+  defp build_implementation_prompt(event, thread_context, mode) do
     thread_text =
       Enum.map_join(thread_context, "\n\n", fn c ->
         "**#{c[:user] || "unknown"}**: #{c[:body] || ""}"
@@ -306,13 +391,22 @@ defmodule Lattice.Ambient.SpriteDelegate do
       end
 
     repo = github_repo()
+    preamble = build_prompt_preamble(event, thread_section, context_section, repo)
+    protocol = build_prompt_protocol(event, mode, repo)
 
     """
-    You are implementing changes for a GitHub issue in this codebase.
+    #{preamble}
+    #{protocol}
+    """
+  end
+
+  defp build_prompt_preamble(event, thread_section, context_section, repo) do
+    """
+    You are implementing changes for a GitHub issue/PR in this codebase.
     Follow the LatticeBundleHandoff protocol exactly.
 
-    #{thread_section}## Issue details:
-    Issue number: ##{event[:number]}
+    #{thread_section}## Details:
+    Number: ##{event[:number]}
     Title: #{event[:title]}
     Author: #{event[:author]}
     Repo: #{repo}
@@ -323,7 +417,13 @@ defmodule Lattice.Ambient.SpriteDelegate do
     IMPORTANT: Before doing anything, verify you can see the codebase:
     1. Run `ls mix.exs CLAUDE.md` — if these files don't exist, STOP and say "ERROR: Cannot find repo files."
     2. Run `pwd` and include the result in your first line of output
+    """
+  end
 
+  defp build_prompt_protocol(event, {:new_pr, _}, repo) do
+    slug = slug_from_event(event)
+
+    """
     ## LatticeBundleHandoff Protocol (bundle-v1)
 
     You MUST follow these steps exactly:
@@ -335,7 +435,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
        ```
     3. Create a work branch:
        ```
-       git checkout -b sprite/#{slug_from_event(event)}
+       git checkout -b sprite/#{slug}
        ```
     4. Implement the requested changes following existing patterns
     5. Run validation:
@@ -362,7 +462,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
          "status": "ready",
          "repo": "#{repo}",
          "base_branch": "main",
-         "work_branch": "sprite/#{slug_from_event(event)}",
+         "work_branch": "sprite/#{slug}",
          "bundle_path": ".lattice/out/change.bundle",
          "patch_path": ".lattice/out/diff.patch",
          "summary": "<brief description>",
@@ -396,6 +496,84 @@ defmodule Lattice.Ambient.SpriteDelegate do
     - NEVER call GitHub APIs (no `gh pr create`, no `curl` to api.github.com)
     - NEVER edit git remotes
     - NEVER expose or log tokens/secrets
+    - If you cannot find relevant files or the codebase seems empty, say so explicitly
+    """
+  end
+
+  defp build_prompt_protocol(_event, {:amend_pr, pr_number, head_branch}, repo) do
+    """
+    ## LatticeBundleHandoff Protocol — Amendment Mode (bundle-v1)
+
+    You are amending PR ##{pr_number} on branch `#{head_branch}`.
+    **Do NOT checkout main or create a new branch.** You are already on the correct branch.
+
+    You MUST follow these steps exactly:
+
+    1. Read CLAUDE.md first to understand project conventions
+    2. Verify you are on the correct branch:
+       ```
+       git branch --show-current   # Should show: #{head_branch}
+       ```
+    3. Implement the requested changes following existing patterns
+    4. Run validation:
+       ```
+       mix format
+       mix test 2>&1 | tee .lattice/out/test_output.txt
+       ```
+    5. Commit locally:
+       ```
+       git add -A
+       git commit -m "sprite: <concise description of changes>"
+       ```
+    6. Create the bundle and patch (just your new commit):
+       ```
+       mkdir -p .lattice/out
+       git bundle create .lattice/out/change.bundle HEAD~1..HEAD
+       git bundle verify .lattice/out/change.bundle
+       git diff HEAD~1..HEAD > .lattice/out/diff.patch
+       ```
+    7. Write `.lattice/out/proposal.json` with this exact schema:
+       ```json
+       {
+         "protocol_version": "bundle-v1",
+         "status": "ready",
+         "repo": "#{repo}",
+         "base_branch": "main",
+         "work_branch": "#{head_branch}",
+         "bundle_path": ".lattice/out/change.bundle",
+         "patch_path": ".lattice/out/diff.patch",
+         "summary": "<brief description>",
+         "pr": {
+           "title": "Amendment for PR ##{pr_number}",
+           "body": "<markdown description of changes>",
+           "labels": ["lattice:ambient"],
+           "review_notes": []
+         },
+         "commands": [
+           {"cmd": "mix format", "exit": 0},
+           {"cmd": "mix test", "exit": 0}
+         ],
+         "flags": {
+           "touches_migrations": false,
+           "touches_deps": false,
+           "touches_auth": false,
+           "touches_secrets": false
+         }
+       }
+       ```
+       Set `status` to `"no_changes"` if nothing needed changing.
+       Set `status` to `"blocked"` with `blocked_reason` if you cannot proceed.
+    8. Print this exact line at the end:
+       ```
+       HANDOFF_READY: .lattice/out/
+       ```
+
+    ## Hard Rules
+    - NEVER run `git push`
+    - NEVER call GitHub APIs (no `gh pr create`, no `curl` to api.github.com)
+    - NEVER edit git remotes
+    - NEVER expose or log tokens/secrets
+    - Do NOT checkout main or create a new branch — stay on `#{head_branch}`
     - If you cannot find relevant files or the codebase seems empty, say so explicitly
     """
   end
