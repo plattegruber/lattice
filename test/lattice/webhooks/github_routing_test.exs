@@ -13,6 +13,7 @@ defmodule Lattice.Webhooks.GitHubRoutingTest do
   alias Lattice.Intents.Store.ETS, as: StoreETS
   alias Lattice.Runs
   alias Lattice.Runs.Run
+  alias Lattice.Sprites.Sprite
   alias Lattice.Webhooks.GitHub, as: WebhookHandler
 
   # ETS table names from ArtifactRegistry (must match the private constants)
@@ -210,7 +211,7 @@ defmodule Lattice.Webhooks.GitHubRoutingTest do
       Phoenix.PubSub.subscribe(Lattice.PubSub, "sprites:#{sprite_name}:logs")
 
       :ok =
-        Lattice.Sprites.Sprite.route_github_update(sprite_pid, :issue_comment, %{number: 10})
+        Sprite.route_github_update(sprite_pid, :issue_comment, %{number: 10})
 
       assert_receive {:sprite_log, log_line}, 500
       assert log_line.source == :github_update
@@ -229,10 +230,10 @@ defmodule Lattice.Webhooks.GitHubRoutingTest do
   # Start a minimal Sprite GenServer registered in Lattice.Sprites.Registry
   # so that FleetManager.get_sprite_pid/1 can find it.
   defp start_test_sprite(sprite_name) do
-    Lattice.Sprites.Sprite.start_link(
+    Sprite.start_link(
       sprite_id: sprite_name,
       sprite_name: sprite_name,
-      name: Lattice.Sprites.Sprite.via(sprite_name)
+      name: Sprite.via(sprite_name)
     )
   end
 
