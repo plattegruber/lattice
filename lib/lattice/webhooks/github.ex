@@ -458,14 +458,9 @@ defmodule Lattice.Webhooks.GitHub do
   end
 
   defp find_active_sprite_for_link(%ArtifactLink{intent_id: intent_id}) do
-    case Runs.Store.list_by_intent(intent_id) do
-      {:ok, runs} ->
-        active_run = Enum.find(runs, fn run -> run.status in @active_statuses end)
-        if active_run, do: active_run.sprite_name
-
-      {:error, _reason} ->
-        nil
-    end
+    {:ok, runs} = Runs.Store.list_by_intent(intent_id)
+    active_run = Enum.find(runs, fn run -> run.status in @active_statuses end)
+    if active_run, do: active_run.sprite_name
   end
 
   defp register_input_artifact(intent_id, kind, ref, url) do
