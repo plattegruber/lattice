@@ -45,13 +45,12 @@ defmodule Lattice.Protocol.Resume do
         "claude -p 'Read /workspace/.lattice/resume.json and continue the workflow from the checkpoint.'"
       )
 
-    Logger.info(
-      "Resuming sprite #{sprite_name} from checkpoint #{checkpoint_id}"
-    )
+    Logger.info("Resuming sprite #{sprite_name} from checkpoint #{checkpoint_id}")
 
     with {:restore, {:ok, _}} <- {:restore, restore_checkpoint(sprite_name, checkpoint_id)},
          {:write, {:ok, _}} <-
-           {:write, write_resume_context(sprite_name, checkpoint_id, inputs, work_item_id, context)},
+           {:write,
+            write_resume_context(sprite_name, checkpoint_id, inputs, work_item_id, context)},
          {:exec, {:ok, pid}} <- {:exec, Sprites.exec_ws(sprite_name, command)} do
       Logger.info("Sprite #{sprite_name} resumed, exec session started")
       {:ok, pid}

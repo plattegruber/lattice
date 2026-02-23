@@ -107,6 +107,92 @@ defmodule Lattice.Webhooks.GitHubTest do
     end
   end
 
+  # ── Ambient event: is_pull_request detection ─────────────────────
+
+  describe "ambient event: is_pull_request" do
+    test "build_ambient_event sets is_pull_request: true for PR comments" do
+      # GitHub sends issue_comment events for PR comments too,
+      # with issue.pull_request present in the payload
+      payload = %{
+        "action" => "created",
+        "issue" => %{
+          "number" => 203,
+          "title" => "Fix tests",
+          "body" => "PR body",
+          "labels" => [],
+          "pull_request" => %{"url" => "https://api.github.com/repos/org/repo/pulls/203"},
+          "user" => %{"login" => "author"}
+        },
+        "comment" => %{
+          "id" => 999,
+          "body" => "Fix these changes and commit them to our branch"
+        },
+        "repository" => %{"full_name" => "org/repo"},
+        "sender" => %{"login" => "human-user"}
+      }
+
+      # The ambient event is broadcast via PubSub — subscribe to capture it
+      Lattice.Events.subscribe_ambient()
+      WebhookHandler.handle_event("issue_comment", payload)
+
+      assert_receive {:ambient_event, event}, 500
+      assert event.is_pull_request == true
+      assert event.surface == :pr_comment
+      assert event.number == 203
+    end
+
+    test "build_ambient_event sets is_pull_request: false for regular issue comments" do
+      payload = %{
+        "action" => "created",
+        "issue" => %{
+          "number" => 42,
+          "title" => "Bug report",
+          "body" => "Issue body",
+          "labels" => [],
+          "user" => %{"login" => "author"}
+        },
+        "comment" => %{
+          "id" => 888,
+          "body" => "Any update on this?"
+        },
+        "repository" => %{"full_name" => "org/repo"},
+        "sender" => %{"login" => "human-user"}
+      }
+
+      Lattice.Events.subscribe_ambient()
+      WebhookHandler.handle_event("issue_comment", payload)
+
+      assert_receive {:ambient_event, event}, 500
+      assert event.is_pull_request == false
+      assert event.surface == :issue
+    end
+
+    test "build_ambient_event sets is_pull_request: true for pr_review events" do
+      payload = %{
+        "action" => "submitted",
+        "pull_request" => %{
+          "number" => 77,
+          "title" => "PR title",
+          "body" => "PR body",
+          "user" => %{"login" => "author"}
+        },
+        "review" => %{
+          "id" => 555,
+          "body" => "Looks good",
+          "state" => "approved"
+        },
+        "repository" => %{"full_name" => "org/repo"},
+        "sender" => %{"login" => "reviewer"}
+      }
+
+      Lattice.Events.subscribe_ambient()
+      WebhookHandler.handle_event("pull_request_review", payload)
+
+      assert_receive {:ambient_event, event}, 500
+      assert event.is_pull_request == true
+    end
+  end
+
   # ── Unhandled events ───────────────────────────────────────────────
 
   describe "unhandled events" do

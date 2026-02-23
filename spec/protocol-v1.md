@@ -173,6 +173,7 @@ Sprite requests Lattice perform an external action on its behalf. Sprites **MUST
 | Action | Description | Typically blocking? |
 |---|---|---|
 | `OPEN_PR` | Create a pull request | yes |
+| `PUSH_TO_BRANCH` | Push commits to an existing branch | no |
 | `POST_COMMENT` | Post a GitHub comment | no |
 | `LABEL_ISSUE` | Add labels to an issue | no |
 | `NOTIFY_USER` | Send a notification | no |

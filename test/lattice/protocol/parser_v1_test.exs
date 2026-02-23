@@ -225,7 +225,9 @@ defmodule Lattice.Protocol.ParserV1Test do
 
   describe "backward compatibility" do
     test "legacy artifact events still parse" do
-      json = Jason.encode!(%{"type" => "artifact", "kind" => "pr", "url" => "https://example.com"})
+      json =
+        Jason.encode!(%{"type" => "artifact", "kind" => "pr", "url" => "https://example.com"})
+
       line = "LATTICE_EVENT #{json}"
 
       assert {:event, %Event{event_type: "artifact", data: %Artifact{}}} = Parser.parse_line(line)

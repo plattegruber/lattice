@@ -469,6 +469,89 @@ defmodule Lattice.Ambient.ResponderTest do
       Process.sleep(100)
     end
 
+    test "comments on existing PR for amendment result (no new PR created)" do
+      proposal = build_test_proposal(%{summary: "Fixed the tests"})
+
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_comment, fn 203, body ->
+        assert body =~ "pushed changes to this PR"
+        assert body =~ "Fixed the tests"
+        assert body =~ "lattice:ambient:implement"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      # Use a PR-surface event for the amendment
+      pr_event = %{
+        type: :issue_comment,
+        surface: :pr_comment,
+        number: 203,
+        body: "Fix these changes",
+        title: "Fix tests",
+        author: "reviewer",
+        comment_id: 600,
+        repo: "org/repo",
+        is_pull_request: true
+      }
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, pr_event, 42})}
+      end)
+
+      send(
+        responder,
+        {ref,
+         {:ok,
+          %{
+            branch: "feature/fix-tests",
+            proposal: proposal,
+            warnings: [],
+            amendment: 203
+          }}}
+      )
+
+      Process.sleep(100)
+
+      # Verify cooldown was recorded
+      state = :sys.get_state(responder)
+      assert Map.has_key?(state.cooldowns, "pr_comment:203")
+    end
+
+    test "posts error comment on PR surface for implementation failures" do
+      Lattice.Capabilities.MockGitHub
+      |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
+      |> expect(:create_comment, fn 203, body ->
+        assert body =~ "couldn't produce any code changes"
+        assert body =~ "lattice:ambient:implement"
+        {:ok, %{id: 1}}
+      end)
+
+      ref = make_ref()
+      responder = Process.whereis(Responder)
+
+      pr_event = %{
+        type: :issue_comment,
+        surface: :pr_comment,
+        number: 203,
+        body: "Fix this",
+        title: "Fix tests",
+        author: "reviewer",
+        comment_id: 600,
+        repo: "org/repo",
+        is_pull_request: true
+      }
+
+      :sys.replace_state(responder, fn state ->
+        %{state | active_tasks: Map.put(state.active_tasks, ref, {:implement, pr_event, 42})}
+      end)
+
+      send(responder, {ref, {:error, :no_changes}})
+      Process.sleep(100)
+    end
+
     test "comments with branch name when PR creation fails" do
       proposal = build_test_proposal()
 

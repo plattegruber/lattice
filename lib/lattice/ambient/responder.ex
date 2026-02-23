@@ -211,6 +211,12 @@ defmodule Lattice.Ambient.Responder do
 
   defp handle_implementation_result(event, result, state) do
     case result do
+      {:ok, %{amendment: pr_number, proposal: proposal, warnings: warnings}} ->
+        Logger.info("Ambient: amendment pushed for PR ##{pr_number} on #{thread_key(event)}")
+
+        comment_on_amendment(event, pr_number, proposal, warnings)
+        {:noreply, record_cooldown(thread_key(event), state)}
+
       {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}} ->
         Logger.info(
           "Ambient: implementation succeeded for #{thread_key(event)}, branch=#{branch_name}"
@@ -344,6 +350,36 @@ defmodule Lattice.Ambient.Responder do
       Logger.error("Ambient: PR creation crashed for issue ##{event[:number]}: #{inspect(e)}")
   end
 
+  defp comment_on_amendment(event, pr_number, proposal, warnings) do
+    commands_table = build_commands_table(proposal.commands)
+    warnings_section = build_warnings_section(warnings)
+    summary = proposal.summary || proposal.pr["body"] || "Changes pushed."
+
+    body = """
+    I've pushed changes to this PR.
+
+    #{summary}
+
+    #{commands_table}#{warnings_section}---
+    _Automated by Lattice via bundle handoff protocol (#{proposal.protocol_version})_
+
+    <!-- lattice:ambient:implement -->
+    """
+
+    case GitHub.create_comment(pr_number, String.trim(body)) do
+      {:ok, _} ->
+        Logger.info("Ambient: posted amendment comment on PR ##{pr_number}")
+
+      {:error, reason} ->
+        Logger.error("Ambient: failed to comment on PR ##{pr_number}: #{inspect(reason)}")
+    end
+  rescue
+    e ->
+      Logger.error(
+        "Ambient: amendment comment crashed for #{inspect(event[:number])}: #{inspect(e)}"
+      )
+  end
+
   defp sanitize_pr_title(nil, number, title), do: "Fix ##{number}: #{title || "Issue ##{number}"}"
   defp sanitize_pr_title("", number, title), do: "Fix ##{number}: #{title || "Issue ##{number}"}"
 
@@ -417,8 +453,9 @@ defmodule Lattice.Ambient.Responder do
     """
   end
 
-  defp post_error_comment(%{surface: :issue, number: number}, message)
-       when not is_nil(number) do
+  defp post_error_comment(%{surface: surface, number: number}, message)
+       when surface in [:issue, :pr_comment, :pr_review, :pr_review_comment] and
+              not is_nil(number) do
     GitHub.create_comment(number, "#{message}\n\n<!-- lattice:ambient:implement -->")
   rescue
     e -> Logger.warning("Ambient: failed to post error comment: #{inspect(e)}")
@@ -543,13 +580,14 @@ defmodule Lattice.Ambient.Responder do
 
   # ── Private: Response Posting ───────────────────────────────────
 
-  defp post_response(%{surface: :issue, number: number}, text) when not is_nil(number) do
+  defp post_response(%{surface: surface, number: number}, text)
+       when surface in [:issue, :pr_comment] and not is_nil(number) do
     body = "#{text}\n\n<!-- lattice:ambient -->"
-    Logger.info("Ambient: posting comment (#{byte_size(body)} bytes) on issue ##{number}")
+    Logger.info("Ambient: posting comment (#{byte_size(body)} bytes) on ##{number}")
 
     case GitHub.create_comment(number, body) do
       {:ok, _} ->
-        Logger.info("Ambient: posted comment on issue ##{number}")
+        Logger.info("Ambient: posted comment on ##{number}")
 
       {:error, reason} ->
         Logger.warning("Ambient: failed to post comment on ##{number}: #{inspect(reason)}")
@@ -588,7 +626,8 @@ defmodule Lattice.Ambient.Responder do
   # ── Private: Thread Context ─────────────────────────────────────
 
   defp fetch_thread_context(%{surface: surface, number: number} = event)
-       when surface in [:issue, :pr_review, :pr_review_comment] and not is_nil(number) do
+       when surface in [:issue, :pr_comment, :pr_review, :pr_review_comment] and
+              not is_nil(number) do
     comments =
       case GitHub.list_comments(number) do
         {:ok, comments} ->
