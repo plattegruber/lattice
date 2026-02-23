@@ -31,6 +31,21 @@ defmodule LatticeWeb.ConnCase do
     end
   end
 
+  @doc """
+  Sets up session data so a conn passes the LiveView AuthHook.
+
+  Puts the minimal operator session keys required by `LatticeWeb.Hooks.AuthHook`.
+  Call this in test setups that exercise authenticated LiveView routes.
+  """
+  def log_in_conn(conn) do
+    conn
+    |> Plug.Test.init_test_session(%{
+      "operator_id" => "test-operator",
+      "operator_name" => "Test Operator",
+      "operator_role" => "admin"
+    })
+  end
+
   setup _tags do
     # Stub MockAuth so all authenticated API requests succeed by default.
     # Individual tests can override with Mox.expect/3 if needed.

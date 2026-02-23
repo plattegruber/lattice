@@ -7,6 +7,10 @@ defmodule LatticeWeb.AuditLiveTest do
 
   @moduletag :unit
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   describe "audit view rendering" do
     test "renders audit page with title", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/audit")

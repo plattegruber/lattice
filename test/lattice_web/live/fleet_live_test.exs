@@ -8,6 +8,10 @@ defmodule LatticeWeb.FleetLiveTest do
 
   @moduletag :unit
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   # The global FleetManager starts with an empty fleet in tests (config/test.exs).
   # Tests that need sprites start them via a dedicated FleetManager+DynamicSupervisor
   # pair, but since the LiveView reads from the global FleetManager, we test

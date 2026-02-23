@@ -75,8 +75,8 @@ defmodule Lattice.Sprites.SkillSyncTest do
       |> expect(:list_sprites, fn ->
         {:ok, [%{id: "sprite-1", name: "sprite-1"}, %{id: "sprite-2", name: "sprite-2"}]}
       end)
-      # Each sprite gets 5 exec calls (clear, mkdir, write chunk, decode, verify)
-      |> expect(:exec, 10, fn _name, _cmd ->
+      # Each sprite gets 9 exec calls (clear, mkdir, 2×3 skill writes, verify)
+      |> expect(:exec, 18, fn _name, _cmd ->
         {:ok, %{output: "", exit_code: 0}}
       end)
 
@@ -97,8 +97,8 @@ defmodule Lattice.Sprites.SkillSyncTest do
       |> expect(:list_sprites, fn ->
         {:ok, [%{id: "ok-sprite", name: "ok-sprite"}, %{id: "bad-sprite", name: "bad-sprite"}]}
       end)
-      # ok-sprite: all 5 calls succeed
-      |> expect(:exec, 5, fn "ok-sprite", _cmd ->
+      # ok-sprite: all 9 calls succeed (clear, mkdir, 2×3 skill writes, verify)
+      |> expect(:exec, 9, fn "ok-sprite", _cmd ->
         {:ok, %{output: "", exit_code: 0}}
       end)
       # bad-sprite: clear fails (non-retryable)
@@ -115,7 +115,7 @@ defmodule Lattice.Sprites.SkillSyncTest do
   describe "discover_skills/0" do
     test "finds skills in priv/sprite_skills" do
       skills = SkillSync.discover_skills()
-      assert length(skills) >= 1
+      assert skills != []
 
       {path, content} = Enum.find(skills, fn {p, _} -> p == "handoff/SKILL.md" end)
       assert path == "handoff/SKILL.md"

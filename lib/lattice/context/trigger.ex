@@ -65,8 +65,8 @@ defmodule Lattice.Context.Trigger do
       type: :pull_request,
       number: pr[:number] || pr["number"],
       repo: repo,
-      title: pr[:title] || pr["title"] || "",
-      body: pr[:body] || pr["body"] || "",
+      title: extract_text_field(pr, "title"),
+      body: extract_text_field(pr, "body"),
       author: extract_author(pr),
       labels: extract_labels(pr),
       head_branch: pr[:head] || pr["head"] || pr["headRefName"],
@@ -102,6 +102,11 @@ defmodule Lattice.Context.Trigger do
   end
 
   # ── Private ──────────────────────────────────────────────────────
+
+  defp extract_text_field(data, str_key) do
+    atom_key = String.to_existing_atom(str_key)
+    data[atom_key] || data[str_key] || ""
+  end
 
   defp extract_author(data) do
     data[:author] || data["author"] ||

@@ -116,10 +116,7 @@ defmodule Lattice.Context.Gatherer do
   end
 
   defp collect_text(body, comments) do
-    comment_text =
-      comments
-      |> Enum.map(fn c -> c[:body] || c["body"] || "" end)
-      |> Enum.join("\n")
+    comment_text = Enum.map_join(comments, "\n", fn c -> c[:body] || c["body"] || "" end)
 
     (body || "") <> "\n" <> comment_text
   end

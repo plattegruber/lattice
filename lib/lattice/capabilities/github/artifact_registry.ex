@@ -88,6 +88,17 @@ defmodule Lattice.Capabilities.GitHub.ArtifactRegistry do
   end
 
   @doc """
+  Clear all artifact links from the registry. Intended for use in tests only.
+  """
+  @spec reset() :: :ok
+  def reset do
+    :ets.delete_all_objects(@primary_table)
+    :ets.delete_all_objects(@by_intent_table)
+    :ets.delete_all_objects(@by_run_table)
+    :ok
+  end
+
+  @doc """
   Return all registered artifact links.
   """
   @spec all() :: [ArtifactLink.t()]
