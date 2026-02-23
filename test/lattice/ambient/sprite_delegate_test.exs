@@ -518,7 +518,7 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
 
       Lattice.Capabilities.MockGitHub
       |> expect(:get_pull_request, fn 203 ->
-        {:ok, %{number: 203, head: %{ref: "feature/fix-tests"}, base: %{ref: "main"}}}
+        {:ok, %{number: 203, head: "feature/fix-tests", base: "main"}}
       end)
 
       Lattice.Capabilities.MockSprites

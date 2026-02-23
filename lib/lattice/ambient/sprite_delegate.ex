@@ -86,10 +86,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp detect_mode(%{is_pull_request: true, number: number}) when not is_nil(number) do
     case GitHub.get_pull_request(number) do
       {:ok, pr} ->
-        head = pr[:head] || pr["head"]
-        head_branch = head[:ref] || head["ref"]
+        # The GitHub capability already extracts head.ref into a flat string
+        head_branch = pr[:head] || pr["head"]
 
-        if head_branch do
+        if is_binary(head_branch) and head_branch != "" do
           Logger.info(
             "SpriteDelegate: detected amendment mode for PR ##{number}, branch=#{head_branch}"
           )
