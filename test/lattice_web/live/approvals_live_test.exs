@@ -12,6 +12,10 @@ defmodule LatticeWeb.ApprovalsLiveTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp stub_issues(issues) do

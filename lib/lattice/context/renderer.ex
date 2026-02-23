@@ -25,7 +25,7 @@ defmodule Lattice.Context.Renderer do
     labels = extract_labels(issue)
     state = issue[:state] || issue["state"] || "open"
 
-    lines = [
+    [
       "# Issue ##{number}: #{title}",
       "",
       "| Field | Value |",
@@ -35,22 +35,10 @@ defmodule Lattice.Context.Renderer do
       "| Labels | #{format_labels(labels)} |",
       ""
     ]
-
-    lines =
-      if body != "" do
-        lines ++ ["## Description", "", body, ""]
-      else
-        lines ++ ["## Description", "", "_No description provided._", ""]
-      end
-
-    lines =
-      if comments != [] do
-        lines ++ ["## Comments", "", render_thread(comments)]
-      else
-        lines
-      end
-
-    Enum.join(lines, "\n") |> String.trim_trailing()
+    |> append_body_section(body)
+    |> append_comments_section(comments)
+    |> Enum.join("\n")
+    |> String.trim_trailing()
   end
 
   # ── Pull Request Rendering ──────────────────────────────────────
@@ -69,16 +57,25 @@ defmodule Lattice.Context.Renderer do
   """
   @spec render_pull_request(map(), keyword()) :: String.t()
   def render_pull_request(pr, opts \\ []) do
+    pr
+    |> build_pr_header_lines()
+    |> append_body_section(pr[:body] || pr["body"] || "")
+    |> append_diff_stats_section(Keyword.get(opts, :diff_stats))
+    |> append_reviews_section(Keyword.get(opts, :reviews), Keyword.get(opts, :review_comments))
+    |> Enum.join("\n")
+    |> String.trim_trailing()
+  end
+
+  defp build_pr_header_lines(pr) do
     number = pr[:number] || pr["number"]
     title = pr[:title] || pr["title"] || ""
-    body = pr[:body] || pr["body"] || ""
     author = extract_author(pr)
     labels = extract_labels(pr)
     state = pr[:state] || pr["state"] || "open"
-    head = pr[:head] || pr["head"] || pr["headRefName"] || ""
-    base = pr[:base] || pr["base"] || pr["baseRefName"] || ""
+    head = extract_branch(pr, :head, "headRefName")
+    base = extract_branch(pr, :base, "baseRefName")
 
-    lines = [
+    [
       "# PR ##{number}: #{title}",
       "",
       "| Field | Value |",
@@ -90,34 +87,11 @@ defmodule Lattice.Context.Renderer do
       "| Base | `#{base}` |",
       ""
     ]
+  end
 
-    lines =
-      if body != "" do
-        lines ++ ["## Description", "", body, ""]
-      else
-        lines ++ ["## Description", "", "_No description provided._", ""]
-      end
-
-    diff_stats = Keyword.get(opts, :diff_stats)
-
-    lines =
-      if diff_stats && diff_stats != [] do
-        lines ++ ["## Changed Files", "", render_diff_stats(diff_stats), ""]
-      else
-        lines
-      end
-
-    reviews = Keyword.get(opts, :reviews)
-    review_comments = Keyword.get(opts, :review_comments)
-
-    lines =
-      if reviews && reviews != [] do
-        lines ++ ["## Reviews", "", render_reviews(reviews, review_comments || []), ""]
-      else
-        lines
-      end
-
-    Enum.join(lines, "\n") |> String.trim_trailing()
+  defp extract_branch(pr, atom_key, alt_str_key) do
+    str_key = Atom.to_string(atom_key)
+    pr[atom_key] || pr[str_key] || pr[alt_str_key] || ""
   end
 
   # ── Diff Stats ──────────────────────────────────────────────────
@@ -135,14 +109,7 @@ defmodule Lattice.Context.Renderer do
       "|------|--------|-----------|-----------|"
     ]
 
-    rows =
-      Enum.map(files, fn file ->
-        filename = file[:filename] || file["filename"] || ""
-        status = file[:status] || file["status"] || ""
-        additions = file[:additions] || file["additions"] || 0
-        deletions = file[:deletions] || file["deletions"] || 0
-        "| `#{filename}` | #{status} | +#{additions} | -#{deletions} |"
-      end)
+    rows = Enum.map(files, &render_file_row/1)
 
     total_add =
       Enum.reduce(files, 0, fn f, acc -> acc + (f[:additions] || f["additions"] || 0) end)
@@ -164,24 +131,12 @@ defmodule Lattice.Context.Renderer do
   Each comment should have `:user` (or `:author`) and `:body` keys.
   """
   @spec render_thread([map()]) :: String.t()
+  def render_thread([]), do: "_No comments._"
+
   def render_thread(comments) when is_list(comments) do
-    if comments == [] do
-      "_No comments._"
-    else
-      comments
-      |> Enum.with_index(1)
-      |> Enum.map(fn {comment, idx} ->
-        user =
-          comment[:user] || comment[:author] || comment["user"] || comment["author"] || "unknown"
-
-        body = comment[:body] || comment["body"] || ""
-        timestamp = comment[:created_at] || comment["created_at"] || ""
-
-        time_str = if timestamp != "", do: " (#{timestamp})", else: ""
-        "### Comment #{idx} — @#{user}#{time_str}\n\n#{body}"
-      end)
-      |> Enum.join("\n\n---\n\n")
-    end
+    comments
+    |> Enum.with_index(1)
+    |> Enum.map_join("\n\n---\n\n", fn {comment, idx} -> format_comment(comment, idx) end)
   end
 
   # ── Review Rendering ────────────────────────────────────────────
@@ -195,47 +150,87 @@ defmodule Lattice.Context.Renderer do
   def render_reviews([], []), do: "_No reviews._"
 
   def render_reviews(reviews, review_comments) do
-    review_section =
-      reviews
-      |> Enum.map(fn review ->
-        state_badge = review_state_badge(review.state)
-        body_str = if review.body != "", do: "\n\n#{review.body}", else: ""
-        time_str = if review.submitted_at, do: " (#{review.submitted_at})", else: ""
-
-        "### @#{review.author} — #{state_badge}#{time_str}#{body_str}"
-      end)
-      |> Enum.join("\n\n---\n\n")
-
-    inline_section =
-      if review_comments != [] do
-        grouped = Enum.group_by(review_comments, & &1.path)
-
-        inline_lines =
-          grouped
-          |> Enum.sort_by(fn {path, _} -> path end)
-          |> Enum.map(fn {path, comments} ->
-            comment_lines =
-              comments
-              |> Enum.sort_by(& &1.line)
-              |> Enum.map(fn rc ->
-                line_str = if rc.line, do: "L#{rc.line}", else: ""
-                "  - **@#{rc.author}** #{line_str}: #{rc.body}"
-              end)
-              |> Enum.join("\n")
-
-            "- `#{path}`\n#{comment_lines}"
-          end)
-          |> Enum.join("\n\n")
-
-        "\n\n### Inline Comments\n\n#{inline_lines}"
-      else
-        ""
-      end
-
+    review_section = Enum.map_join(reviews, "\n\n---\n\n", &format_review/1)
+    inline_section = render_inline_comments(review_comments)
     review_section <> inline_section
   end
 
   # ── Private ──────────────────────────────────────────────────────
+
+  defp append_body_section(lines, ""),
+    do: lines ++ ["## Description", "", "_No description provided._", ""]
+
+  defp append_body_section(lines, body),
+    do: lines ++ ["## Description", "", body, ""]
+
+  defp append_comments_section(lines, []), do: lines
+
+  defp append_comments_section(lines, comments),
+    do: lines ++ ["## Comments", "", render_thread(comments)]
+
+  defp append_diff_stats_section(lines, nil), do: lines
+  defp append_diff_stats_section(lines, []), do: lines
+
+  defp append_diff_stats_section(lines, diff_stats),
+    do: lines ++ ["## Changed Files", "", render_diff_stats(diff_stats), ""]
+
+  defp append_reviews_section(lines, nil, _review_comments), do: lines
+  defp append_reviews_section(lines, [], _review_comments), do: lines
+
+  defp append_reviews_section(lines, reviews, review_comments),
+    do: lines ++ ["## Reviews", "", render_reviews(reviews, review_comments || []), ""]
+
+  defp render_file_row(file) do
+    filename = file[:filename] || file["filename"] || ""
+    status = file[:status] || file["status"] || ""
+    additions = file[:additions] || file["additions"] || 0
+    deletions = file[:deletions] || file["deletions"] || 0
+    "| `#{filename}` | #{status} | +#{additions} | -#{deletions} |"
+  end
+
+  defp format_comment(comment, idx) do
+    user = extract_comment_user(comment)
+    body = comment[:body] || comment["body"] || ""
+    time_str = format_timestamp(comment[:created_at] || comment["created_at"])
+    "### Comment #{idx} — @#{user}#{time_str}\n\n#{body}"
+  end
+
+  defp extract_comment_user(comment) do
+    comment[:user] || comment[:author] || comment["user"] || comment["author"] || "unknown"
+  end
+
+  defp format_timestamp(nil), do: ""
+  defp format_timestamp(""), do: ""
+  defp format_timestamp(ts), do: " (#{ts})"
+
+  defp format_review(review) do
+    state_badge = review_state_badge(review.state)
+    body_str = if review.body != "", do: "\n\n#{review.body}", else: ""
+    time_str = if review.submitted_at, do: " (#{review.submitted_at})", else: ""
+    "### @#{review.author} — #{state_badge}#{time_str}#{body_str}"
+  end
+
+  defp render_inline_comments([]), do: ""
+
+  defp render_inline_comments(review_comments) do
+    inline_lines =
+      review_comments
+      |> Enum.group_by(& &1.path)
+      |> Enum.sort_by(fn {path, _} -> path end)
+      |> Enum.map_join("\n\n", fn {path, comments} -> format_inline_file(path, comments) end)
+
+    "\n\n### Inline Comments\n\n#{inline_lines}"
+  end
+
+  defp format_inline_file(path, comments) do
+    comment_lines =
+      Enum.map_join(Enum.sort_by(comments, & &1.line), "\n", fn rc ->
+        line_str = if rc.line, do: "L#{rc.line}", else: ""
+        "  - **@#{rc.author}** #{line_str}: #{rc.body}"
+      end)
+
+    "- `#{path}`\n#{comment_lines}"
+  end
 
   defp extract_author(data) do
     data[:author] || data["author"] ||

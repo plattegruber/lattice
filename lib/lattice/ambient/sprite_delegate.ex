@@ -250,9 +250,8 @@ defmodule Lattice.Ambient.SpriteDelegate do
   end
 
   defp verify_and_push(sprite_name, proposal, {:new_pr, branch_name}) do
-    with :ok <- verify_bundle(sprite_name, proposal),
-         :ok <- push_bundle(sprite_name, branch_name, proposal) do
-      :ok
+    with :ok <- verify_bundle(sprite_name, proposal) do
+      push_bundle(sprite_name, branch_name, proposal)
     end
   end
 
@@ -294,9 +293,8 @@ defmodule Lattice.Ambient.SpriteDelegate do
     push_cmd = "cd #{work_dir} && git push origin #{branch_name} 2>&1"
 
     with :ok <- exec_git(sprite_name, fetch_cmd, "bundle fetch"),
-         :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url"),
-         :ok <- exec_git(sprite_name, push_cmd, "push") do
-      :ok
+         :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url") do
+      exec_git(sprite_name, push_cmd, "push")
     end
   end
 
@@ -313,9 +311,8 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
     push_cmd = "cd #{work_dir} && git push origin #{head_branch} 2>&1"
 
-    with :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url"),
-         :ok <- exec_git(sprite_name, push_cmd, "push amendment") do
-      :ok
+    with :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url") do
+      exec_git(sprite_name, push_cmd, "push amendment")
     end
   end
 

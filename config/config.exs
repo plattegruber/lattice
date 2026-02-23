@@ -146,7 +146,11 @@ config :logger, :default_formatter,
     :plan_title,
     :step_count,
     :step_id,
-    :step_status
+    :step_status,
+    :ref,
+    :sprite_name,
+    :event_kind,
+    :number
   ]
 
 # Use Jason for JSON parsing in Phoenix

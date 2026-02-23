@@ -15,6 +15,10 @@ defmodule LatticeWeb.IncidentsLiveTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp start_test_sprite(sprite_id, opts) do

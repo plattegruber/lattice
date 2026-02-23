@@ -210,6 +210,8 @@ defmodule Lattice.Ambient.Responder do
   end
 
   defp handle_implementation_result(event, result, state) do
+    key = thread_key(event)
+
     case result do
       {:ok, %{amendment: pr_number, proposal: proposal, warnings: warnings}} ->
         Logger.info("Ambient: amendment pushed for PR ##{pr_number} on #{thread_key(event)}")
@@ -218,83 +220,64 @@ defmodule Lattice.Ambient.Responder do
         {:noreply, record_cooldown(thread_key(event), state)}
 
       {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}} ->
-        Logger.info(
-          "Ambient: implementation succeeded for #{thread_key(event)}, branch=#{branch_name}"
-        )
-
+        Logger.info("Ambient: implementation succeeded for #{key}, branch=#{branch_name}")
         create_pr_and_comment(event, branch_name, proposal, warnings)
-        {:noreply, record_cooldown(thread_key(event), state)}
+        {:noreply, record_cooldown(key, state)}
 
-      {:error, :no_changes} ->
-        Logger.warning("Ambient: implementation produced no changes for #{thread_key(event)}")
+      {:error, error_reason} ->
+        handle_implementation_error(event, error_reason, key, state)
+    end
+  end
+
+  defp handle_implementation_error(event, reason, key, state) do
+    case reason do
+      :no_changes ->
+        Logger.warning("Ambient: implementation produced no changes for #{key}")
 
         post_error_comment(
           event,
           "I looked into this but couldn't produce any code changes. The issue may need more context or a different approach."
         )
 
-        {:noreply, record_cooldown(thread_key(event), state)}
+        {:noreply, record_cooldown(key, state)}
 
-      {:error, :no_proposal} ->
-        Logger.warning("Ambient: no handoff proposal produced for #{thread_key(event)}")
+      :no_proposal ->
+        Logger.warning("Ambient: no handoff proposal produced for #{key}")
 
         post_error_comment(
           event,
           "Implementation completed but no handoff proposal was produced."
         )
 
-        {:noreply, record_cooldown(thread_key(event), state)}
+        {:noreply, record_cooldown(key, state)}
 
-      {:error, :invalid_proposal} ->
-        Logger.warning("Ambient: invalid proposal for #{thread_key(event)}")
+      :invalid_proposal ->
+        Logger.warning("Ambient: invalid proposal for #{key}")
+        post_error_comment(event, "Implementation produced an invalid proposal.")
+        {:noreply, record_cooldown(key, state)}
 
-        post_error_comment(
-          event,
-          "Implementation produced an invalid proposal."
-        )
+      {:blocked, msg} ->
+        Logger.warning("Ambient: implementation blocked for #{key}: #{msg}")
+        post_error_comment(event, "Implementation was blocked: #{msg}")
+        {:noreply, record_cooldown(key, state)}
 
-        {:noreply, record_cooldown(thread_key(event), state)}
-
-      {:error, {:blocked, reason}} ->
-        Logger.warning("Ambient: implementation blocked for #{thread_key(event)}: #{reason}")
-
-        post_error_comment(
-          event,
-          "Implementation was blocked: #{reason}"
-        )
-
-        {:noreply, record_cooldown(thread_key(event), state)}
-
-      {:error, :bundle_invalid} ->
-        Logger.warning("Ambient: bundle verification failed for #{thread_key(event)}")
-
-        post_error_comment(
-          event,
-          "Git bundle verification failed."
-        )
-
+      :bundle_invalid ->
+        Logger.warning("Ambient: bundle verification failed for #{key}")
+        post_error_comment(event, "Git bundle verification failed.")
         {:noreply, state}
 
-      {:error, :policy_violation} ->
-        Logger.warning("Ambient: policy violation for #{thread_key(event)}")
-
-        post_error_comment(
-          event,
-          "Proposal was rejected by policy checks."
-        )
-
+      :policy_violation ->
+        Logger.warning("Ambient: policy violation for #{key}")
+        post_error_comment(event, "Proposal was rejected by policy checks.")
         {:noreply, state}
 
-      {:error, reason} ->
-        Logger.warning(
-          "Ambient: implementation failed for #{thread_key(event)}: #{inspect(reason)}"
-        )
-
+      other ->
+        Logger.warning("Ambient: implementation failed for #{key}: #{inspect(other)}")
         add_confused_reaction(event)
 
         post_error_comment(
           event,
-          "I ran into an issue while trying to implement this: `#{inspect(reason)}`"
+          "I ran into an issue while trying to implement this: `#{inspect(other)}`"
         )
 
         {:noreply, state}

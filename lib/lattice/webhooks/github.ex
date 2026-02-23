@@ -29,6 +29,9 @@ defmodule Lattice.Webhooks.GitHub do
   alias Lattice.Intents.Intent
   alias Lattice.Intents.Pipeline
   alias Lattice.Intents.Store
+  alias Lattice.Runs
+  alias Lattice.Sprites.FleetManager
+  alias Lattice.Sprites.Sprite
 
   @trigger_label "lattice-work"
 
@@ -74,6 +77,7 @@ defmodule Lattice.Webhooks.GitHub do
   defp do_handle("issue_comment", "created", payload) do
     issue = Map.get(payload, "issue", %{})
     labels = get_label_names(issue)
+    issue_number = Map.get(issue, "number")
 
     # Always broadcast ambient event for non-bot comments
     maybe_broadcast_ambient(:issue_comment, payload)
@@ -86,7 +90,8 @@ defmodule Lattice.Webhooks.GitHub do
         sync_governance_from_comment(issue)
 
       true ->
-        :ignored
+        # Route to an existing Sprite if one is managing this issue
+        route_to_existing_sprite(:issue, issue_number, :issue_comment, payload)
     end
   end
 
@@ -100,6 +105,29 @@ defmodule Lattice.Webhooks.GitHub do
       propose_pr_fixup(payload)
     else
       :ignored
+    end
+  end
+
+  # ── PR Synchronize (code push to PR branch) ────────────────────────
+
+  defp do_handle("pull_request", "synchronize", payload) do
+    pr = Map.get(payload, "pull_request", %{})
+    pr_number = Map.get(pr, "number")
+    route_to_existing_sprite(:pull_request, pr_number, :pr_synchronize, payload)
+  end
+
+  # ── Push to branch ─────────────────────────────────────────────────
+
+  defp do_handle("push", _action, payload) do
+    ref = Map.get(payload, "ref", "")
+
+    # Extract branch name from "refs/heads/<branch>"
+    case Regex.run(~r|^refs/heads/(.+)$|, ref) do
+      [_, branch] ->
+        route_to_existing_sprite(:branch, branch, :push, payload)
+
+      _ ->
+        :ignored
     end
   end
 
@@ -385,6 +413,54 @@ defmodule Lattice.Webhooks.GitHub do
       repo: get_in(payload, ["repository", "full_name"]) || "unknown",
       is_pull_request: true
     }
+  end
+
+  # ── Private: Routing to Existing Sprites ────────────────────────────
+
+  # Attempt to route a GitHub update event to the Sprite GenServer that is
+  # currently managing work for the given GitHub reference (issue number, PR
+  # number, or branch name). Falls back to :ignored when no active run is
+  # found so the caller can decide what to do next.
+  defp route_to_existing_sprite(kind, ref, event_kind, payload) do
+    with [_ | _] = links <- ArtifactRegistry.lookup_by_ref(kind, ref),
+         {:ok, sprite_name} <- find_active_sprite_for_links(links),
+         {:ok, pid} <- FleetManager.get_sprite_pid(sprite_name) do
+      Logger.debug(
+        "Routing GitHub #{event_kind} for #{kind}:#{ref} to sprite #{sprite_name}",
+        kind: kind,
+        ref: ref,
+        sprite_name: sprite_name,
+        event_kind: event_kind
+      )
+
+      Sprite.route_github_update(pid, event_kind, payload)
+      :ok
+    else
+      reason ->
+        Logger.debug(
+          "No active sprite found for GitHub #{event_kind} on #{kind}:#{ref}",
+          kind: kind,
+          ref: ref,
+          event_kind: event_kind,
+          reason: inspect(reason)
+        )
+
+        :ignored
+    end
+  end
+
+  # Find a sprite name associated with any active run for the given artifact links.
+  @active_statuses [:pending, :running, :blocked, :blocked_waiting_for_user, :waiting]
+
+  defp find_active_sprite_for_links(links) do
+    result = Enum.find_value(links, &find_active_sprite_for_link/1)
+    if result, do: {:ok, result}, else: :error
+  end
+
+  defp find_active_sprite_for_link(%ArtifactLink{intent_id: intent_id}) do
+    {:ok, runs} = Runs.Store.list_by_intent(intent_id)
+    active_run = Enum.find(runs, fn run -> run.status in @active_statuses end)
+    if active_run, do: active_run.sprite_name
   end
 
   defp register_input_artifact(intent_id, kind, ref, url) do

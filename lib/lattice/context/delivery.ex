@@ -56,10 +56,7 @@ defmodule Lattice.Context.Delivery do
     if dirs == [] do
       :ok
     else
-      mkdir_cmd =
-        dirs
-        |> Enum.map(fn dir -> "#{@context_dir}/#{dir}" end)
-        |> Enum.join(" ")
+      mkdir_cmd = Enum.map_join(dirs, " ", fn dir -> "#{@context_dir}/#{dir}" end)
 
       case Sprites.exec(sprite_name, "mkdir -p #{mkdir_cmd}") do
         {:ok, _} -> :ok

@@ -8,14 +8,16 @@ defmodule Lattice.Ambient.ProposalPolicy do
 
   alias Lattice.Ambient.Proposal
 
-  @forbidden_patterns [
-    ~r/\.env$/,
-    ~r/\.env\./,
-    ~r/\.pem$/,
-    ~r/\.key$/,
-    ~r/credentials/i,
-    ~r/secrets?\.(ya?ml|json|toml)$/i
-  ]
+  defp forbidden_patterns do
+    [
+      ~r/\.env$/,
+      ~r/\.env\./,
+      ~r/\.pem$/,
+      ~r/\.key$/,
+      ~r/credentials/i,
+      ~r/secrets?\.(ya?ml|json|toml)$/i
+    ]
+  end
 
   @doc """
   Check a proposal against policy rules.
@@ -37,7 +39,7 @@ defmodule Lattice.Ambient.ProposalPolicy do
 
   defp check_forbidden(diff_names) do
     Enum.filter(diff_names, fn path ->
-      Enum.any?(@forbidden_patterns, &Regex.match?(&1, path))
+      Enum.any?(forbidden_patterns(), &Regex.match?(&1, path))
     end)
   end
 

@@ -136,6 +136,20 @@ defmodule Lattice.Sprites.Sprite do
     GenServer.call(server, {:emit_observation, opts})
   end
 
+  @doc """
+  Route a GitHub update event to this Sprite.
+
+  Called when a webhook event (comment, code push, review) arrives for a
+  GitHub work item already being handled by this Sprite process. The Sprite
+  logs the update and may act on it in future iterations.
+
+  Returns `:ok`.
+  """
+  @spec route_github_update(GenServer.server(), atom(), map()) :: :ok
+  def route_github_update(server, kind, event) when is_atom(kind) and is_map(event) do
+    GenServer.cast(server, {:github_update, kind, event})
+  end
+
   # ── GenServer Callbacks ─────────────────────────────────────────────
 
   @impl true
@@ -193,6 +207,19 @@ defmodule Lattice.Sprites.Sprite do
       {:error, reason} ->
         {:reply, {:error, reason}, {state, interval}}
     end
+  end
+
+  @impl true
+  def handle_cast({:github_update, kind, event}, {state, interval}) do
+    Logger.info("Sprite #{state.sprite_id} received GitHub update",
+      event_kind: kind,
+      number: Map.get(event, :number)
+    )
+
+    log_line = Logs.from_event(:github_update, state.sprite_id, %{kind: kind, event: event})
+    Events.broadcast_sprite_log(state.sprite_id, log_line)
+
+    {:noreply, {state, interval}}
   end
 
   @impl true

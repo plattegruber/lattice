@@ -15,6 +15,10 @@ defmodule LatticeWeb.IntentLive.ShowTest do
     :ok
   end
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp create_intent(attrs \\ []) do
