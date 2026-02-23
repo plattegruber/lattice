@@ -393,10 +393,14 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "HEAD:refs/heads/"
         {:ok, %{output: "", exit_code: 0}}
       end)
+      # push_bundle — set remote URL (quiet, contains token)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git remote set-url origin"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
       # push_bundle — git push
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git push"
-        assert cmd =~ "x-access-token"
+        assert cmd =~ "git push origin"
         assert cmd =~ "lattice/issue-55-add-dark-mode-support"
         {:ok, %{output: "Branch pushed", exit_code: 0}}
       end)
@@ -568,11 +572,14 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
         assert cmd =~ "git diff --name-only"
         {:ok, %{output: "test/some_test.exs", exit_code: 0}}
       end)
-      # push_branch (amendment) — git push --force-with-lease
+      # push_branch (amendment) — set remote URL (quiet, contains token)
       |> expect(:exec, fn "test-ambient", cmd ->
-        assert cmd =~ "git push --force-with-lease"
-        assert cmd =~ "x-access-token"
-        assert cmd =~ "feature/fix-tests"
+        assert cmd =~ "git remote set-url origin"
+        {:ok, %{output: "", exit_code: 0}}
+      end)
+      # push_branch (amendment) — git push (fast-forward, no force)
+      |> expect(:exec, fn "test-ambient", cmd ->
+        assert cmd =~ "git push origin feature/fix-tests"
         {:ok, %{output: "Branch pushed", exit_code: 0}}
       end)
 

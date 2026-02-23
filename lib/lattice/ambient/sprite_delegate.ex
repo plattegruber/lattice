@@ -286,11 +286,15 @@ defmodule Lattice.Ambient.SpriteDelegate do
     fetch_cmd =
       "cd #{work_dir} && git fetch #{proposal.bundle_path} HEAD:refs/heads/#{branch_name} 2>&1"
 
-    # Push using the App token — sprite never sees this token in normal flow
-    push_cmd =
-      "cd #{work_dir} && git push https://x-access-token:#{token}@github.com/#{repo}.git #{branch_name} 2>&1"
+    # Set the push URL with the token (avoids logging it), then push.
+    set_url_cmd =
+      "cd #{work_dir} && git remote set-url origin " <>
+        "https://x-access-token:#{token}@github.com/#{repo}.git 2>&1"
+
+    push_cmd = "cd #{work_dir} && git push origin #{branch_name} 2>&1"
 
     with :ok <- exec_git(sprite_name, fetch_cmd, "bundle fetch"),
+         :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url"),
          :ok <- exec_git(sprite_name, push_cmd, "push") do
       :ok
     end
@@ -301,11 +305,18 @@ defmodule Lattice.Ambient.SpriteDelegate do
     token = github_app_token()
     repo = github_repo()
 
-    push_cmd =
-      "cd #{work_dir} && git push --force-with-lease " <>
-        "https://x-access-token:#{token}@github.com/#{repo}.git #{head_branch} 2>&1"
+    # Set the push URL with the token (avoids logging it in the command),
+    # then push the branch as a fast-forward.
+    set_url_cmd =
+      "cd #{work_dir} && git remote set-url origin " <>
+        "https://x-access-token:#{token}@github.com/#{repo}.git 2>&1"
 
-    exec_git(sprite_name, push_cmd, "push amendment")
+    push_cmd = "cd #{work_dir} && git push origin #{head_branch} 2>&1"
+
+    with :ok <- exec_git_quiet(sprite_name, set_url_cmd, "set push url"),
+         :ok <- exec_git(sprite_name, push_cmd, "push amendment") do
+      :ok
+    end
   end
 
   defp build_result({:new_pr, branch_name}, proposal, warnings) do
@@ -327,6 +338,25 @@ defmodule Lattice.Ambient.SpriteDelegate do
             "SpriteDelegate: git #{label} failed (exit=#{code}): #{String.slice(output, 0, 500)}"
           )
 
+          {:error, {:git_failed, label, output}}
+        else
+          :ok
+        end
+
+      {:ok, _} ->
+        :ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  # Like exec_git but suppresses command logging (for commands containing tokens).
+  defp exec_git_quiet(sprite_name, command, label) do
+    case Sprites.exec(sprite_name, command) do
+      {:ok, %{output: output, exit_code: code}} ->
+        if code != 0 or git_error?(output) do
+          Logger.error("SpriteDelegate: git #{label} failed (exit=#{code})")
           {:error, {:git_failed, label, output}}
         else
           :ok
