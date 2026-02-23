@@ -16,6 +16,10 @@ defmodule LatticeWeb.SpriteLive.ShowTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
+  setup %{conn: conn} do
+    {:ok, conn: log_in_conn(conn)}
+  end
+
   setup do
     IntentStore.ETS.reset()
 
