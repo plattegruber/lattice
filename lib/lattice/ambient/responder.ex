@@ -14,17 +14,11 @@ defmodule Lattice.Ambient.Responder do
   (see `Webhooks.GitHub.maybe_broadcast_ambient/2`). Additionally, this module
   checks against a configurable bot username to prevent responding to itself.
 
-  ## Cooldown
-
-  To avoid flooding conversations, a per-thread cooldown prevents responding
-  to the same issue/PR more than once within a configurable window.
-
   ## Configuration
 
       config :lattice, Lattice.Ambient.Responder,
         enabled: true,
         bot_login: "lattice-bot",
-        cooldown_ms: 60_000,
         eyes_reaction: true
   """
 
@@ -39,10 +33,8 @@ defmodule Lattice.Ambient.Responder do
 
   defmodule State do
     @moduledoc false
-    defstruct cooldowns: %{},
-              active_tasks: %{},
+    defstruct active_tasks: %{},
               bot_login: nil,
-              cooldown_ms: 60_000,
               eyes_reaction: true
   end
 
@@ -60,7 +52,6 @@ defmodule Lattice.Ambient.Responder do
 
     state = %State{
       bot_login: config(:bot_login, nil),
-      cooldown_ms: config(:cooldown_ms, 60_000),
       eyes_reaction: config(:eyes_reaction, true)
     }
 
@@ -122,22 +113,15 @@ defmodule Lattice.Ambient.Responder do
   # ── Private: Event Processing ───────────────────────────────────
 
   defp process_event(event, state) do
-    thread_key = thread_key(event)
-
-    if on_cooldown?(thread_key, state) do
-      Logger.debug("Ambient: skipping #{thread_key}, on cooldown")
-      state
-    else
-      # Step 1: React with 👀 immediately
-      if state.eyes_reaction do
-        add_eyes_reaction(event)
-      end
-
-      # Step 2: Fetch thread context and classify
-      thread_context = fetch_thread_context(event)
-      classification = Claude.classify(event, thread_context)
-      handle_classification(classification, event, thread_context, state)
+    # Step 1: React with 👀 immediately
+    if state.eyes_reaction do
+      add_eyes_reaction(event)
     end
+
+    # Step 2: Fetch thread context and classify
+    thread_context = fetch_thread_context(event)
+    classification = Claude.classify(event, thread_context)
+    handle_classification(classification, event, thread_context, state)
   end
 
   # ── Private: Classification Dispatch ───────────────────────────
@@ -173,13 +157,13 @@ defmodule Lattice.Ambient.Responder do
   defp handle_classification({:ok, :respond, response_text}, event, _thread_context, state) do
     Logger.info("Ambient: classify=respond on #{thread_key(event)}")
     post_response(event, response_text)
-    record_cooldown(thread_key(event), state)
+    state
   end
 
   defp handle_classification({:ok, :react, _}, event, _thread_context, state) do
     Logger.info("Ambient: classify=react on #{thread_key(event)}")
     add_thumbsup_reaction(event)
-    record_cooldown(thread_key(event), state)
+    state
   end
 
   defp handle_classification({:ok, :ignore, _}, event, _thread_context, state) do
@@ -200,7 +184,7 @@ defmodule Lattice.Ambient.Responder do
       {:ok, response_text} ->
         Logger.info("Ambient: delegation succeeded for #{thread_key(event)}")
         post_response(event, response_text)
-        {:noreply, record_cooldown(thread_key(event), state)}
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.warning("Ambient: delegation failed for #{thread_key(event)}: #{inspect(reason)}")
@@ -217,12 +201,12 @@ defmodule Lattice.Ambient.Responder do
         Logger.info("Ambient: amendment pushed for PR ##{pr_number} on #{thread_key(event)}")
 
         comment_on_amendment(event, pr_number, proposal, warnings)
-        {:noreply, record_cooldown(thread_key(event), state)}
+        {:noreply, state}
 
       {:ok, %{branch: branch_name, proposal: proposal, warnings: warnings}} ->
         Logger.info("Ambient: implementation succeeded for #{key}, branch=#{branch_name}")
         create_pr_and_comment(event, branch_name, proposal, warnings)
-        {:noreply, record_cooldown(key, state)}
+        {:noreply, state}
 
       {:error, error_reason} ->
         handle_implementation_error(event, error_reason, key, state)
@@ -239,7 +223,7 @@ defmodule Lattice.Ambient.Responder do
           "I looked into this but couldn't produce any code changes. The issue may need more context or a different approach."
         )
 
-        {:noreply, record_cooldown(key, state)}
+        {:noreply, state}
 
       :no_proposal ->
         Logger.warning("Ambient: no handoff proposal produced for #{key}")
@@ -249,17 +233,17 @@ defmodule Lattice.Ambient.Responder do
           "Implementation completed but no handoff proposal was produced."
         )
 
-        {:noreply, record_cooldown(key, state)}
+        {:noreply, state}
 
       :invalid_proposal ->
         Logger.warning("Ambient: invalid proposal for #{key}")
         post_error_comment(event, "Implementation produced an invalid proposal.")
-        {:noreply, record_cooldown(key, state)}
+        {:noreply, state}
 
       {:blocked, msg} ->
         Logger.warning("Ambient: implementation blocked for #{key}: #{msg}")
         post_error_comment(event, "Implementation was blocked: #{msg}")
-        {:noreply, record_cooldown(key, state)}
+        {:noreply, state}
 
       :bundle_invalid ->
         Logger.warning("Ambient: bundle verification failed for #{key}")
@@ -645,26 +629,10 @@ defmodule Lattice.Ambient.Responder do
     not is_nil(bot_login) and author == bot_login
   end
 
-  # ── Private: Cooldown ───────────────────────────────────────────
+  # ── Private: Helpers ────────────────────────────────────────────
 
   defp thread_key(%{surface: surface, number: number}),
     do: "#{surface}:#{number}"
-
-  defp on_cooldown?(thread_key, %State{cooldowns: cooldowns, cooldown_ms: cooldown_ms}) do
-    case Map.get(cooldowns, thread_key) do
-      nil ->
-        false
-
-      last_at ->
-        now = System.monotonic_time(:millisecond)
-        now - last_at < cooldown_ms
-    end
-  end
-
-  defp record_cooldown(thread_key, %State{cooldowns: cooldowns} = state) do
-    now = System.monotonic_time(:millisecond)
-    %{state | cooldowns: Map.put(cooldowns, thread_key, now)}
-  end
 
   # ── Private: Config ─────────────────────────────────────────────
 

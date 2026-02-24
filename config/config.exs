@@ -66,7 +66,6 @@ config :lattice, :webhooks,
 config :lattice, Lattice.Ambient.Responder,
   enabled: false,
   bot_login: nil,
-  cooldown_ms: 60_000,
   eyes_reaction: true
 
 # Configure the endpoint

@@ -18,7 +18,6 @@ defmodule Lattice.Ambient.ResponderTest do
     Application.put_env(:lattice, Lattice.Ambient.Responder,
       enabled: true,
       bot_login: "lattice-bot",
-      cooldown_ms: 100,
       eyes_reaction: false
     )
 
@@ -70,32 +69,6 @@ defmodule Lattice.Ambient.ResponderTest do
       send(Process.whereis(Responder), {:ambient_event, event})
       Process.sleep(50)
       # No crash, no API calls — test passes if no error
-    end
-  end
-
-  describe "cooldown" do
-    test "processes first event, second within cooldown does not call list_comments again" do
-      Lattice.Capabilities.MockGitHub
-      |> expect(:list_comments, 1, fn _number -> {:ok, []} end)
-      |> expect(:create_comment_reaction, 1, fn _id, "+1" -> {:ok, %{id: 1, content: "+1"}} end)
-
-      event = %{
-        type: :issue_comment,
-        surface: :issue,
-        number: 42,
-        body: "Hello, can you help?",
-        title: "Test issue",
-        author: "human-user",
-        comment_id: 200,
-        repo: "org/repo"
-      }
-
-      # First event — should be processed
-      send(Process.whereis(Responder), {:ambient_event, event})
-      Process.sleep(50)
-
-      # Wait for cooldown to expire, then verify the mock was called exactly once.
-      Process.sleep(150)
     end
   end
 
@@ -162,7 +135,7 @@ defmodule Lattice.Ambient.ResponderTest do
   end
 
   describe "delegation task completion" do
-    test "posts response and records cooldown on successful delegation" do
+    test "posts response on successful delegation" do
       Lattice.Capabilities.MockGitHub
       |> expect(:delete_comment_reaction, fn 500, 42 -> :ok end)
       |> expect(:create_comment, fn number, body ->
@@ -196,9 +169,6 @@ defmodule Lattice.Ambient.ResponderTest do
       send(responder, {ref, {:ok, "The fleet manager explained"}})
       Process.sleep(100)
 
-      # Verify cooldown was recorded in state
-      state = :sys.get_state(responder)
-      assert Map.has_key?(state.cooldowns, "issue:42")
     end
 
     test "adds confused reaction on delegation failure" do
@@ -309,9 +279,6 @@ defmodule Lattice.Ambient.ResponderTest do
 
       Process.sleep(100)
 
-      # Verify cooldown was recorded
-      state = :sys.get_state(responder)
-      assert Map.has_key?(state.cooldowns, "issue:99")
     end
 
     test "includes warnings in PR body" do
@@ -515,9 +482,6 @@ defmodule Lattice.Ambient.ResponderTest do
 
       Process.sleep(100)
 
-      # Verify cooldown was recorded
-      state = :sys.get_state(responder)
-      assert Map.has_key?(state.cooldowns, "pr_comment:203")
     end
 
     test "posts error comment on PR surface for implementation failures" do
