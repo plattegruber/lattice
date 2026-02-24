@@ -368,7 +368,6 @@ defmodule Lattice.Ambient.SpriteDelegateTest do
       # run_implementation — claude -p via streaming exec
       |> expect(:exec_ws, fn "test-ambient", cmd, _opts ->
         assert cmd =~ "claude -p"
-        assert cmd =~ "ANTHROPIC_API_KEY="
         {:ok, start_fake_session("HANDOFF_READY: .lattice/out/")}
       end)
       # read_proposal — cat proposal.json

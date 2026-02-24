@@ -95,6 +95,7 @@ if System.get_env("ANTHROPIC_API_KEY") do
   config :lattice, Lattice.Ambient.SpriteDelegate,
     enabled: System.get_env("AMBIENT_DELEGATION", "false") == "true",
     sprite_name: System.get_env("AMBIENT_SPRITE_NAME", "lattice-ambient"),
+    credentials_source_sprite: System.get_env("AMBIENT_CREDENTIALS_SOURCE_SPRITE"),
     work_dir: System.get_env("AMBIENT_WORK_DIR", "/home/sprite/lattice"),
     exec_idle_timeout_ms:
       String.to_integer(System.get_env("AMBIENT_EXEC_IDLE_TIMEOUT_MS", "1800000"))

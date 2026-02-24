@@ -169,9 +169,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
     exec_with_retry(sprite_name, sanity_cmd)
 
-    with :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
+    with :ok <- sync_claude_credentials(sprite_name),
+         :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
       claude_cmd =
-        "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
+        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
 
       Logger.info("SpriteDelegate: launching claude -p (implement)")
 
@@ -673,9 +674,10 @@ defmodule Lattice.Ambient.SpriteDelegate do
 
     exec_with_retry(sprite_name, sanity_cmd)
 
-    with :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
+    with :ok <- sync_claude_credentials(sprite_name),
+         :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
       claude_cmd =
-        "cd #{work_dir} && ANTHROPIC_API_KEY=#{anthropic_api_key()} claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
+        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
 
       Logger.info("SpriteDelegate: launching claude -p (delegate)")
 
@@ -901,6 +903,89 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp anthropic_api_key do
     Application.get_env(:lattice, Lattice.Ambient.Claude, [])
     |> Keyword.get(:api_key, "")
+  end
+
+  defp credentials_source_sprite do
+    config(:credentials_source_sprite, nil)
+  end
+
+  # Returns the env prefix for the claude command. When an API key is configured,
+  # we inject it directly. Otherwise we rely on OAuth credentials on the sprite.
+  defp claude_env_prefix do
+    case anthropic_api_key() do
+      key when key != "" and not is_nil(key) -> "ANTHROPIC_API_KEY=#{key} "
+      _ -> ""
+    end
+  end
+
+  # Copies ~/.claude/.credentials.json from the credentials source sprite to the
+  # target sprite. This allows sprites to authenticate via OAuth (e.g. Claude Pro)
+  # without an API key. Skipped when an API key is configured or when the source
+  # is the target itself (or no source is configured).
+  defp sync_claude_credentials(target_sprite) do
+    source = credentials_source_sprite()
+    api_key = anthropic_api_key()
+
+    cond do
+      api_key != "" and not is_nil(api_key) ->
+        # API key is set — no need for OAuth credentials
+        :ok
+
+      is_nil(source) or source == "" ->
+        Logger.debug("SpriteDelegate: no credentials_source_sprite configured, skipping sync")
+        :ok
+
+      source == target_sprite ->
+        # Source is the target — credentials are already there
+        :ok
+
+      true ->
+        Logger.info(
+          "SpriteDelegate: syncing Claude credentials from #{source} to #{target_sprite}"
+        )
+
+        case Sprites.exec(source, "cat /home/sprite/.claude/.credentials.json") do
+          {:ok, %{exit_code: 0, output: creds}} when creds != "" ->
+            write_cmd =
+              "mkdir -p /home/sprite/.claude && " <>
+                "cat > /home/sprite/.claude/.credentials.json << 'LATTICE_CREDS_EOF'\n#{String.trim(creds)}\nLATTICE_CREDS_EOF\n" <>
+                "chmod 600 /home/sprite/.claude/.credentials.json"
+
+            case Sprites.exec(target_sprite, write_cmd) do
+              {:ok, %{exit_code: 0}} ->
+                Logger.info("SpriteDelegate: credentials synced to #{target_sprite}")
+                :ok
+
+              {:ok, %{exit_code: code, output: output}} ->
+                Logger.warning(
+                  "SpriteDelegate: failed to write credentials to #{target_sprite}: exit=#{code} #{output}"
+                )
+
+                {:error, :credentials_sync_failed}
+
+              {:error, reason} ->
+                Logger.warning(
+                  "SpriteDelegate: failed to write credentials to #{target_sprite}: #{inspect(reason)}"
+                )
+
+                {:error, :credentials_sync_failed}
+            end
+
+          {:ok, %{exit_code: code}} ->
+            Logger.warning(
+              "SpriteDelegate: failed to read credentials from #{source}: exit=#{code}"
+            )
+
+            {:error, :credentials_sync_failed}
+
+          {:error, reason} ->
+            Logger.warning(
+              "SpriteDelegate: failed to read credentials from #{source}: #{inspect(reason)}"
+            )
+
+            {:error, :credentials_sync_failed}
+        end
+    end
   end
 
   defp config(key, default) do
