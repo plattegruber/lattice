@@ -168,7 +168,6 @@ defmodule Lattice.Ambient.ResponderTest do
       # Send the task result message
       send(responder, {ref, {:ok, "The fleet manager explained"}})
       Process.sleep(100)
-
     end
 
     test "adds confused reaction on delegation failure" do
@@ -278,7 +277,6 @@ defmodule Lattice.Ambient.ResponderTest do
       )
 
       Process.sleep(100)
-
     end
 
     test "includes warnings in PR body" do
@@ -481,7 +479,6 @@ defmodule Lattice.Ambient.ResponderTest do
       )
 
       Process.sleep(100)
-
     end
 
     test "posts error comment on PR surface for implementation failures" do
