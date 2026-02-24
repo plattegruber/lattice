@@ -112,7 +112,6 @@ defmodule Lattice.Webhooks.GitHubAmbientTest do
       Application.put_env(:lattice, Lattice.Ambient.Responder,
         enabled: true,
         bot_login: "lattice-operator",
-        cooldown_ms: 60_000,
         eyes_reaction: true
       )
 

@@ -86,7 +86,6 @@ if System.get_env("ANTHROPIC_API_KEY") do
   config :lattice, Lattice.Ambient.Responder,
     enabled: true,
     bot_login: System.get_env("LATTICE_BOT_LOGIN"),
-    cooldown_ms: String.to_integer(System.get_env("AMBIENT_COOLDOWN_MS", "60000")),
     eyes_reaction: true
 
   config :lattice, Lattice.Ambient.Claude,
