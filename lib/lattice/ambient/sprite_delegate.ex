@@ -927,64 +927,66 @@ defmodule Lattice.Ambient.SpriteDelegate do
     api_key = anthropic_api_key()
 
     cond do
-      api_key != "" and not is_nil(api_key) ->
-        # API key is set — no need for OAuth credentials
-        :ok
+      api_key != "" and not is_nil(api_key) -> :ok
+      is_nil(source) or source == "" -> :ok
+      source == target_sprite -> :ok
+      true -> do_sync_credentials(source, target_sprite)
+    end
+  end
 
-      is_nil(source) or source == "" ->
-        Logger.debug("SpriteDelegate: no credentials_source_sprite configured, skipping sync")
-        :ok
+  defp do_sync_credentials(source, target) do
+    Logger.info("SpriteDelegate: syncing Claude credentials from #{source} to #{target}")
 
-      source == target_sprite ->
-        # Source is the target — credentials are already there
-        :ok
+    with {:ok, creds} <- read_credentials(source),
+         :ok <- write_credentials(target, creds) do
+      Logger.info("SpriteDelegate: credentials synced to #{target}")
+      :ok
+    end
+  end
 
-      true ->
-        Logger.info(
-          "SpriteDelegate: syncing Claude credentials from #{source} to #{target_sprite}"
+  @creds_path "/home/sprite/.claude/.credentials.json"
+
+  defp read_credentials(source) do
+    case Sprites.exec(source, "cat #{@creds_path}") do
+      {:ok, %{exit_code: 0, output: creds}} when creds != "" ->
+        {:ok, String.trim(creds)}
+
+      {:ok, %{exit_code: code}} ->
+        Logger.warning("SpriteDelegate: failed to read credentials from #{source}: exit=#{code}")
+        {:error, :credentials_sync_failed}
+
+      {:error, reason} ->
+        Logger.warning(
+          "SpriteDelegate: failed to read credentials from #{source}: #{inspect(reason)}"
         )
 
-        case Sprites.exec(source, "cat /home/sprite/.claude/.credentials.json") do
-          {:ok, %{exit_code: 0, output: creds}} when creds != "" ->
-            write_cmd =
-              "mkdir -p /home/sprite/.claude && " <>
-                "cat > /home/sprite/.claude/.credentials.json << 'LATTICE_CREDS_EOF'\n#{String.trim(creds)}\nLATTICE_CREDS_EOF\n" <>
-                "chmod 600 /home/sprite/.claude/.credentials.json"
+        {:error, :credentials_sync_failed}
+    end
+  end
 
-            case Sprites.exec(target_sprite, write_cmd) do
-              {:ok, %{exit_code: 0}} ->
-                Logger.info("SpriteDelegate: credentials synced to #{target_sprite}")
-                :ok
+  defp write_credentials(target, creds) do
+    write_cmd =
+      "mkdir -p /home/sprite/.claude && " <>
+        "cat > #{@creds_path} << 'LATTICE_CREDS_EOF'\n#{creds}\nLATTICE_CREDS_EOF\n" <>
+        "chmod 600 #{@creds_path}"
 
-              {:ok, %{exit_code: code, output: output}} ->
-                Logger.warning(
-                  "SpriteDelegate: failed to write credentials to #{target_sprite}: exit=#{code} #{output}"
-                )
+    case Sprites.exec(target, write_cmd) do
+      {:ok, %{exit_code: 0}} ->
+        :ok
 
-                {:error, :credentials_sync_failed}
+      {:ok, %{exit_code: code, output: output}} ->
+        Logger.warning(
+          "SpriteDelegate: failed to write credentials to #{target}: exit=#{code} #{output}"
+        )
 
-              {:error, reason} ->
-                Logger.warning(
-                  "SpriteDelegate: failed to write credentials to #{target_sprite}: #{inspect(reason)}"
-                )
+        {:error, :credentials_sync_failed}
 
-                {:error, :credentials_sync_failed}
-            end
+      {:error, reason} ->
+        Logger.warning(
+          "SpriteDelegate: failed to write credentials to #{target}: #{inspect(reason)}"
+        )
 
-          {:ok, %{exit_code: code}} ->
-            Logger.warning(
-              "SpriteDelegate: failed to read credentials from #{source}: exit=#{code}"
-            )
-
-            {:error, :credentials_sync_failed}
-
-          {:error, reason} ->
-            Logger.warning(
-              "SpriteDelegate: failed to read credentials from #{source}: #{inspect(reason)}"
-            )
-
-            {:error, :credentials_sync_failed}
-        end
+        {:error, :credentials_sync_failed}
     end
   end
 
