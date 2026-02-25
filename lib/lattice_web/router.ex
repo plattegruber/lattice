@@ -145,6 +145,8 @@ defmodule LatticeWeb.Router do
     delete "/projects/:id", ProjectController, :delete
 
     get "/search", SearchController, :index
+
+    post "/dil/run", DilController, :run
   end
 
   # Authenticated LiveView routes
