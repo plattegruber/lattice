@@ -29,6 +29,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
   alias Lattice.Capabilities.GitHub
   alias Lattice.Capabilities.GitHub.AppAuth
   alias Lattice.Capabilities.Sprites
+  alias Lattice.Sprites.CredentialSync
   alias Lattice.Sprites.ExecSession
   alias Lattice.Sprites.FileWriter
 
@@ -172,7 +173,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     with :ok <- sync_claude_credentials(sprite_name),
          :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/implement_prompt.txt") do
       claude_cmd =
-        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/implement_prompt.txt)\" --output-format text 2>&1"
+        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/implement_prompt.txt)\" --model claude-opus-4-6 --output-format text 2>&1"
 
       Logger.info("SpriteDelegate: launching claude -p (implement)")
 
@@ -677,7 +678,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     with :ok <- sync_claude_credentials(sprite_name),
          :ok <- FileWriter.write_file(sprite_name, prompt, "/tmp/ambient_prompt.txt") do
       claude_cmd =
-        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/ambient_prompt.txt)\" --output-format text 2>&1"
+        "cd #{work_dir} && #{claude_env_prefix()}claude -p \"$(cat /tmp/ambient_prompt.txt)\" --model claude-opus-4-6 --output-format text 2>&1"
 
       Logger.info("SpriteDelegate: launching claude -p (delegate)")
 
@@ -929,64 +930,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     cond do
       api_key != "" and not is_nil(api_key) -> :ok
       is_nil(source) or source == "" -> :ok
-      source == target_sprite -> :ok
-      true -> do_sync_credentials(source, target_sprite)
-    end
-  end
-
-  defp do_sync_credentials(source, target) do
-    Logger.info("SpriteDelegate: syncing Claude credentials from #{source} to #{target}")
-
-    with {:ok, creds} <- read_credentials(source),
-         :ok <- write_credentials(target, creds) do
-      Logger.info("SpriteDelegate: credentials synced to #{target}")
-      :ok
-    end
-  end
-
-  @creds_path "/home/sprite/.claude/.credentials.json"
-
-  defp read_credentials(source) do
-    case Sprites.exec(source, "cat #{@creds_path}") do
-      {:ok, %{exit_code: 0, output: creds}} when creds != "" ->
-        {:ok, String.trim(creds)}
-
-      {:ok, %{exit_code: code}} ->
-        Logger.warning("SpriteDelegate: failed to read credentials from #{source}: exit=#{code}")
-        {:error, :credentials_sync_failed}
-
-      {:error, reason} ->
-        Logger.warning(
-          "SpriteDelegate: failed to read credentials from #{source}: #{inspect(reason)}"
-        )
-
-        {:error, :credentials_sync_failed}
-    end
-  end
-
-  defp write_credentials(target, creds) do
-    write_cmd =
-      "mkdir -p /home/sprite/.claude && " <>
-        "cat > #{@creds_path} << 'LATTICE_CREDS_EOF'\n#{creds}\nLATTICE_CREDS_EOF\n" <>
-        "chmod 600 #{@creds_path}"
-
-    case Sprites.exec(target, write_cmd) do
-      {:ok, %{exit_code: 0}} ->
-        :ok
-
-      {:ok, %{exit_code: code, output: output}} ->
-        Logger.warning(
-          "SpriteDelegate: failed to write credentials to #{target}: exit=#{code} #{output}"
-        )
-
-        {:error, :credentials_sync_failed}
-
-      {:error, reason} ->
-        Logger.warning(
-          "SpriteDelegate: failed to write credentials to #{target}: #{inspect(reason)}"
-        )
-
-        {:error, :credentials_sync_failed}
+      true -> CredentialSync.sync_one(source, target_sprite)
     end
   end
 

@@ -34,31 +34,32 @@ kill_signal = 'SIGTERM'
 
 # ── Scheduled Machines ────────────────────────────────────────────────────
 #
-# Fly Scheduled Machines run one-off tasks on a cron schedule. The audit
-# task boots a minimal Lattice instance, reconciles every sprite, logs the
-# results, and exits.
+# Fly Scheduled Machines run one-off tasks on a cron schedule. The cron
+# task boots a minimal Lattice instance, runs fleet audit + skill sync +
+# credential sync, logs a unified summary, and exits.
 #
 # Create the scheduled machine (once):
 #
-#   fly machines run . \
-#     --schedule "0 */6 * * *" \
+#   fly machines run registry.fly.io/lattice-broken-forest-2932:latest \
+#     --app lattice-broken-forest-2932 \
+#     --schedule "0 */4 * * *" \
 #     --region ord \
 #     --vm-memory 512 \
 #     --restart on-fail \
-#     --name lattice-audit \
+#     --name lattice-cron \
 #     --env PHX_SERVER=false \
-#     --env SECRET_KEY_BASE="$(fly secrets list --json | jq -r '.[] | select(.Name=="SECRET_KEY_BASE") | .Digest')" \
-#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Cron.run_release()"
 #
-# Or run an ad-hoc audit immediately:
+# Or run an ad-hoc cron immediately:
 #
-#   fly machines run . \
+#   fly machines run registry.fly.io/lattice-broken-forest-2932:latest \
+#     --app lattice-broken-forest-2932 \
 #     --region ord \
 #     --vm-memory 512 \
 #     --restart no \
 #     --rm \
 #     --env PHX_SERVER=false \
-#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Audit.run_release()"
+#     -- /app/bin/lattice eval "Mix.Tasks.Lattice.Cron.run_release()"
 #
 # The scheduled machine inherits the app's secrets (SECRET_KEY_BASE, etc.)
 # but runs with PHX_SERVER=false so the Phoenix HTTP server is not started.
