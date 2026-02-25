@@ -34,7 +34,7 @@ defmodule Lattice.DIL.Context do
   """
   @spec gather() :: t()
   def gather do
-    lib_files = list_elixir_files("lib")
+    lib_files = list_project_files()
     test_files = list_elixir_files("test")
 
     %__MODULE__{
@@ -48,6 +48,16 @@ defmodule Lattice.DIL.Context do
   end
 
   # ── File Scanning ────────────────────────────────────────────────────
+
+  # In a release, `lib/` contains compiled dependencies alongside project code.
+  # Scope to project directories only to avoid scanning framework templates.
+  defp list_project_files do
+    ~w(lib/lattice lib/lattice_web lib/mix)
+    |> Enum.flat_map(fn dir ->
+      Path.wildcard(Path.join(dir, "**/*.ex")) ++
+        Path.wildcard(Path.join(dir, "**/*.exs"))
+    end)
+  end
 
   defp list_elixir_files(dir) do
     Path.wildcard(Path.join(dir, "**/*.ex")) ++
