@@ -51,6 +51,7 @@ RUN mix assets.setup
 COPY priv priv
 
 COPY lib lib
+COPY test test
 
 # Compile the release
 RUN mix compile
