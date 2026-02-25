@@ -51,11 +51,12 @@ defmodule Mix.Tasks.Lattice.Audit do
 
       /app/bin/lattice eval 'Mix.Tasks.Lattice.Audit.run_release()'
 
-  In a release context the application is already started by `eval`,
-  so we skip `app.start` and go straight to the audit.
+  Release `eval` does not start the OTP application tree, so we boot it
+  explicitly before running the audit.
   """
   @spec run_release(keyword()) :: :ok
   def run_release(opts \\ []) do
+    Application.ensure_all_started(:lattice)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     do_audit(timeout)
   end

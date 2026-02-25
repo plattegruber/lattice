@@ -96,6 +96,10 @@ if System.get_env("ANTHROPIC_API_KEY") do
     enabled: System.get_env("AMBIENT_DELEGATION", "false") == "true",
     sprite_name: System.get_env("AMBIENT_SPRITE_NAME", "lattice-ambient"),
     credentials_source_sprite: System.get_env("AMBIENT_CREDENTIALS_SOURCE_SPRITE"),
+    credentials_target_sprites:
+      (System.get_env("AMBIENT_CREDENTIALS_TARGET_SPRITES") || "")
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1),
     work_dir: System.get_env("AMBIENT_WORK_DIR", "/home/sprite/lattice"),
     exec_idle_timeout_ms:
       String.to_integer(System.get_env("AMBIENT_EXEC_IDLE_TIMEOUT_MS", "1800000"))

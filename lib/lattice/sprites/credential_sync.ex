@@ -1,15 +1,16 @@
 defmodule Lattice.Sprites.CredentialSync do
   @moduledoc """
-  Syncs Claude OAuth credentials from a source sprite to all managed sprites.
+  Syncs Claude OAuth credentials from a source sprite to configured targets.
 
   Reads `~/.claude/.credentials.json` from the configured source sprite and
-  writes it to every other sprite in the fleet. This keeps OAuth tokens fresh
-  across the fleet without waiting for a just-in-time sync at `claude -p` time.
+  writes it to each target sprite. This keeps OAuth tokens fresh without
+  waiting for a just-in-time sync at `claude -p` time.
 
   ## Configuration
 
       config :lattice, Lattice.Ambient.SpriteDelegate,
-        credentials_source_sprite: "lattice-ambient"
+        credentials_source_sprite: "lattice-ambient",
+        credentials_target_sprites: ["lattice-ephemeral"]
   """
 
   require Logger
@@ -17,22 +18,30 @@ defmodule Lattice.Sprites.CredentialSync do
   alias Lattice.Capabilities.Sprites
 
   @creds_path "/home/sprite/.claude/.credentials.json"
+  @delegate_config Lattice.Ambient.SpriteDelegate
 
   @doc """
-  Sync credentials from the configured source sprite to all fleet sprites.
+  Sync credentials from the configured source sprite to configured targets.
 
   Returns a map of `%{sprite_name => :ok | {:error, reason}}`.
-  Returns an empty map when no source sprite is configured.
+  Returns an empty map when no source or targets are configured.
   """
   @spec sync_all() :: %{String.t() => :ok | {:error, term()}}
   def sync_all do
     source = credentials_source_sprite()
+    targets = credentials_target_sprites()
 
-    if is_nil(source) or source == "" do
-      Logger.info("CredentialSync: no source sprite configured, skipping")
-      %{}
-    else
-      do_sync_all(source)
+    cond do
+      is_nil(source) or source == "" ->
+        Logger.info("CredentialSync: no source sprite configured, skipping")
+        %{}
+
+      targets == [] ->
+        Logger.info("CredentialSync: no target sprites configured, skipping")
+        %{}
+
+      true ->
+        do_sync_all(source, targets)
     end
   end
 
@@ -57,22 +66,17 @@ defmodule Lattice.Sprites.CredentialSync do
 
   # ── Private ──────────────────────────────────────────────────────
 
-  defp do_sync_all(source) do
-    with {:ok, sprites} <- Sprites.list_sprites(),
-         {:ok, creds} <- read_credentials(source) do
-      targets =
-        sprites
-        |> Enum.map(fn s -> s[:name] || s[:id] end)
-        |> Enum.reject(&(&1 == source))
+  defp do_sync_all(source, targets) do
+    case read_credentials(source) do
+      {:ok, creds} ->
+        Logger.info("CredentialSync: syncing from #{source} to #{length(targets)} sprite(s)")
 
-      Logger.info("CredentialSync: syncing from #{source} to #{length(targets)} sprite(s)")
+        Map.new(targets, fn name ->
+          {name, write_credentials(name, creds)}
+        end)
 
-      Map.new(targets, fn name ->
-        {name, write_credentials(name, creds)}
-      end)
-    else
       {:error, reason} ->
-        Logger.warning("CredentialSync: failed during sync_all: #{inspect(reason)}")
+        Logger.warning("CredentialSync: failed to read from source #{source}: #{inspect(reason)}")
         %{}
     end
   end
@@ -124,7 +128,12 @@ defmodule Lattice.Sprites.CredentialSync do
   end
 
   defp credentials_source_sprite do
-    Application.get_env(:lattice, Lattice.Ambient.SpriteDelegate, [])
+    Application.get_env(:lattice, @delegate_config, [])
     |> Keyword.get(:credentials_source_sprite, nil)
+  end
+
+  defp credentials_target_sprites do
+    Application.get_env(:lattice, @delegate_config, [])
+    |> Keyword.get(:credentials_target_sprites, [])
   end
 end

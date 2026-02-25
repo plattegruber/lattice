@@ -30,20 +30,22 @@ defmodule Lattice.Sprites.CredentialSyncTest do
       assert %{} = CredentialSync.sync_all()
     end
 
-    test "reads once from source and fans out writes to all other sprites" do
+    test "returns empty map when no target sprites configured" do
       Application.put_env(:lattice, Lattice.Ambient.SpriteDelegate,
-        credentials_source_sprite: "source-sprite"
+        credentials_source_sprite: "source-sprite",
+        credentials_target_sprites: []
+      )
+
+      assert %{} = CredentialSync.sync_all()
+    end
+
+    test "reads once from source and writes to configured targets" do
+      Application.put_env(:lattice, Lattice.Ambient.SpriteDelegate,
+        credentials_source_sprite: "source-sprite",
+        credentials_target_sprites: ["target-1", "target-2"]
       )
 
       Lattice.Capabilities.MockSprites
-      |> expect(:list_sprites, fn ->
-        {:ok,
-         [
-           %{id: "source-sprite", name: "source-sprite"},
-           %{id: "target-1", name: "target-1"},
-           %{id: "target-2", name: "target-2"}
-         ]}
-      end)
       # read credentials from source (once)
       |> expect(:exec, fn "source-sprite", cmd ->
         assert cmd =~ "cat /home/sprite/.claude/.credentials.json"
@@ -69,27 +71,14 @@ defmodule Lattice.Sprites.CredentialSyncTest do
 
     test "returns empty map when read from source fails" do
       Application.put_env(:lattice, Lattice.Ambient.SpriteDelegate,
-        credentials_source_sprite: "source-sprite"
+        credentials_source_sprite: "source-sprite",
+        credentials_target_sprites: ["target"]
       )
 
       Lattice.Capabilities.MockSprites
-      |> expect(:list_sprites, fn ->
-        {:ok, [%{id: "source-sprite", name: "source-sprite"}, %{id: "target", name: "target"}]}
-      end)
       |> expect(:exec, fn "source-sprite", _cmd ->
         {:ok, %{exit_code: 1, output: ""}}
       end)
-
-      assert %{} = CredentialSync.sync_all()
-    end
-
-    test "returns empty map when list_sprites fails" do
-      Application.put_env(:lattice, Lattice.Ambient.SpriteDelegate,
-        credentials_source_sprite: "source-sprite"
-      )
-
-      Lattice.Capabilities.MockSprites
-      |> expect(:list_sprites, fn -> {:error, :api_error} end)
 
       assert %{} = CredentialSync.sync_all()
     end

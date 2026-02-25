@@ -42,7 +42,7 @@ kill_signal = 'SIGTERM'
 #
 #   fly machines run registry.fly.io/lattice-broken-forest-2932:latest \
 #     --app lattice-broken-forest-2932 \
-#     --schedule "0 */4 * * *" \
+#     --schedule hourly \
 #     --region ord \
 #     --vm-memory 512 \
 #     --restart on-fail \

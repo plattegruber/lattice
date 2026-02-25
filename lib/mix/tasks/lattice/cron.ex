@@ -5,9 +5,9 @@ defmodule Mix.Tasks.Lattice.Cron do
   Boots the Lattice application, runs fleet audit + skill sync + credential
   sync sequentially, logs a unified summary, and exits.
 
-  Designed for use as a Fly Scheduled Machine (every 4 hours):
+  Designed for use as a Fly Scheduled Machine (hourly):
 
-      fly machines run . --schedule "0 */4 * * *" \\
+      fly machines run . --schedule hourly \\
         --env PHX_SERVER=false \\
         -- /app/bin/lattice eval "Mix.Tasks.Lattice.Cron.run_release()"
 
@@ -47,11 +47,12 @@ defmodule Mix.Tasks.Lattice.Cron do
 
       /app/bin/lattice eval "Mix.Tasks.Lattice.Cron.run_release()"
 
-  In a release context the application is already started by `eval`,
-  so we skip `app.start` and go straight to the cron steps.
+  Release `eval` does not start the OTP application tree, so we boot it
+  explicitly before running the cron steps.
   """
   @spec run_release() :: :ok
   def run_release do
+    Application.ensure_all_started(:lattice)
     do_cron()
   end
 
