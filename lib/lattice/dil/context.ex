@@ -49,19 +49,33 @@ defmodule Lattice.DIL.Context do
 
   # ── File Scanning ────────────────────────────────────────────────────
 
-  # In a release, `lib/` contains compiled dependencies alongside project code.
-  # Scope to project directories only to avoid scanning framework templates.
+  # In a release, source files live at /app/src/ (copied by Dockerfile).
+  # In dev, they're at the working directory root.
+  defp source_root do
+    release_src = Path.join(Application.app_dir(:lattice), "../../src")
+
+    if File.dir?(release_src) do
+      Path.expand(release_src)
+    else
+      "."
+    end
+  end
+
   defp list_project_files do
+    root = source_root()
+
     ~w(lib/lattice lib/lattice_web lib/mix)
     |> Enum.flat_map(fn dir ->
-      Path.wildcard(Path.join(dir, "**/*.ex")) ++
-        Path.wildcard(Path.join(dir, "**/*.exs"))
+      full = Path.join(root, dir)
+
+      Path.wildcard(Path.join(full, "**/*.ex")) ++
+        Path.wildcard(Path.join(full, "**/*.exs"))
     end)
   end
 
   defp list_elixir_files(dir) do
-    Path.wildcard(Path.join(dir, "**/*.ex")) ++
-      Path.wildcard(Path.join(dir, "**/*.exs"))
+    full = Path.join(source_root(), dir)
+    Path.wildcard(Path.join(full, "**/*.ex")) ++ Path.wildcard(Path.join(full, "**/*.exs"))
   end
 
   defp scan_todos(files) do

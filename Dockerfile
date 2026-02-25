@@ -91,6 +91,12 @@ ENV MIX_ENV="prod"
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/lattice ./
 
+# Copy project source for DIL context scanning (source files are not in a release)
+COPY --from=builder --chown=nobody:root /app/lib/lattice /app/src/lib/lattice
+COPY --from=builder --chown=nobody:root /app/lib/lattice_web /app/src/lib/lattice_web
+COPY --from=builder --chown=nobody:root /app/lib/mix /app/src/lib/mix
+COPY --from=builder --chown=nobody:root /app/test /app/src/test
+
 USER nobody
 
 # If using an environment that doesn't automatically reap zombie processes, it is
