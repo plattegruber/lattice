@@ -20,7 +20,7 @@ defmodule Lattice.DIL.RunnerTest do
     end
   end
 
-  describe "run/1" do
+  describe "run/1 — gates" do
     test "returns {:ok, :disabled} when DIL is disabled" do
       with_dil_config([enabled: false], fn ->
         assert {:ok, :disabled} = Runner.run()
@@ -28,7 +28,6 @@ defmodule Lattice.DIL.RunnerTest do
     end
 
     test "returns {:ok, {:skipped, reason}} when a gate fails" do
-      # open_dil_issue? returns true — should skip
       Lattice.Capabilities.MockGitHub
       |> expect(:list_issues, fn _opts ->
         {:ok, [%{"number" => 1, "title" => "[DIL] Open"}]}
@@ -38,8 +37,11 @@ defmodule Lattice.DIL.RunnerTest do
         assert {:ok, {:skipped, "open DIL issue exists"}} = Runner.run()
       end)
     end
+  end
 
-    test "returns {:ok, :gates_passed} when all gates pass" do
+  describe "run/1 — pipeline" do
+    test "returns candidate or no_candidate when all gates pass" do
+      # 3 list_issues calls for gates + 1 for context gathering
       Lattice.Capabilities.MockGitHub
       |> expect(:list_issues, fn _opts -> {:ok, []} end)
       |> expect(:list_issues, fn _opts ->
@@ -47,10 +49,26 @@ defmodule Lattice.DIL.RunnerTest do
         {:ok, [%{"created_at" => old}]}
       end)
       |> expect(:list_issues, fn _opts -> {:ok, []} end)
+      |> expect(:list_issues, fn _opts -> {:ok, []} end)
 
-      with_dil_config([enabled: true, cooldown_hours: 24, rejection_cooldown_hours: 48], fn ->
-        assert {:ok, :gates_passed} = Runner.run()
-      end)
+      with_dil_config(
+        [enabled: true, cooldown_hours: 24, rejection_cooldown_hours: 48, score_threshold: 18],
+        fn ->
+          result = Runner.run()
+          assert {:ok, {status, _summary}} = result
+          assert status in [:candidate, :no_candidate]
+        end
+      )
+    end
+
+    test "skip_gates bypasses all gate checks" do
+      # Only 1 list_issues call for context gathering (no gate calls)
+      Lattice.Capabilities.MockGitHub
+      |> expect(:list_issues, fn _opts -> {:ok, []} end)
+
+      result = Runner.run(skip_gates: true)
+      assert {:ok, {status, _summary}} = result
+      assert status in [:candidate, :no_candidate]
     end
   end
 end
