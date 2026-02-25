@@ -120,8 +120,18 @@ defmodule Lattice.Ambient.Responder do
 
     # Step 2: Fetch thread context and classify
     thread_context = fetch_thread_context(event)
-    classification = Claude.classify(event, thread_context)
+    classification = classify_event(event, thread_context)
     handle_classification(classification, event, thread_context, state)
+  end
+
+  # Routes classification through the API when an API key is available,
+  # otherwise falls back to running classification on the ambient sprite.
+  defp classify_event(event, thread_context) do
+    if Claude.api_key_configured?() do
+      Claude.classify(event, thread_context)
+    else
+      SpriteDelegate.classify(event, thread_context)
+    end
   end
 
   # ── Private: Classification Dispatch ───────────────────────────

@@ -37,6 +37,29 @@ defmodule Lattice.Ambient.SpriteDelegate do
   @retry_delay_ms 3_000
 
   @doc """
+  Classify a GitHub event by running a lightweight `claude -p` on the ambient sprite.
+
+  Used as a fallback when no Anthropic API key is configured, routing classification
+  through the Pro account via OAuth credentials on the sprite.
+
+  Returns `{:ok, decision, nil}` or `{:error, reason}`.
+  """
+  @spec classify(event :: map(), thread_context :: [map()]) ::
+          {:ok, :implement | :delegate | :react | :ignore, nil} | {:error, term()}
+  def classify(event, thread_context) do
+    if enabled?() do
+      with {:ok, sprite_name} <- ensure_sprite(),
+           :ok <- sync_claude_credentials(sprite_name) do
+        run_classification(sprite_name, event, thread_context)
+      else
+        _ -> {:ok, :ignore, nil}
+      end
+    else
+      {:ok, :ignore, nil}
+    end
+  end
+
+  @doc """
   Handle a delegated event by running Claude Code on a sprite with repo context.
 
   Returns `{:ok, response_text}` or `{:error, reason}`.
@@ -715,6 +738,141 @@ defmodule Lattice.Ambient.SpriteDelegate do
     Logger.error("SpriteDelegate: claude execution failed: #{inspect(reason)}")
     err
   end
+
+  # ── Private: Classification via Sprite ────────────────────────────
+
+  defp run_classification(sprite_name, event, thread_context) do
+    prompt = build_classification_prompt(event, thread_context)
+
+    Logger.info(
+      "SpriteDelegate: running classification via sprite, prompt_size=#{byte_size(prompt)}"
+    )
+
+    case FileWriter.write_file(sprite_name, prompt, "/tmp/classify_prompt.txt") do
+      :ok ->
+        claude_cmd =
+          "#{claude_env_prefix()}claude -p \"$(cat /tmp/classify_prompt.txt)\" --model claude-sonnet-4-20250514 --output-format json --max-tokens 200 2>&1"
+
+        case exec_with_retry(sprite_name, claude_cmd) do
+          {:ok, %{output: output, exit_code: 0}} ->
+            parse_classification(output)
+
+          {:ok, %{output: output, exit_code: code}} ->
+            Logger.warning(
+              "SpriteDelegate: classification exited #{code}: #{String.slice(output, -300, 300)}"
+            )
+
+            parse_classification(output)
+
+          {:error, reason} ->
+            Logger.error("SpriteDelegate: classification exec failed: #{inspect(reason)}")
+            {:ok, :ignore, nil}
+        end
+
+      {:error, reason} ->
+        Logger.error("SpriteDelegate: failed to write classification prompt: #{inspect(reason)}")
+        {:ok, :ignore, nil}
+    end
+  end
+
+  defp build_classification_prompt(event, thread_context) do
+    thread_text =
+      Enum.map_join(thread_context, "\n\n", fn c ->
+        "**#{c[:user] || "unknown"}**: #{c[:body] || ""}"
+      end)
+
+    thread_section =
+      if thread_text != "" do
+        """
+        ## Thread context (previous messages):
+        #{thread_text}
+
+        """
+      else
+        ""
+      end
+
+    event_text = """
+    Event type: #{event[:type]}
+    Author: #{event[:author]}
+    Surface: #{event[:surface]}
+    Number: #{event[:number]}
+
+    Message body:
+    #{event[:body]}
+    """
+
+    """
+    You are Lattice, an AI coding agent control plane that monitors a GitHub repository. \
+    You've received a new event from the repo you manage. Decide how to respond.
+
+    Rules:
+    1. If the message is an explicit request to implement, fix, build, or create code changes \
+    (e.g., "implement this", "fix this", "build this feature", "make this change") → implement \
+    (an agent will create a branch, make changes, and open a PR)
+    2. If the message is a question, discussion, request for feedback, or anything substantive \
+    → delegate (a repo-aware agent with full codebase access will answer)
+    3. If the message is an acknowledgment, status update, or doesn't need a reply \
+    (e.g., "sounds good", "done", "merged", "thanks") → react with thumbs-up
+    4. If the event is noise (CI bot comments, auto-generated messages, dependency updates) → ignore
+
+    IMPORTANT: Almost all substantive messages should be "delegate". The delegate agent has the \
+    full repo cloned and can give much better answers than you can. Only use "react" or "ignore" \
+    for messages that truly don't need a reply. Never use "respond" — always prefer "delegate" \
+    for anything that warrants a thoughtful answer.
+
+    #{thread_section}## New event:
+    #{event_text}
+
+    You MUST respond with EXACTLY this JSON format and nothing else:
+    {"decision": "<one of: implement, delegate, react, ignore>"}
+    """
+  end
+
+  defp parse_classification(output) do
+    trimmed = String.trim(output)
+
+    with {:ok, parsed} <- Jason.decode(trimmed),
+         decision when is_binary(decision) <- Map.get(parsed, "decision") do
+      case decision do
+        "implement" ->
+          {:ok, :implement, nil}
+
+        "delegate" ->
+          {:ok, :delegate, nil}
+
+        "react" ->
+          {:ok, :react, nil}
+
+        "ignore" ->
+          {:ok, :ignore, nil}
+
+        other ->
+          Logger.warning("SpriteDelegate: unknown classification decision: #{other}")
+          {:ok, :ignore, nil}
+      end
+    else
+      _ ->
+        # Fallback: try to find JSON embedded in output
+        case Regex.run(~r/\{[^}]*"decision"\s*:\s*"(\w+)"[^}]*\}/, trimmed) do
+          [_, decision] ->
+            parse_classification_decision(decision)
+
+          nil ->
+            Logger.warning(
+              "SpriteDelegate: could not parse classification output: #{String.slice(trimmed, 0, 200)}"
+            )
+
+            {:ok, :ignore, nil}
+        end
+    end
+  end
+
+  defp parse_classification_decision("implement"), do: {:ok, :implement, nil}
+  defp parse_classification_decision("delegate"), do: {:ok, :delegate, nil}
+  defp parse_classification_decision("react"), do: {:ok, :react, nil}
+  defp parse_classification_decision("ignore"), do: {:ok, :ignore, nil}
+  defp parse_classification_decision(_), do: {:ok, :ignore, nil}
 
   # ── Private: Retry Logic ─────────────────────────────────────────
 

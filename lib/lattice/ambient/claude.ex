@@ -25,6 +25,16 @@ defmodule Lattice.Ambient.Claude do
   @type result :: {:ok, decision(), String.t() | nil} | {:error, term()}
 
   @doc """
+  Returns whether an Anthropic API key is configured and non-empty.
+  Used to decide whether to classify via the API or via a sprite.
+  """
+  @spec api_key_configured?() :: boolean()
+  def api_key_configured? do
+    key = resolve_api_key()
+    not is_nil(key) and key != ""
+  end
+
+  @doc """
   Classify a GitHub event and optionally generate a response.
 
   Returns `{:ok, :respond, "response text"}`, `{:ok, :react, nil}`,
