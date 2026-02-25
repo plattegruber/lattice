@@ -27,6 +27,7 @@ defmodule Mix.Tasks.Lattice.Cron do
 
   require Logger
 
+  alias Lattice.DIL.Runner, as: DILRunner
   alias Lattice.Events
   alias Lattice.Sprites.CredentialSync
   alias Lattice.Sprites.FleetManager
@@ -65,7 +66,8 @@ defmodule Mix.Tasks.Lattice.Cron do
     results = [
       {:fleet_audit, run_fleet_audit()},
       {:skill_sync, run_skill_sync()},
-      {:credential_sync, run_credential_sync()}
+      {:credential_sync, run_credential_sync()},
+      {:dil, run_dil()}
     ]
 
     elapsed = System.monotonic_time(:millisecond) - start
@@ -129,6 +131,15 @@ defmodule Mix.Tasks.Lattice.Cron do
     else
       Logger.warning("Cron: credential sync had #{length(errors)} failure(s)")
       {:error, :partial_failure}
+    end
+  end
+
+  defp run_dil do
+    Logger.info("Cron: running DIL")
+
+    case DILRunner.run() do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 end
