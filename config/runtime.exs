@@ -92,19 +92,22 @@ if github_webhook_secret = System.get_env("GITHUB_WEBHOOK_SECRET") do
     dedup_ttl_ms: :timer.minutes(5)
 end
 
-# Ambient responder: enable when ANTHROPIC_API_KEY is set
-if System.get_env("ANTHROPIC_API_KEY") do
+# Ambient responder: enable when ANTHROPIC_API_KEY is set or sprite delegation is enabled
+ambient_api_key = System.get_env("ANTHROPIC_API_KEY")
+ambient_delegation = System.get_env("AMBIENT_DELEGATION", "false") == "true"
+
+if ambient_api_key || ambient_delegation do
   config :lattice, Lattice.Ambient.Responder,
     enabled: true,
     bot_login: System.get_env("LATTICE_BOT_LOGIN"),
     eyes_reaction: true
 
   config :lattice, Lattice.Ambient.Claude,
-    api_key: System.get_env("ANTHROPIC_API_KEY"),
+    api_key: ambient_api_key,
     model: System.get_env("AMBIENT_MODEL", "claude-sonnet-4-20250514")
 
   config :lattice, Lattice.Ambient.SpriteDelegate,
-    enabled: System.get_env("AMBIENT_DELEGATION", "false") == "true",
+    enabled: ambient_delegation,
     sprite_name: System.get_env("AMBIENT_SPRITE_NAME", "lattice-ambient"),
     credentials_source_sprite: System.get_env("AMBIENT_CREDENTIALS_SOURCE_SPRITE"),
     credentials_target_sprites:
