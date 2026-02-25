@@ -86,7 +86,7 @@ defmodule Lattice.DIL.Context do
       |> Enum.with_index(1)
       |> Enum.filter(fn {line, _} -> line =~ ~r/# TODO/i end)
       |> Enum.map(fn {line, num} ->
-        %{file: file, line: num, detail: String.trim(line)}
+        %{file: relative_path(file), line: num, detail: String.trim(line)}
       end)
     end)
   end
@@ -101,7 +101,7 @@ defmodule Lattice.DIL.Context do
         )
     end)
     |> Enum.map(fn file ->
-      %{file: file, line: nil, detail: "missing @moduledoc"}
+      %{file: relative_path(file), line: nil, detail: "missing @moduledoc"}
     end)
   end
 
@@ -112,7 +112,7 @@ defmodule Lattice.DIL.Context do
       content = File.read!(file)
 
       if has_public_functions?(content) and not has_typespecs?(content) do
-        [%{file: file, line: nil, detail: "public functions without @spec"}]
+        [%{file: relative_path(file), line: nil, detail: "public functions without @spec"}]
       else
         []
       end
@@ -124,7 +124,7 @@ defmodule Lattice.DIL.Context do
       line_count = file |> File.read!() |> String.split("\n") |> length()
 
       if line_count > @large_file_threshold do
-        [%{file: file, line: nil, detail: "#{line_count} lines"}]
+        [%{file: relative_path(file), line: nil, detail: "#{line_count} lines"}]
       else
         []
       end
@@ -145,7 +145,7 @@ defmodule Lattice.DIL.Context do
       expected_test not in test_modules
     end)
     |> Enum.map(fn file ->
-      %{file: file, line: nil, detail: "no corresponding test file"}
+      %{file: relative_path(file), line: nil, detail: "no corresponding test file"}
     end)
   end
 
@@ -155,6 +155,18 @@ defmodule Lattice.DIL.Context do
     case GitHub.list_issues(state: "closed", per_page: 20) do
       {:ok, issues} -> issues
       {:error, _} -> []
+    end
+  end
+
+  # ── Path Helpers ────────────────────────────────────────────────────
+
+  # Strip the source root prefix so file paths are repo-relative (e.g. lib/lattice/foo.ex)
+  defp relative_path(absolute_path) do
+    root = source_root()
+
+    case Path.relative_to(absolute_path, root) do
+      ^absolute_path -> absolute_path
+      relative -> relative
     end
   end
 
