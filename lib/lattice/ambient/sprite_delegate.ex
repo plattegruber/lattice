@@ -751,7 +751,7 @@ defmodule Lattice.Ambient.SpriteDelegate do
     case FileWriter.write_file(sprite_name, prompt, "/tmp/classify_prompt.txt") do
       :ok ->
         claude_cmd =
-          "#{claude_env_prefix()}claude -p \"$(cat /tmp/classify_prompt.txt)\" --model claude-sonnet-4-20250514 --output-format json --max-tokens 200 2>&1"
+          "#{claude_env_prefix()}claude -p \"$(cat /tmp/classify_prompt.txt)\" --model claude-sonnet-4-20250514 --output-format json 2>&1"
 
         case exec_with_retry(sprite_name, claude_cmd) do
           {:ok, %{output: output, exit_code: 0}} ->
