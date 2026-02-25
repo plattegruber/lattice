@@ -4,7 +4,8 @@ defmodule Lattice.DIL.Runner do
 
   `run/1` is the single entry point called by the cron task. It checks
   whether DIL is enabled, runs all safety gates, gathers context, evaluates
-  candidates, and returns the result.
+  candidates, formats proposals, and returns the result. In dry-run mode
+  (default) the proposal is logged but not created on GitHub.
   """
 
   require Logger
@@ -12,6 +13,7 @@ defmodule Lattice.DIL.Runner do
   alias Lattice.DIL.Context
   alias Lattice.DIL.Evaluator
   alias Lattice.DIL.Gates
+  alias Lattice.DIL.Proposal
 
   @type result ::
           {:ok, :disabled}
@@ -30,7 +32,7 @@ defmodule Lattice.DIL.Runner do
   - `{:ok, :disabled}` — DIL feature flag is off (only when gates not skipped)
   - `{:ok, {:skipped, reason}}` — a safety gate blocked execution
   - `{:ok, {:no_candidate, summary}}` — gates passed, no candidate above threshold
-  - `{:ok, {:candidate, summary}}` — top candidate identified
+  - `{:ok, {:candidate, summary}}` — top candidate identified and formatted
   - `{:error, reason}` — unexpected failure
   """
   @spec run(keyword()) :: result()
@@ -94,21 +96,40 @@ defmodule Lattice.DIL.Runner do
         {:ok, {:no_candidate, %{signal_counts: signal_counts, candidates: length(candidates)}}}
 
       top ->
-        Logger.info(
-          "DIL: top candidate — #{top.title} (score: #{top.total_score}/25, category: #{top.category})"
-        )
-
-        {:ok,
-         {:candidate,
-          %{
-            title: top.title,
-            category: top.category,
-            total_score: top.total_score,
-            scores: top.scores,
-            evidence_count: length(top.evidence),
-            files: top.files,
-            signal_counts: signal_counts
-          }}}
+        handle_candidate(top, signal_counts)
     end
   end
+
+  defp handle_candidate(candidate, signal_counts) do
+    title = Proposal.format_title(candidate)
+    body = Proposal.format_body(candidate)
+    labels = Proposal.labels()
+    mode = dil_config()[:mode] || :dry_run
+
+    Logger.info(
+      "DIL: top candidate — #{candidate.title} (score: #{candidate.total_score}/25, category: #{candidate.category}, mode: #{mode})"
+    )
+
+    if mode == :dry_run do
+      Logger.info(
+        "DIL [dry-run] would create issue:\n  Title: #{title}\n  Labels: #{inspect(labels)}\n\n#{body}"
+      )
+    end
+
+    {:ok,
+     {:candidate,
+      %{
+        title: title,
+        category: candidate.category,
+        total_score: candidate.total_score,
+        scores: candidate.scores,
+        evidence_count: length(candidate.evidence),
+        files: candidate.files,
+        labels: labels,
+        mode: mode,
+        signal_counts: signal_counts
+      }}}
+  end
+
+  defp dil_config, do: Application.get_env(:lattice, :dil, [])
 end
