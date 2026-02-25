@@ -47,6 +47,17 @@ config :lattice, :resources,
   fly_app: System.get_env("FLY_APP"),
   sprites_api_base: System.get_env("SPRITES_API_BASE")
 
+# Daily Improvement Loop — enabled + mode from env vars
+if System.get_env("DIL_ENABLED") == "true" do
+  dil_mode =
+    case System.get_env("DIL_MODE", "dry_run") do
+      "live" -> :live
+      _ -> :dry_run
+    end
+
+  config :lattice, :dil, enabled: true, mode: dil_mode
+end
+
 # Capability auto-selection: use live implementations when credentials are present
 capabilities = Application.get_env(:lattice, :capabilities, [])
 

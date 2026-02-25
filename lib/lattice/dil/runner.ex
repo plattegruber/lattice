@@ -10,10 +10,12 @@ defmodule Lattice.DIL.Runner do
 
   require Logger
 
+  alias Lattice.Capabilities.GitHub
   alias Lattice.DIL.Context
   alias Lattice.DIL.Evaluator
   alias Lattice.DIL.Gates
   alias Lattice.DIL.Proposal
+  alias Lattice.Safety.Audit
 
   @type result ::
           {:ok, :disabled}
@@ -110,25 +112,56 @@ defmodule Lattice.DIL.Runner do
       "DIL: top candidate — #{candidate.title} (score: #{candidate.total_score}/25, category: #{candidate.category}, mode: #{mode})"
     )
 
-    if mode == :dry_run do
-      Logger.info(
-        "DIL [dry-run] would create issue:\n  Title: #{title}\n  Labels: #{inspect(labels)}\n\n#{body}"
-      )
-    end
+    result = execute_mode(mode, title, body, labels)
 
-    {:ok,
-     {:candidate,
-      %{
-        title: title,
-        category: candidate.category,
-        total_score: candidate.total_score,
-        scores: candidate.scores,
-        evidence_count: length(candidate.evidence),
-        files: candidate.files,
-        labels: labels,
-        mode: mode,
-        signal_counts: signal_counts
-      }}}
+    summary = %{
+      title: title,
+      category: candidate.category,
+      total_score: candidate.total_score,
+      scores: candidate.scores,
+      evidence_count: length(candidate.evidence),
+      files: candidate.files,
+      labels: labels,
+      mode: mode,
+      signal_counts: signal_counts
+    }
+
+    summary =
+      case result do
+        {:ok, issue} -> Map.put(summary, :issue_number, issue["number"])
+        _ -> summary
+      end
+
+    {:ok, {:candidate, summary}}
+  end
+
+  defp execute_mode(:dry_run, title, body, labels) do
+    Logger.info(
+      "DIL [dry-run] would create issue:\n  Title: #{title}\n  Labels: #{inspect(labels)}\n\n#{body}"
+    )
+
+    Audit.log(:dil, :gather_context, :safe, :ok, :scheduled)
+    :dry_run
+  end
+
+  defp execute_mode(:live, title, body, labels) do
+    Logger.info("DIL [live] creating GitHub issue: #{title}")
+
+    case GitHub.create_issue(title, %{body: body, labels: labels}) do
+      {:ok, issue} ->
+        Logger.info("DIL [live] created issue ##{issue["number"]}")
+        Audit.log(:dil, :create_proposal, :controlled, :ok, :scheduled, args: [title])
+        {:ok, issue}
+
+      {:error, reason} = error ->
+        Logger.error("DIL [live] failed to create issue: #{inspect(reason)}")
+
+        Audit.log(:dil, :create_proposal, :controlled, {:error, reason}, :scheduled,
+          args: [title]
+        )
+
+        error
+    end
   end
 
   defp dil_config, do: Application.get_env(:lattice, :dil, [])
