@@ -32,10 +32,7 @@ defmodule Lattice.DIL.Runner do
   def run(opts \\ []) do
     _ = opts
 
-    if not Gates.enabled?() do
-      Logger.info("DIL: disabled, skipping")
-      {:ok, :disabled}
-    else
+    if Gates.enabled?() do
       case Gates.check_all() do
         {:ok, :gates_passed} ->
           Logger.info("DIL: all gates passed")
@@ -45,6 +42,9 @@ defmodule Lattice.DIL.Runner do
           Logger.info("DIL: skipped — #{reason}")
           {:ok, {:skipped, reason}}
       end
+    else
+      Logger.info("DIL: disabled, skipping")
+      {:ok, :disabled}
     end
   rescue
     error ->
