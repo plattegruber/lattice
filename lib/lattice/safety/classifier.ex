@@ -84,7 +84,10 @@ defmodule Lattice.Safety.Classifier do
     {:fly, :machine_status} => :safe,
     {:fly, :deploy} => :dangerous,
     # Secret Store
-    {:secret_store, :get_secret} => :safe
+    {:secret_store, :get_secret} => :safe,
+    # DIL (Daily Improvement Loop)
+    {:dil, :gather_context} => :safe,
+    {:dil, :create_proposal} => :controlled
   }
 
   @doc """

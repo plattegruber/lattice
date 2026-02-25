@@ -71,4 +71,45 @@ defmodule Lattice.DIL.RunnerTest do
       assert status in [:candidate, :no_candidate]
     end
   end
+
+  describe "run/1 — live mode" do
+    test "creates GitHub issue in live mode" do
+      # 1 list_issues for context gathering + 1 create_issue
+      Lattice.Capabilities.MockGitHub
+      |> expect(:list_issues, fn _opts -> {:ok, []} end)
+      |> expect(:create_issue, fn title, attrs ->
+        assert title =~ "[DIL]"
+        assert is_binary(attrs.body)
+        assert "dil-proposal" in attrs.labels
+        assert "research-backed" in attrs.labels
+        {:ok, %{"number" => 42, "title" => title}}
+      end)
+
+      with_dil_config([enabled: true, mode: :live, score_threshold: 0], fn ->
+        result = Runner.run(skip_gates: true)
+
+        case result do
+          {:ok, {:candidate, summary}} ->
+            assert summary.mode == :live
+            assert summary.issue_number == 42
+
+          {:ok, {:no_candidate, _}} ->
+            # Acceptable if no candidates found in the repo
+            :ok
+        end
+      end)
+    end
+
+    test "dry-run mode does NOT call create_issue" do
+      # Only list_issues for context — no create_issue expected
+      Lattice.Capabilities.MockGitHub
+      |> expect(:list_issues, fn _opts -> {:ok, []} end)
+
+      with_dil_config([enabled: true, mode: :dry_run, score_threshold: 0], fn ->
+        result = Runner.run(skip_gates: true)
+        assert {:ok, {status, _}} = result
+        assert status in [:candidate, :no_candidate]
+      end)
+    end
+  end
 end
