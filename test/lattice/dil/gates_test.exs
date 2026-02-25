@@ -49,7 +49,7 @@ defmodule Lattice.DIL.GatesTest do
     test "returns true when open dil-proposal issues exist" do
       Lattice.Capabilities.MockGitHub
       |> expect(:list_issues, fn opts ->
-        assert opts[:labels] == "dil-proposal"
+        assert opts[:labels] == ["dil-proposal"]
         assert opts[:state] == "open"
         {:ok, [%{"number" => 42, "title" => "[DIL] Some improvement"}]}
       end)
@@ -80,7 +80,7 @@ defmodule Lattice.DIL.GatesTest do
 
       Lattice.Capabilities.MockGitHub
       |> expect(:list_issues, fn opts ->
-        assert opts[:labels] == "dil-proposal"
+        assert opts[:labels] == ["dil-proposal"]
         assert opts[:state] == "all"
         {:ok, [%{"created_at" => old_time}]}
       end)
@@ -126,7 +126,7 @@ defmodule Lattice.DIL.GatesTest do
 
       Lattice.Capabilities.MockGitHub
       |> expect(:list_issues, fn opts ->
-        assert opts[:labels] == "dil-proposal"
+        assert opts[:labels] == ["dil-proposal"]
         assert opts[:state] == "closed"
         {:ok, [%{"closed_at" => recent_close}]}
       end)

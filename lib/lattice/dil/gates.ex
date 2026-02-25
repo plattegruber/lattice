@@ -40,7 +40,7 @@ defmodule Lattice.DIL.Gates do
   @doc "Returns true if there is an open issue with the `dil-proposal` label."
   @spec open_dil_issue?() :: boolean()
   def open_dil_issue? do
-    case GitHub.list_issues(labels: @dil_label, state: "open") do
+    case GitHub.list_issues(labels: [@dil_label], state: "open") do
       {:ok, [_ | _]} -> true
       _ -> false
     end
@@ -51,7 +51,7 @@ defmodule Lattice.DIL.Gates do
   def cooldown_elapsed? do
     cooldown_hours = dil_config()[:cooldown_hours] || 24
 
-    case GitHub.list_issues(labels: @dil_label, state: "all", per_page: 1) do
+    case GitHub.list_issues(labels: [@dil_label], state: "all", per_page: 1) do
       {:ok, [most_recent | _]} ->
         created_at = parse_datetime(most_recent["created_at"])
         hours_ago = DateTime.diff(DateTime.utc_now(), created_at, :hour)
@@ -72,7 +72,7 @@ defmodule Lattice.DIL.Gates do
   def recent_rejection? do
     rejection_hours = dil_config()[:rejection_cooldown_hours] || 48
 
-    case GitHub.list_issues(labels: @dil_label, state: "closed", per_page: 5) do
+    case GitHub.list_issues(labels: [@dil_label], state: "closed", per_page: 5) do
       {:ok, issues} ->
         Enum.any?(issues, fn issue ->
           closed_at = parse_datetime(issue["closed_at"])
