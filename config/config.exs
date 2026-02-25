@@ -57,6 +57,14 @@ config :lattice, :github_projects,
   status_field_id: nil,
   status_mapping: %{}
 
+# Daily Improvement Loop (DIL) — disabled by default, dry-run only
+config :lattice, :dil,
+  enabled: false,
+  mode: :dry_run,
+  cooldown_hours: 24,
+  rejection_cooldown_hours: 48,
+  score_threshold: 18
+
 # Webhook configuration
 config :lattice, :webhooks,
   github_secret: nil,
