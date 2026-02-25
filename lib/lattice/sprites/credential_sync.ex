@@ -65,9 +65,7 @@ defmodule Lattice.Sprites.CredentialSync do
         |> Enum.map(fn s -> s[:name] || s[:id] end)
         |> Enum.reject(&(&1 == source))
 
-      Logger.info(
-        "CredentialSync: syncing from #{source} to #{length(targets)} sprite(s)"
-      )
+      Logger.info("CredentialSync: syncing from #{source} to #{length(targets)} sprite(s)")
 
       Map.new(targets, fn name ->
         {name, write_credentials(name, creds)}
