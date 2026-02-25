@@ -832,39 +832,40 @@ defmodule Lattice.Ambient.SpriteDelegate do
   defp parse_classification(output) do
     trimmed = String.trim(output)
 
-    with {:ok, parsed} <- Jason.decode(trimmed),
-         decision when is_binary(decision) <- Map.get(parsed, "decision") do
-      case decision do
-        "implement" ->
-          {:ok, :implement, nil}
+    case Jason.decode(trimmed) do
+      {:ok, %{"decision" => decision}} when is_binary(decision) ->
+        parse_classification_decision(decision)
 
-        "delegate" ->
-          {:ok, :delegate, nil}
-
-        "react" ->
-          {:ok, :react, nil}
-
-        "ignore" ->
-          {:ok, :ignore, nil}
-
-        other ->
-          Logger.warning("SpriteDelegate: unknown classification decision: #{other}")
-          {:ok, :ignore, nil}
-      end
-    else
-      _ ->
-        # Fallback: try to find JSON embedded in output
-        case Regex.run(~r/\{[^}]*"decision"\s*:\s*"(\w+)"[^}]*\}/, trimmed) do
-          [_, decision] ->
+      # --output-format json wraps the result in an envelope with a "result" key
+      {:ok, %{"result" => inner}} when is_binary(inner) ->
+        case Jason.decode(inner) do
+          {:ok, %{"decision" => decision}} when is_binary(decision) ->
             parse_classification_decision(decision)
 
-          nil ->
-            Logger.warning(
-              "SpriteDelegate: could not parse classification output: #{String.slice(trimmed, 0, 200)}"
-            )
-
-            {:ok, :ignore, nil}
+          _ ->
+            # Try regex on inner string (may contain escaped quotes)
+            extract_decision_fallback(inner)
         end
+
+      {:ok, _} ->
+        extract_decision_fallback(trimmed)
+
+      {:error, _} ->
+        extract_decision_fallback(trimmed)
+    end
+  end
+
+  defp extract_decision_fallback(text) do
+    case Regex.run(~r/"decision"\s*:\s*"(\w+)"/, text) do
+      [_, decision] ->
+        parse_classification_decision(decision)
+
+      nil ->
+        Logger.warning(
+          "SpriteDelegate: could not parse classification output: #{String.slice(text, 0, 200)}"
+        )
+
+        {:ok, :ignore, nil}
     end
   end
 
