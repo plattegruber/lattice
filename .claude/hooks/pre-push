@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Lattice pre-push hook — runs mix credo --strict before any git push.
+#
+# Installed automatically by session-start.sh (symlinked into .git/hooks/).
+# To bypass in an emergency: git push --no-verify
+#
+# Usage: git push will invoke this automatically.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+log() { echo "[pre-push] $*" >&2; }
+
+# Only run credo if this is an Elixir project
+if [ ! -f "${REPO_ROOT}/mix.exs" ]; then
+  exit 0
+fi
+
+if ! command -v mix &>/dev/null; then
+  log "mix not found — skipping credo check"
+  exit 0
+fi
+
+log "Running mix credo --strict..."
+cd "${REPO_ROOT}"
+
+if ! mix credo --strict; then
+  log "Credo check failed. Fix the issues above before pushing."
+  log "To bypass: git push --no-verify"
+  exit 1
+fi
+
+log "Credo check passed."

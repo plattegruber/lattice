@@ -130,4 +130,19 @@ if [ -f "$PROJECT_DIR/mix.exs" ]; then
   log "Dependencies fetched"
 fi
 
+# --- Install git hooks ---
+# Symlink tracked hooks from .claude/hooks/ into .git/hooks/ so they run
+# automatically. Safe to re-run (idempotent).
+if [ -f "$PROJECT_DIR/mix.exs" ] && [ -d "$PROJECT_DIR/.git/hooks" ]; then
+  log "Installing git hooks..."
+  for hook_src in "$PROJECT_DIR/.claude/hooks/pre-push" "$PROJECT_DIR/.claude/hooks/pre-commit"; do
+    hook_name="$(basename "$hook_src")"
+    hook_dst="$PROJECT_DIR/.git/hooks/$hook_name"
+    if [ -f "$hook_src" ]; then
+      ln -sf "$hook_src" "$hook_dst"
+      log "Installed git hook: $hook_name"
+    fi
+  done
+fi
+
 log "Session bootstrap complete"
