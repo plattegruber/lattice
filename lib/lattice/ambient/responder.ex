@@ -226,13 +226,8 @@ defmodule Lattice.Ambient.Responder do
   defp handle_implementation_error(event, reason, key, state) do
     case reason do
       :no_changes ->
-        Logger.warning("Ambient: implementation produced no changes for #{key}")
-
-        post_error_comment(
-          event,
-          "I looked into this but couldn't produce any code changes. The issue may need more context or a different approach."
-        )
-
+        Logger.info("Ambient: no changes needed for #{key}, closing issue")
+        close_as_resolved(event)
         {:noreply, state}
 
       :no_proposal ->
@@ -487,6 +482,24 @@ defmodule Lattice.Ambient.Responder do
   end
 
   defp post_error_comment(_, _), do: :ok
+
+  defp close_as_resolved(%{surface: :issue, number: number}) when not is_nil(number) do
+    GitHub.create_comment(
+      number,
+      "No changes needed — this appears to be already resolved. Closing.\n\n<!-- lattice:ambient:implement -->"
+    )
+
+    GitHub.update_issue(number, %{state: "closed"})
+  rescue
+    e -> Logger.warning("Ambient: failed to close issue ##{number}: #{inspect(e)}")
+  end
+
+  defp close_as_resolved(event) do
+    post_error_comment(
+      event,
+      "No changes needed — this appears to be already resolved."
+    )
+  end
 
   # ── Private: Reactions ──────────────────────────────────────────
 
