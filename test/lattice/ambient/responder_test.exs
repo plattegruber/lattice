@@ -314,13 +314,16 @@ defmodule Lattice.Ambient.ResponderTest do
       Process.sleep(100)
     end
 
-    test "posts helpful comment when no changes produced" do
+    test "closes issue when no changes produced" do
       Lattice.Capabilities.MockGitHub
       |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_comment, fn 99, body ->
-        assert body =~ "couldn't produce any code changes"
+        assert body =~ "already resolved"
         assert body =~ "lattice:ambient:implement"
         {:ok, %{id: 1}}
+      end)
+      |> expect(:update_issue, fn 99, %{state: "closed"} ->
+        {:ok, %{number: 99}}
       end)
 
       ref = make_ref()
@@ -481,11 +484,11 @@ defmodule Lattice.Ambient.ResponderTest do
       Process.sleep(100)
     end
 
-    test "posts error comment on PR surface for implementation failures" do
+    test "posts comment on PR surface when no changes produced" do
       Lattice.Capabilities.MockGitHub
       |> expect(:delete_comment_reaction, fn 600, 42 -> :ok end)
       |> expect(:create_comment, fn 203, body ->
-        assert body =~ "couldn't produce any code changes"
+        assert body =~ "already resolved"
         assert body =~ "lattice:ambient:implement"
         {:ok, %{id: 1}}
       end)
