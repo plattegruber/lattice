@@ -126,11 +126,15 @@ defmodule Lattice.Capabilities.GitHub.Http do
     labels = Keyword.get(opts, :labels, [])
     state = Keyword.get(opts, :state, "open")
     limit = Keyword.get(opts, :limit, 100)
+    since = Keyword.get(opts, :since)
 
     query =
-      [state: state, per_page: limit]
+      [state: state, per_page: limit, sort: "updated", direction: "desc"]
       |> then(fn q ->
         if labels != [], do: q ++ [labels: Enum.join(labels, ",")], else: q
+      end)
+      |> then(fn q ->
+        if since, do: q ++ [since: since], else: q
       end)
 
     timed(:list_issues, fn ->

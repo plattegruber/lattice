@@ -97,7 +97,7 @@ defmodule Lattice.Application do
     config = Application.get_env(:lattice, Lattice.Ambient.Responder, [])
 
     if Keyword.get(config, :enabled, false) do
-      [Lattice.Ambient.Responder]
+      [Lattice.Ambient.Responder, Lattice.Ambient.Reconciler]
     else
       []
     end

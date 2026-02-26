@@ -26,6 +26,13 @@ kill_signal = 'SIGTERM'
     hard_limit = 1000
     soft_limit = 1000
 
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "10s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
