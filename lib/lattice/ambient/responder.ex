@@ -299,32 +299,80 @@ defmodule Lattice.Ambient.Responder do
 
     case GitHub.create_pull_request(pr_attrs) do
       {:ok, pr} ->
-        pr_number = pr[:number] || pr.number
-        pr_url = pr[:html_url] || pr[:url] || "##{pr_number}"
+        finalize_new_pr(pr, number, proposal)
 
-        Logger.info("Ambient: created PR ##{pr_number} for issue ##{number}")
-
-        # Add labels from proposal
-        for label <- proposal.pr["labels"] || [] do
-          GitHub.add_label(pr_number, label)
+      {:error, {:validation_error, %{"errors" => errors}} = reason}
+      when is_list(errors) ->
+        if pr_already_exists?(errors) do
+          handle_existing_pr(number, branch_name, proposal)
+        else
+          log_and_comment_pr_failure(number, branch_name, reason)
         end
 
-        GitHub.create_comment(
-          number,
-          "I've created PR ##{pr_number}: #{pr_url}\n\n<!-- lattice:ambient:implement -->"
-        )
-
       {:error, reason} ->
-        Logger.error("Ambient: failed to create PR for issue ##{number}: #{inspect(reason)}")
-
-        GitHub.create_comment(
-          number,
-          "I've pushed changes to branch `#{branch_name}` but PR creation failed: `#{inspect(reason)}`\n\n<!-- lattice:ambient:implement -->"
-        )
+        log_and_comment_pr_failure(number, branch_name, reason)
     end
   rescue
     e ->
       Logger.error("Ambient: PR creation crashed for issue ##{event[:number]}: #{inspect(e)}")
+  end
+
+  defp finalize_new_pr(pr, issue_number, proposal) do
+    pr_number = pr[:number] || pr.number
+    pr_url = pr[:html_url] || pr[:url] || "##{pr_number}"
+
+    Logger.info("Ambient: created PR ##{pr_number} for issue ##{issue_number}")
+
+    for label <- proposal.pr["labels"] || [] do
+      GitHub.add_label(pr_number, label)
+    end
+
+    GitHub.create_comment(
+      issue_number,
+      "I've created PR ##{pr_number}: #{pr_url}\n\n<!-- lattice:ambient:implement -->"
+    )
+  end
+
+  defp pr_already_exists?(errors) do
+    Enum.any?(errors, fn
+      %{"message" => msg} -> String.contains?(msg, "already exists")
+      _ -> false
+    end)
+  end
+
+  defp handle_existing_pr(issue_number, branch_name, proposal) do
+    Logger.info("Ambient: PR already exists for #{branch_name}, finding it")
+
+    case GitHub.list_pull_requests(head: branch_name, state: "open") do
+      {:ok, [pr | _]} ->
+        pr_number = pr[:number]
+        pr_url = pr[:html_url] || pr[:url] || "##{pr_number}"
+
+        Logger.info("Ambient: found existing PR ##{pr_number} for branch #{branch_name}")
+        comment_on_amendment(%{number: issue_number}, pr_number, proposal, [])
+
+        GitHub.create_comment(
+          issue_number,
+          "I've pushed new changes to the existing PR ##{pr_number}: #{pr_url}\n\n<!-- lattice:ambient:implement -->"
+        )
+
+      _ ->
+        Logger.warning("Ambient: PR exists but couldn't find it for #{branch_name}")
+
+        GitHub.create_comment(
+          issue_number,
+          "I've pushed changes to branch `#{branch_name}` — there's an existing PR for this branch.\n\n<!-- lattice:ambient:implement -->"
+        )
+    end
+  end
+
+  defp log_and_comment_pr_failure(number, branch_name, reason) do
+    Logger.error("Ambient: failed to create PR for issue ##{number}: #{inspect(reason)}")
+
+    GitHub.create_comment(
+      number,
+      "I've pushed changes to branch `#{branch_name}` but PR creation failed: `#{inspect(reason)}`\n\n<!-- lattice:ambient:implement -->"
+    )
   end
 
   defp comment_on_amendment(event, pr_number, proposal, warnings) do
